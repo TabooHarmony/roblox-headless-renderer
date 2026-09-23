@@ -70,7 +70,17 @@ jobs:
           rojo --version
           node --check src/rhr/scene/scene.js
           git diff --check
-          python -m pytest
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            # GitHub's Mac runners draw WebGL in software several times slower than
+            # the others (the full suite needs over an hour). The 3D code is the same
+            # on every OS and runs in full on Ubuntu and Windows, so macOS runs every
+            # non-browser test plus 3D smoke tests.
+            python -m pytest -m "not browser"
+            python -m pytest tests/test_scene.py tests/test_preview.py tests/test_mcp_adapter.py \
+              tests/test_scene_framing.py tests/test_browser_session.py
+          else
+            python -m pytest
+          fi
 
       - name: Upload renders on failure
         if: failure()
