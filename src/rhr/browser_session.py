@@ -19,6 +19,7 @@ IMPORT_ROOT = Path(__file__).resolve().parents[1]
 SESSION_ROOT = Path(tempfile.gettempdir()) / "rhr-browser-session"
 PID_FILE = SESSION_ROOT / "pid"
 PORT_FILE = SESSION_ROOT / "port"
+STARTUP_TIMEOUT_S = 60
 TOKEN_FILE = SESSION_ROOT / "token"
 LOG_FILE = SESSION_ROOT / "daemon.log"
 
@@ -71,7 +72,7 @@ def _request(
     method: str,
     path: str,
     payload: dict | None = None,
-    timeout: float = 50,
+    timeout: float = 180,
 ) -> tuple[int, dict]:
     body = json.dumps(payload).encode() if payload is not None else None
     headers = {"X-RHR-Token": token}
@@ -163,7 +164,8 @@ def ensure() -> tuple[dict, bool]:
     )
     PID_FILE.write_text(str(process.pid))
 
-    deadline = time.monotonic() + 12
+    # Generous: software WebGL on a slow machine (a CI Mac) takes tens of seconds.
+    deadline = time.monotonic() + STARTUP_TIMEOUT_S
     while time.monotonic() < deadline:
         if process.poll() is not None:
             tail = ""
@@ -184,7 +186,7 @@ def ensure() -> tuple[dict, bool]:
         time.sleep(0.05)
 
     _cleanup_stale()
-    raise RuntimeError("persistent browser daemon did not become ready within 12s")
+    raise RuntimeError(f"persistent browser daemon did not become ready within {STARTUP_TIMEOUT_S}s")
 
 
 def render(

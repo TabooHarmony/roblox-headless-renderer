@@ -121,7 +121,11 @@ def preview(
         out_path = Path(out)
 
     if persistent_browser:
-        _run(["browser", "start"], timeout=30)
+        # Only a speed-up: if the worker cannot start, render in a fresh Chromium.
+        try:
+            _run(["browser", "start"], timeout=90)
+        except (RuntimeError, subprocess.TimeoutExpired):
+            pass
 
     args = ["preview", file, "--viewport", viewport, "--out", str(out_path)]
     _append(args, "--camera", camera)

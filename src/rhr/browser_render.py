@@ -25,7 +25,8 @@ LAUNCH_ARGS = [
     "--ignore-gpu-blocklist",
 ]
 
-TIMEOUT_MS = 45_000
+# A slow machine drawing WebGL in software needs well over the old 45 s.
+TIMEOUT_MS = 150_000
 
 _READY = """() => document.documentElement.dataset.rhrReady === 'true'
              || Boolean(document.documentElement.dataset.rhrError)"""
