@@ -1,0 +1,14 @@
+<roblox version="4">
+  <Item class="Workspace" referent="W0">
+    <Properties><string name="Name">Workspace</string></Properties>
+    <Item class="Part" referent="W1">
+      <Properties><string name="Name">Baseplate</string><CoordinateFrame name="CFrame"><X>0</X><Y>-8</Y><Z>0</Z><R00>1</R00><R01>0</R01><R02>0</R02><R10>0</R10><R11>1</R11><R12>0</R12><R20>0</R20><R21>0</R21><R22>1</R22></CoordinateFrame><Vector3 name="Size"><X>2048</X><Y>16</Y><Z>2048</Z></Vector3><Color3 name="Color"><R>0.39</R><G>0.37</G><B>0.38</B></Color3></Properties>
+    </Item>
+    <Item class="Part" referent="W2">
+      <Properties><string name="Name">Build</string><CoordinateFrame name="CFrame"><X>10</X><Y>2</Y><Z>-6</Z><R00>1</R00><R01>0</R01><R02>0</R02><R10>0</R10><R11>1</R11><R12>0</R12><R20>0</R20><R21>0</R21><R22>1</R22></CoordinateFrame><Vector3 name="Size"><X>4</X><Y>4</Y><Z>4</Z></Vector3><Color3 name="Color"><R>0.9</R><G>0.1</G><B>0.1</B></Color3></Properties>
+    </Item>
+    <Item class="Part" referent="W3">
+      <Properties><string name="Name">Tower</string><CoordinateFrame name="CFrame"><X>14</X><Y>4</Y><Z>-6</Z><R00>1</R00><R01>0</R01><R02>0</R02><R10>0</R10><R11>1</R11><R12>0</R12><R20>0</R20><R21>0</R21><R22>1</R22></CoordinateFrame><Vector3 name="Size"><X>2</X><Y>8</Y><Z>2</Z></Vector3><Color3 name="Color"><R>0.9</R><G>0.1</G><B>0.1</B></Color3></Properties>
+    </Item>
+  </Item>
+</roblox>

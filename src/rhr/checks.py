@@ -54,7 +54,6 @@ from rhr.schema import stamp
 import sys
 from pathlib import Path
 
-from rhr.paths import IR_DIR
 
 
 TRUNCATE_OVERFLOW_MODES = {"AtEnd", "SplitWord"}
@@ -437,12 +436,12 @@ def check_model(ir_path, width: int, height: int, topbar_height: float | None = 
     do) or an IR .json. `rhr check model.rbxm` and `rhr check ir.json` are
     both real, matching render/layout.
     """
-    from rhr.ir import emit_ir, load_ir
+    from rhr.ir import cached_ir, load_ir
     from rhr.layout_dump import build_dump
 
     ir_path = Path(ir_path)
     if ir_path.suffix != ".json":
-        ir_path = emit_ir(ir_path, IR_DIR / f"{ir_path.stem}.json")
+        ir_path = cached_ir(ir_path)
     dump = build_dump(ir_path, width, height, topbar_height=topbar_height)
     findings = run_checks(dump)
     # The dump cannot see image assets; the IR can. An ImageLabel whose

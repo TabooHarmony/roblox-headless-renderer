@@ -118,7 +118,7 @@ def ir_for(source: Path, ir_out: Path | None, *, profile: str = "full") -> Path:
     `source` may also be a Rojo project (a *.project.json file or a directory with
     default.project.json), which is built with `rojo build` first.
     """
-    from rhr.ir import emit_ir, load_ir
+    from rhr.ir import cached_ir, emit_ir, load_ir
     from rhr import rojo
 
     project = rojo.project_file(source)
@@ -132,9 +132,9 @@ def ir_for(source: Path, ir_out: Path | None, *, profile: str = "full") -> Path:
             f"{source} is neither a Roblox file ({', '.join(sorted(MODEL_SUFFIXES))}), "
             "a Rojo project, nor an IR .json file"
         )
-    suffix = ".json" if profile == "full" else f".{profile}.json"
-    target = ir_out or (IR_DIR / f"{source.stem}{suffix}")
-    return emit_ir(source, target, profile=profile)
+    if ir_out is None:
+        return cached_ir(source, profile=profile)
+    return emit_ir(source, ir_out, profile=profile)
 
 
 def rect_to_dict(rect) -> dict:
@@ -191,7 +191,7 @@ def _render(args) -> int:
         Path(args.dump_layout).parent.mkdir(parents=True, exist_ok=True)
         Path(args.dump_layout).write_text(json.dumps(document, indent=2, sort_keys=True), encoding="utf-8")
         print(f"layout {args.dump_layout}  {len(layout)} rects", file=sys.stderr)
-        if not layout:
+        if not layout and screens:
             print(
                 "rhr: the layout dump is empty. That is a bug in the pipeline, not an "
                 "empty UI: nodes reach the renderer without a _path.",
@@ -228,7 +228,7 @@ def _layout(args) -> int:
         count = len(dump["nodes"])
         # Same guard as the plain path: an empty dump is a pipeline bug, not an
         # empty UI — nodes reached the renderer without a _path.
-        if not count:
+        if not count and screens:
             print(
                 "rhr: the structured dump is empty. That is a bug in the pipeline, "
                 "not an empty UI: nodes reached the renderer without a _path.",
@@ -261,7 +261,7 @@ def _layout(args) -> int:
         label = f"{name}: " if len(screens) > 1 else ""
         print(f"inset  {label}{inset.describe()}", file=sys.stderr)
     layout = {path: rect_to_dict(rect) for path, rect in rect_map.items()}
-    if not layout:
+    if not layout and screens:
         print("rhr: no rects resolved: nodes reached the renderer without a _path", file=sys.stderr)
         return 1
     # JSON on stdout, the count on stderr, so `rhr layout model.rbxm | jq` works.
@@ -412,6 +412,7 @@ def _scene(args) -> int:
     mesh_dir = Path(args.mesh_dir) if args.mesh_dir else None
     try:
         ir_path = ir_for(source, Path(args.ir) if args.ir else None, profile="static")
+        page_notes: list[str] = []
         actual = render_scene(
             ir_path,
             out,
@@ -425,6 +426,7 @@ def _scene(args) -> int:
             shadows=args.shadows,
             texture_dir=texture_dir,
             mesh_dir=mesh_dir,
+            notes_out=page_notes,
         )
         from rhr.scene_dump import build_scene_dump, notes_line
 
@@ -435,6 +437,8 @@ def _scene(args) -> int:
     print(f"ir     {ir_path}", file=sys.stderr)
     print(f"scene  {out}  {actual[0]}x{actual[1]}  {elapsed}ms", file=sys.stderr)
     print(notes, file=sys.stderr)
+    for note in page_notes:
+        print(f"note   {note}", file=sys.stderr)
     print(out)
     return 0
 
@@ -461,6 +465,7 @@ def _preview(args) -> int:
             effects = tmp / "effects.png"
             ui = tmp / "ui.png"
             resolved_camera: dict = {}
+            page_notes: list[str] = []
             render_scene(
                 ir_path,
                 world,
@@ -475,6 +480,7 @@ def _preview(args) -> int:
                 texture_dir=texture_dir,
                 mesh_dir=mesh_dir,
                 camera_state_out=resolved_camera if args.time is not None else None,
+                notes_out=page_notes,
             )
             screens = load_screens(
                 str(ir_path),
@@ -534,6 +540,8 @@ def _preview(args) -> int:
         print(notes_line(build_scene_dump(ir_path)), file=sys.stderr)
     except (ValueError, RuntimeError, OSError) as exc:
         print(f"notes  unavailable: {exc}", file=sys.stderr)
+    for note in page_notes:
+        print(f"note    {note}", file=sys.stderr)
     print(out)
     return 0
 
@@ -598,8 +606,22 @@ def _particles(args) -> int:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="rhr", description="render Roblox UI off-screen")
+    from rhr import __version__
+
+    parser = argparse.ArgumentParser(
+        prog="rhr",
+        description="Headless previews of Roblox UI and 3D builds: PNGs plus layout JSON.",
+        epilog="New here? Run `rhr doctor` to check your setup, `rhr setup` to fix it.",
+    )
+    parser.add_argument("--version", action="version", version=f"rhr {__version__}")
     sub = parser.add_subparsers(dest="command", required=True)
+
+    p_setup = sub.add_parser("setup", help="download Lune, Rojo and Chromium if they are missing")
+    p_setup.add_argument("--no-rojo", action="store_true", help="skip Rojo (only needed for Rojo projects)")
+    p_setup.set_defaults(func=lambda a: __import__("rhr.tools").tools.setup(rojo=not a.no_rojo))
+
+    p_doctor = sub.add_parser("doctor", help="check what RHR needs and say what is missing")
+    p_doctor.set_defaults(func=lambda a: __import__("rhr.tools").tools.doctor())
 
     p_ir = sub.add_parser("ir", help="dump our IR for a Roblox model")
     p_ir.add_argument("file", help=".rbxm/.rbxmx/.rbxl/.rbxlx")

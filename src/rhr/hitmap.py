@@ -126,7 +126,7 @@ def _pane_raw_nodes(raw_nodes: list[dict]) -> list[dict]:
 
     screens = _screen_nodes(raw_nodes)
     if not screens:
-        pane = find_renderable(raw_nodes)
+        pane = find_renderable(_strip_screens(raw_nodes))
         return [pane] if pane is not None else []
     panes: list[dict] = []
     container = find_renderable(_strip_screens(raw_nodes))

@@ -2,7 +2,7 @@ name: test
 
 on:
   push:
-    branches: [master]
+    branches: [main]
   pull_request:
   workflow_dispatch:
 
@@ -14,7 +14,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        os: [ubuntu-latest, windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     defaults:
@@ -51,6 +51,7 @@ jobs:
           case "$RUNNER_OS" in
             Linux) target=linux-x86_64 ;;
             Windows) target=windows-x86_64 ;;
+            macOS) target=macos-aarch64 ;;
           esac
           dir="$RUNNER_TEMP/tools"
           mkdir -p "$dir/bin"

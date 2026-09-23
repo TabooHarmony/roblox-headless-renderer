@@ -73,6 +73,16 @@ class _SceneHandler(http.server.SimpleHTTPRequestHandler):
         if urlparse(self.path).path == "/__rhr_gui__.png":
             self._render_gui()
             return
+        if urlparse(self.path).path == "/__rhr_notes__.json":
+            # Human-readable notes the page wants printed (e.g. what framing left out).
+            try:
+                length = int(self.headers.get("Content-Length", "0"))
+                self.page_notes.extend(str(n) for n in json.loads(self.rfile.read(length) or b"[]"))
+                self.send_response(204)
+                self.end_headers()
+            except (ValueError, TypeError, json.JSONDecodeError):
+                self.send_error(400)
+            return
         if urlparse(self.path).path == "/__rhr_camera__.json" and self.metadata_sink is not None:
             try:
                 length = int(self.headers.get("Content-Length", "0"))
@@ -167,6 +177,7 @@ def _render_browser(
     metadata_sink: dict | None = None,
     asset_files: dict[str, Path] | None = None,
     mesh_files: dict[str, Path] | None = None,
+    notes_out: list[str] | None = None,
 ) -> tuple[int, int]:
     """Render one local browser page and return its verified PNG dimensions."""
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -176,6 +187,7 @@ def _render_browser(
         {
             "ir_path": ir_path,
             "metadata_sink": metadata_sink,
+            "page_notes": notes_out if notes_out is not None else [],
             "asset_manifest_payload": json.dumps({
                 asset_id: f"/__rhr_asset__/{asset_id}"
                 for asset_id in (asset_files or {})
@@ -254,6 +266,7 @@ def render_scene(
     texture_dir: Path | None = None,
     mesh_dir: Path | None = None,
     camera_state_out: dict | None = None,
+    notes_out: list[str] | None = None,
 ) -> tuple[int, int]:
     query_values: dict[str, str | float] = {}
     asset_roots: list[Path] = []
@@ -299,6 +312,7 @@ def render_scene(
         metadata_sink=camera_state_out,
         asset_files=_asset_files(asset_roots),
         mesh_files=cached_meshes,
+        notes_out=notes_out,
     )
 
 

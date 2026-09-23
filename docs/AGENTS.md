@@ -76,8 +76,13 @@ builds or moves at runtime is previewed as saved in the file.
 
 ## Setup reminders
 
-- `lune` 0.10.5 must be on PATH (and `rojo` 7.7.0 for Rojo projects); RHR says how to
-  install them if they are missing.
+- `rhr doctor` says whether everything RHR needs is installed; `rhr setup` downloads
+  what is missing (Lune 0.10.5, Rojo 7.7.0, Chromium).
+- A standard `--view` frames the build, not the Baseplate: a thin ground slab much
+  larger than everything else is left out of the framing (still drawn), and a `note`
+  line says so. `--focus <path>` frames exactly what you name.
+- Running several commands on an unchanged file reads it once; stderr says
+  `ir reused ...` when a command used the earlier conversion.
 - Screen UI assumes Roblox's default 58 px top bar. Use `--topbar-height 0` to match
   what Studio shows in edit mode.
 - With a local Roblox or Studio install, RHR uses its fonts (stderr says which); without

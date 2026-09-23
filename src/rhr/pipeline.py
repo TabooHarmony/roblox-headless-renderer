@@ -243,10 +243,17 @@ def load_screens(
     if not screens:
         if screen_gui_only:
             return []
+        # Only disabled or empty ScreenGuis (if any): they draw nothing, so they must
+        # not reach the layout, hitmap or checks either. What is left outside them is
+        # the whole-viewport case; if nothing is left, there is no UI at all.
+        raw = _strip_screens(raw)
+        pane = find_renderable(raw)
+        if pane is None:
+            return []
         inset = insets.for_nodes(raw, topbar_height=topbar)
         x, y, w, h = inset.rect(width, height)
         obj = to_pinevex_object(raw, postprocess)
-        _attach_layout(obj, find_renderable(raw), ir_by_path, (x, y, w, h))
+        _attach_layout(obj, pane, ir_by_path, (x, y, w, h))
         return [(obj, Rect(x, y, w, h), inset, Path(ir_path).stem)]
 
     # Bottom pane first: the UI outside the ScreenGuis (what a ScreenGui-less model has

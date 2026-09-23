@@ -9,17 +9,8 @@ and everything after that is the normal Roblox-file path.
 from __future__ import annotations
 
 import json
-import shutil
 import subprocess
 from pathlib import Path
-
-ROJO_VERSION = "7.7.0"
-ROJO_MISSING = (
-    "`rojo` was not found on PATH. Reading a Rojo project needs Rojo {v}: install it with "
-    "Rokit (`rokit add --global rojo-rbx/rojo@{v}`) or download it from "
-    "https://github.com/rojo-rbx/rojo/releases/tag/v{v} and put it on PATH."
-).format(v=ROJO_VERSION)
-
 
 def project_file(source: Path) -> Path | None:
     """The project file `source` names, or None when it is not a Rojo project."""
@@ -33,9 +24,11 @@ def project_file(source: Path) -> Path | None:
 
 def build(project: Path, out_dir: Path) -> Path:
     """Run `rojo build` on `project` and return the built .rbxl or .rbxm file."""
-    rojo = shutil.which("rojo")
+    from rhr.tools import find_tool, missing_message
+
+    rojo = find_tool("rojo")
     if rojo is None:
-        raise RuntimeError(ROJO_MISSING)
+        raise RuntimeError(missing_message("rojo", "to build Rojo projects"))
     try:
         data = json.loads(project.read_text(encoding="utf-8"))
     except json.JSONDecodeError as exc:
@@ -56,7 +49,7 @@ def build(project: Path, out_dir: Path) -> Path:
     if proc.returncode != 0 and "Failed to find tool 'rojo'" in proc.stderr:
         raise RuntimeError(
             "`rojo` is a Rokit shim, but no rokit.toml here lists it. Install it for every "
-            f"directory with `rokit add --global rojo-rbx/rojo@{ROJO_VERSION}`."
+            "directory with `rokit add --global rojo-rbx/rojo@7.7.0`, or run `rhr setup`."
         )
     if proc.returncode != 0:
         detail = (proc.stderr or proc.stdout).strip()

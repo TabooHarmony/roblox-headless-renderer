@@ -87,6 +87,29 @@ def main() -> int:
     check(img.getpixel((50, 50)) == GREEN, f"the enabled pane still draws ({img.getpixel((50, 50))})")
     check("panes" not in proc.stderr, "a disabled ScreenGui is not counted as a pane")
 
+    # A file whose only ScreenGui is disabled has no UI: a blank render, and no
+    # command reports what is inside it (or calls the empty result a bug).
+    disabled = FIXTURES / "screen_gui_only_disabled.rbxmx"
+    img, _ = render("screen_gui_only_disabled", (300, 250))
+    check(img.getbbox() is None, "an only-disabled ScreenGui paints no pixels")
+    layout_path = OUT / "only-disabled-layout.json"
+    proc = subprocess.run(
+        [*RHR, "render", str(disabled), "--viewport", "300x250", "--transparent",
+         "--out", str(OUT / "only-disabled.png"), "--dump-layout", str(layout_path)],
+        capture_output=True, text=True, cwd=str(REPO), timeout=300,
+    )
+    check(proc.returncode == 0 and json.loads(layout_path.read_text())["rects"] == {},
+          f"render --dump-layout accepts an intentionally blank UI ({proc.returncode})")
+    for args, key in ((["layout"], "rects"), (["layout", "--rich"], "nodes"),
+                      (["hitmap"], "nodes"), (["check"], "findings")):
+        proc = subprocess.run(
+            [*RHR, *args, str(disabled), "--viewport", "300x250"],
+            capture_output=True, text=True, cwd=str(REPO), timeout=300,
+        )
+        result = json.loads(proc.stdout) if proc.returncode == 0 else {}
+        check(proc.returncode == 0 and not result.get(key, True),
+              f"{' '.join(args)} sees no disabled UI ({proc.returncode})")
+
     # The layout dump is the whole UI, not the pane that happens to be on top.
     dump = OUT / "two-layout.json"
     proc = subprocess.run(

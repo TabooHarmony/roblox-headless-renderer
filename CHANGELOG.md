@@ -1,37 +1,38 @@
 # Changelog
 
-All notable changes are recorded here. The repository has not been tagged yet, so
-these notes describe the current unreleased tree.
+## 0.1.0 (alpha)
 
-## Unreleased
+The first public release.
 
-### Added
+### What's in it
 
-- CLI commands for IR emission, PNG rendering, layout dumps, model checks, hitmaps,
-  image comparison, scene inspection, composed previews, and particle previews.
-- Full-fidelity typed IR for Roblox model and place files, with explicit reporting for
-  unreadable and unmapped properties.
-- Static 3D scene rendering through a local THREE.js bundle, including primitives,
-  cameras, materials, saved Lighting, optional shadows, decals, textures, Sky,
-  Atmosphere, local mesh assets, Beam and Trail ribbons, and in-world UI baselines.
-- ViewportFrame previews and deterministic ParticleEmitter simulation with bursts,
-  shape volumes, flipbooks, brightness, transparency, and depth offset.
-- Studio ground-truth fixtures, pixel and silhouette comparison tools, and a
-  deterministic end-to-end test suite.
+- **Screen UI:** `render` (PNG), `layout` (every element's rectangle, `--rich` for
+  what each element is made of), `check` (common mistakes as findings), `hitmap`
+  (clickable regions and what is on top). RHR does its own UI layout. It matches
+  rectangles that Studio recorded within 2 px on every test place: lists, grids,
+  tables, flex, UIScale, constraints, auto-size, scrolling. Text is sized the way
+  Roblox sizes it (`TextSize` is the line height).
+- **3D:** `scene` (PNG, with standard views, `--focus` and free cameras),
+  `scene-dump` (part geometry as JSON) and `preview` (world, in-world UI and screen UI
+  in one image). BillboardGui and SurfaceGui use the same UI engine as screen UI.
+  Part geometry matches Studio; lighting and materials are approximations.
+- **Inputs:** `.rbxm`, `.rbxmx`, `.rbxl`, `.rbxlx` and Rojo projects.
+- **Never silently wrong:** each instance has a stable id and a unique path
+  (`Card[1]`, `Card[2]`). Approximated or unsupported features are reported in the
+  output. Every JSON document names its schema version.
+- **Setup:** `pip install`, then `rhr setup` downloads Lune, Rojo and Chromium, and
+  `rhr doctor` checks them. Runs on Windows, macOS and Linux.
+- **Agents:** a usage guide (`docs/AGENTS.md`) and an MCP server (`rhr-mcp`).
+- **Examples:** `examples/shop.rbxmx` and `examples/tower.rbxmx`.
 
-### Changed
+### Experimental
 
-- Model scaling now preserves authored WorldPivot, PrimaryPart, PivotOffset, nested
-  scales, deformed wedge bounds, loaded mesh vertices, and analytic Ball/Cylinder
-  bounds in the static scene path.
-- Browser-backed rendering supports explicit camera controls and an optional
-  persistent Chromium worker for repeated local renders.
-- Third-party notices, vendored patches, and asset-cache boundaries are documented
-  in the repository.
+Materials, lights, shadows, Sky, Atmosphere, Decals and Textures, MeshParts (from a
+local cache), Beams, Trails and ParticleEmitters. They are rough approximations and
+labelled as experimental in the output.
 
 ### Known limits
 
-- This is a local authoring preview, not a replacement for Roblox Studio rendering.
-  Studio remains the source of truth for parity measurements.
-- UnionOperation and missing-asset geometry use explicit fallback paths, and the
-  static lighting model remains an approximation.
+See [`docs/known-approximations.md`](docs/known-approximations.md). The main ones:
+no Terrain or union geometry, no material textures, images and meshes only from a
+local cache, and no scripts, physics or animation.

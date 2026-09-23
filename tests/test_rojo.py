@@ -57,9 +57,11 @@ def main() -> int:
         check(proc.returncode == 0 and (tmp / "hud.json").is_file(), "ir writes the project's IR")
 
     print("rojo: a missing rojo is a clear error")
-    env = dict(os.environ, PATH=str(Path(sys.executable).parent))
-    proc = run(["layout", str(PROJECT_DIR)], env=env)
-    check(proc.returncode != 0 and "rojo" in proc.stderr and "rokit add" in proc.stderr,
+    with tempfile.TemporaryDirectory(prefix="rhr-no-rojo-") as cache:
+        # An empty cache too, so a Rojo that `rhr setup` downloaded is not found.
+        env = dict(os.environ, PATH=str(Path(sys.executable).parent), RHR_CACHE_DIR=cache)
+        proc = run(["layout", str(PROJECT_DIR)], env=env)
+    check(proc.returncode != 0 and "rojo" in proc.stderr and "rhr setup" in proc.stderr,
           f"install hint on stderr: {proc.stderr.strip()[-200:]}")
 
     print(f"rojo: {len(failures)} failed" if failures else "rojo: ok")

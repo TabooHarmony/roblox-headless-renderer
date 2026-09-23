@@ -1069,6 +1069,28 @@ function focusDirection(view) {
   return new THREE.Vector3(1, 0.75, 1).normalize();
 }
 
+// A standard view frames the build, not the floor: nearly every place has a
+// 2048-stud Baseplate, and framing it leaves the build a speck in the middle. A part
+// is ground when it is a thin slab whose footprint dwarfs everything else put
+// together. It is still drawn; `--focus <its path>` frames it on purpose.
+function withoutGround(boxes) {
+  const footprint = b => Math.max(1e-6, (b.max.x - b.min.x) * (b.max.z - b.min.z));
+  const isSlab = b => {
+    const s = b.getSize(new THREE.Vector3());
+    return s.y <= 0.05 * Math.min(s.x, s.z);
+  };
+  const slabs = boxes.filter(entry => isSlab(entry.box));
+  if (!slabs.length || slabs.length === boxes.length) return boxes;
+  const rest = new THREE.Box3();
+  for (const entry of boxes) if (!slabs.includes(entry)) rest.union(entry.box);
+  const ground = new Set(slabs.filter(entry => footprint(entry.box) >= 20 * footprint(rest)));
+  if (!ground.size) return boxes;
+  framingIgnored.push(...[...ground].map(entry => entry.node.path || entry.node.name));
+  return boxes.filter(entry => !ground.has(entry));
+}
+
+const framingIgnored = [];
+
 function frameScene(camera, index, focusPath, view = 'iso') {
   let allowed = null;
   if (focusPath) {
@@ -1078,15 +1100,17 @@ function frameScene(camera, index, focusPath, view = 'iso') {
     walk(target, node => allowed.add(node));
   }
   scene.updateMatrixWorld(true);
-  const box = new THREE.Box3();
-  let count = 0;
+  const boxes = [];
   scene.traverse(object => {
     if (!object.isMesh || !object.userData?.rhrNode) return;
     if (allowed && !allowed.has(object.userData.rhrNode)) return;
-    box.expandByObject(object);
-    count += 1;
+    const objectBox = new THREE.Box3().expandByObject(object);
+    if (!objectBox.isEmpty()) boxes.push({ box: objectBox, node: object.userData.rhrNode });
   });
-  if (!count || box.isEmpty()) throw new Error(`no renderable 3D geometry${focusPath ? ` under ${focusPath}` : ''}`);
+  if (!boxes.length) throw new Error(`no renderable 3D geometry${focusPath ? ` under ${focusPath}` : ''}`);
+  const framed = focusPath ? boxes : withoutGround(boxes);
+  const box = new THREE.Box3();
+  for (const entry of framed) box.union(entry.box);
 
   const center = box.getCenter(new THREE.Vector3());
   const size = box.getSize(new THREE.Vector3());
@@ -1602,6 +1626,23 @@ async function addSurfaceGuis(index, camera) {
   }
 }
 
+async function reportNotes() {
+  const notes = [];
+  if (framingIgnored.length) {
+    notes.push(`framing left out ground ${framingIgnored.join(', ')} (still drawn; --focus <path> frames it)`);
+  }
+  if (!notes.length) return;
+  try {
+    await fetch('/__rhr_notes__.json', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(notes),
+    });
+  } catch (_) {
+    // Notes are advisory; a failed post must not fail the render.
+  }
+}
+
 async function reportCamera(camera) {
   if (params.get('reportCamera') !== '1') return;
   try {
@@ -1689,6 +1730,7 @@ async function main() {
     await addBeams(index, camera);
     await addTrails(index, camera);
     await reportCamera(camera);
+    await reportNotes();
     renderer.render(scene, camera);
   }
   await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));

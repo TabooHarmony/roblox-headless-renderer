@@ -1,0 +1,267 @@
+<roblox version="4">
+  <Item class="Workspace" referent="RBX104">
+    <Properties>
+      <string name="Name">Workspace</string>
+    </Properties>
+    <Item class="Part" referent="RBX105">
+      <Properties>
+        <string name="Name">Baseplate</string>
+        <CoordinateFrame name="CFrame"><X>0</X><Y>-8</Y><Z>0</Z><R00>1.000000</R00><R01>0.000000</R01><R02>0.000000</R02><R10>0.000000</R10><R11>1.000000</R11><R12>0.000000</R12><R20>-0.000000</R20><R21>0.000000</R21><R22>1.000000</R22></CoordinateFrame>
+        <Vector3 name="Size"><X>2048</X><Y>16</Y><Z>2048</Z></Vector3>
+        <Color3 name="Color"><R>0.4196</R><G>0.6196</G><B>0.3098</B></Color3>
+        <token name="Material">1280</token>
+        <bool name="Anchored">true</bool>
+        <bool name="Locked">true</bool>
+      </Properties>
+    </Item>
+    <Item class="Model" referent="RBX106">
+      <Properties>
+        <string name="Name">Tower</string>
+      </Properties>
+      <Item class="Part" referent="RBX107">
+        <Properties>
+          <string name="Name">Base</string>
+          <CoordinateFrame name="CFrame"><X>0</X><Y>1</Y><Z>0</Z><R00>1.000000</R00><R01>0.000000</R01><R02>0.000000</R02><R10>0.000000</R10><R11>1.000000</R11><R12>0.000000</R12><R20>-0.000000</R20><R21>0.000000</R21><R22>1.000000</R22></CoordinateFrame>
+          <Vector3 name="Size"><X>18</X><Y>2</Y><Z>18</Z></Vector3>
+          <Color3 name="Color"><R>0.4902</R><G>0.4980</G><B>0.5098</B></Color3>
+          <token name="Material">880</token>
+          <bool name="Anchored">true</bool>
+        </Properties>
+      </Item>
+      <Item class="Part" referent="RBX108">
+        <Properties>
+          <string name="Name">Walls</string>
+          <CoordinateFrame name="CFrame"><X>0</X><Y>8</Y><Z>0</Z><R00>1.000000</R00><R01>0.000000</R01><R02>0.000000</R02><R10>0.000000</R10><R11>1.000000</R11><R12>0.000000</R12><R20>-0.000000</R20><R21>0.000000</R21><R22>1.000000</R22></CoordinateFrame>
+          <Vector3 name="Size"><X>12</X><Y>12</Y><Z>12</Z></Vector3>
+          <Color3 name="Color"><R>0.7882</R><G>0.7176</G><B>0.6118</B></Color3>
+          <token name="Material">848</token>
+          <bool name="Anchored">true</bool>
+        </Properties>
+      </Item>
+      <Item class="Part" referent="RBX109">
+        <Properties>
+          <string name="Name">Door</string>
+          <CoordinateFrame name="CFrame"><X>0</X><Y>5</Y><Z>6.05</Z><R00>1.000000</R00><R01>0.000000</R01><R02>0.000000</R02><R10>0.000000</R10><R11>1.000000</R11><R12>0.000000</R12><R20>-0.000000</R20><R21>0.000000</R21><R22>1.000000</R22></CoordinateFrame>
+          <Vector3 name="Size"><X>3</X><Y>6</Y><Z>0.2</Z></Vector3>
+          <Color3 name="Color"><R>0.4196</R><G>0.2588</G><B>0.1490</B></Color3>
+          <token name="Material">528</token>
+          <bool name="Anchored">true</bool>
+        </Properties>
+      </Item>
+      <Item class="Part" referent="RBX110">
+        <Properties>
+          <string name="Name">WindowL</string>
+          <CoordinateFrame name="CFrame"><X>-3.4</X><Y>9.5</Y><Z>6.05</Z><R00>1.000000</R00><R01>0.000000</R01><R02>0.000000</R02><R10>0.000000</R10><R11>1.000000</R11><R12>0.000000</R12><R20>-0.000000</R20><R21>0.000000</R21><R22>1.000000</R22></CoordinateFrame>
+          <Vector3 name="Size"><X>2</X><Y>2.6</Y><Z>0.2</Z></Vector3>
+          <Color3 name="Color"><R>0.6235</R><G>0.8275</G><B>1.0000</B></Color3>
+          <token name="Material">1568</token>
+          <bool name="Anchored">true</bool>
+          <float name="Transparency">0.3</float>
+        </Properties>
+      </Item>
+      <Item class="Part" referent="RBX111">
+        <Properties>
+          <string name="Name">WindowR</string>
+          <CoordinateFrame name="CFrame"><X>3.4</X><Y>9.5</Y><Z>6.05</Z><R00>1.000000</R00><R01>0.000000</R01><R02>0.000000</R02><R10>0.000000</R10><R11>1.000000</R11><R12>0.000000</R12><R20>-0.000000</R20><R21>0.000000</R21><R22>1.000000</R22></CoordinateFrame>
+          <Vector3 name="Size"><X>2</X><Y>2.6</Y><Z>0.2</Z></Vector3>
+          <Color3 name="Color"><R>0.6235</R><G>0.8275</G><B>1.0000</B></Color3>
+          <token name="Material">1568</token>
+          <bool name="Anchored">true</bool>
+          <float name="Transparency">0.3</float>
+        </Properties>
+      </Item>
+      <Item class="Part" referent="RBX112">
+        <Properties>
+          <string name="Name">Eaves</string>
+          <CoordinateFrame name="CFrame"><X>0</X><Y>14.5</Y><Z>0</Z><R00>1.000000</R00><R01>0.000000</R01><R02>0.000000</R02><R10>0.000000</R10><R11>1.000000</R11><R12>0.000000</R12><R20>-0.000000</R20><R21>0.000000</R21><R22>1.000000</R22></CoordinateFrame>
+          <Vector3 name="Size"><X>14</X><Y>1</Y><Z>14</Z></Vector3>
+          <Color3 name="Color"><R>0.3529</R><G>0.2431</G><B>0.1686</B></Color3>
+          <token name="Material">512</token>
+          <bool name="Anchored">true</bool>
+        </Properties>
+      </Item>
+      <Item class="WedgePart" referent="RBX113">
+        <Properties>
+          <string name="Name">RoofL</string>
+          <CoordinateFrame name="CFrame"><X>-3.5</X><Y>17</Y><Z>0</Z><R00>0.000000</R00><R01>0.000000</R01><R02>1.000000</R02><R10>0.000000</R10><R11>1.000000</R11><R12>0.000000</R12><R20>-1.000000</R20><R21>0.000000</R21><R22>0.000000</R22></CoordinateFrame>
+          <Vector3 name="Size"><X>14</X><Y>4</Y><Z>7</Z></Vector3>
+          <Color3 name="Color"><R>0.5569</R><G>0.1686</G><B>0.1686</B></Color3>
+          <token name="Material">800</token>
+          <bool name="Anchored">true</bool>
+        </Properties>
+      </Item>
+      <Item class="WedgePart" referent="RBX114">
+        <Properties>
+          <string name="Name">RoofR</string>
+          <CoordinateFrame name="CFrame"><X>3.5</X><Y>17</Y><Z>0</Z><R00>0.000000</R00><R01>0.000000</R01><R02>-1.000000</R02><R10>0.000000</R10><R11>1.000000</R11><R12>0.000000</R12><R20>1.000000</R20><R21>0.000000</R21><R22>0.000000</R22></CoordinateFrame>
+          <Vector3 name="Size"><X>14</X><Y>4</Y><Z>7</Z></Vector3>
+          <Color3 name="Color"><R>0.5569</R><G>0.1686</G><B>0.1686</B></Color3>
+          <token name="Material">800</token>
+          <bool name="Anchored">true</bool>
+        </Properties>
+      </Item>
+      <Item class="Part" referent="RBX115">
+        <Properties>
+          <string name="Name">Sign</string>
+          <CoordinateFrame name="CFrame"><X>0</X><Y>12.8</Y><Z>6.25</Z><R00>1.000000</R00><R01>0.000000</R01><R02>0.000000</R02><R10>0.000000</R10><R11>1.000000</R11><R12>0.000000</R12><R20>-0.000000</R20><R21>0.000000</R21><R22>1.000000</R22></CoordinateFrame>
+          <Vector3 name="Size"><X>8</X><Y>1.8</Y><Z>0.3</Z></Vector3>
+          <Color3 name="Color"><R>0.1686</R><G>0.1843</G><B>0.2118</B></Color3>
+          <token name="Material">272</token>
+          <bool name="Anchored">true</bool>
+        </Properties>
+        <Item class="SurfaceGui" referent="RBX116">
+          <Properties>
+            <string name="Name">SignGui</string>
+            <token name="Face">2</token>
+            <token name="SizingMode">1</token>
+            <float name="PixelsPerStud">50.0</float>
+          </Properties>
+          <Item class="TextLabel" referent="RBX117">
+            <Properties>
+              <string name="Name">Text</string>
+              <string name="Text">TOWER SHOP</string>
+              <Font name="FontFace"><Family><url>rbxasset://fonts/families/GothamSSm.json</url></Family><Weight>900</Weight><Style>Normal</Style></Font>
+              <float name="TextSize">56.0</float>
+              <Color3 name="TextColor3"><R>1.0000</R><G>0.8118</G><B>0.3020</B></Color3>
+              <float name="BackgroundTransparency">1.0</float>
+              <UDim2 name="Position"><XS>0</XS><XO>0</XO><YS>0</YS><YO>0</YO></UDim2>
+              <UDim2 name="Size"><XS>1</XS><XO>0</XO><YS>1</YS><YO>0</YO></UDim2>
+              <token name="TextXAlignment">2</token>
+            </Properties>
+          </Item>
+        </Item>
+      </Item>
+      <Item class="Part" referent="RBX118">
+        <Properties>
+          <string name="Name">Lamp</string>
+          <CoordinateFrame name="CFrame"><X>7.5</X><Y>5</Y><Z>7.5</Z><R00>1.000000</R00><R01>0.000000</R01><R02>0.000000</R02><R10>0.000000</R10><R11>1.000000</R11><R12>0.000000</R12><R20>-0.000000</R20><R21>0.000000</R21><R22>1.000000</R22></CoordinateFrame>
+          <Vector3 name="Size"><X>0.6</X><Y>6</Y><Z>0.6</Z></Vector3>
+          <Color3 name="Color"><R>0.1686</R><G>0.1843</G><B>0.2118</B></Color3>
+          <token name="Material">1088</token>
+          <bool name="Anchored">true</bool>
+        </Properties>
+      </Item>
+      <Item class="Part" referent="RBX119">
+        <Properties>
+          <string name="Name">LampGlow</string>
+          <CoordinateFrame name="CFrame"><X>7.5</X><Y>8.4</Y><Z>7.5</Z><R00>1.000000</R00><R01>0.000000</R01><R02>0.000000</R02><R10>0.000000</R10><R11>1.000000</R11><R12>0.000000</R12><R20>-0.000000</R20><R21>0.000000</R21><R22>1.000000</R22></CoordinateFrame>
+          <Vector3 name="Size"><X>1.2</X><Y>1.2</Y><Z>1.2</Z></Vector3>
+          <Color3 name="Color"><R>1.0000</R><G>0.8275</G><B>0.4196</B></Color3>
+          <token name="Material">288</token>
+          <bool name="Anchored">true</bool>
+        </Properties>
+        <Item class="PointLight" referent="RBX120">
+          <Properties>
+            <string name="Name">PointLight</string>
+            <Color3 name="Color"><R>1.0000</R><G>0.8118</G><B>0.5020</B></Color3>
+            <float name="Brightness">2.0</float>
+            <float name="Range">16.0</float>
+          </Properties>
+        </Item>
+      </Item>
+      <Item class="Part" referent="RBX121">
+        <Properties>
+          <string name="Name">Crate1</string>
+          <CoordinateFrame name="CFrame"><X>-6.8</X><Y>3</Y><Z>7</Z><R00>1.000000</R00><R01>0.000000</R01><R02>0.000000</R02><R10>0.000000</R10><R11>1.000000</R11><R12>0.000000</R12><R20>-0.000000</R20><R21>0.000000</R21><R22>1.000000</R22></CoordinateFrame>
+          <Vector3 name="Size"><X>2</X><Y>2</Y><Z>2</Z></Vector3>
+          <Color3 name="Color"><R>0.6275</R><G>0.4392</G><B>0.2471</B></Color3>
+          <token name="Material">528</token>
+          <bool name="Anchored">true</bool>
+        </Properties>
+      </Item>
+      <Item class="Part" referent="RBX122">
+        <Properties>
+          <string name="Name">Crate2</string>
+          <CoordinateFrame name="CFrame"><X>-6.9</X><Y>5</Y><Z>6.8</Z><R00>0.939693</R00><R01>0.000000</R01><R02>0.342020</R02><R10>0.000000</R10><R11>1.000000</R11><R12>0.000000</R12><R20>-0.342020</R20><R21>0.000000</R21><R22>0.939693</R22></CoordinateFrame>
+          <Vector3 name="Size"><X>2</X><Y>2</Y><Z>2</Z></Vector3>
+          <Color3 name="Color"><R>0.5608</R><G>0.3843</G><B>0.2118</B></Color3>
+          <token name="Material">528</token>
+          <bool name="Anchored">true</bool>
+        </Properties>
+      </Item>
+      <Item class="Part" referent="RBX123">
+        <Properties>
+          <string name="Name">Bush</string>
+          <CoordinateFrame name="CFrame"><X>-7.5</X><Y>3.2</Y><Z>-6.5</Z><R00>1.000000</R00><R01>0.000000</R01><R02>0.000000</R02><R10>0.000000</R10><R11>1.000000</R11><R12>0.000000</R12><R20>-0.000000</R20><R21>0.000000</R21><R22>1.000000</R22></CoordinateFrame>
+          <Vector3 name="Size"><X>3</X><Y>3</Y><Z>3</Z></Vector3>
+          <Color3 name="Color"><R>0.2471</R><G>0.5608</G><B>0.2471</B></Color3>
+          <token name="Material">1280</token>
+          <bool name="Anchored">true</bool>
+          <token name="Shape">0</token>
+        </Properties>
+      </Item>
+    </Item>
+    <Item class="Model" referent="RBX124">
+      <Properties>
+        <string name="Name">Shopkeeper</string>
+      </Properties>
+      <Item class="Part" referent="RBX125">
+        <Properties>
+          <string name="Name">Head</string>
+          <CoordinateFrame name="CFrame"><X>3.5</X><Y>6</Y><Z>9.5</Z><R00>1.000000</R00><R01>0.000000</R01><R02>0.000000</R02><R10>0.000000</R10><R11>1.000000</R11><R12>0.000000</R12><R20>-0.000000</R20><R21>0.000000</R21><R22>1.000000</R22></CoordinateFrame>
+          <Vector3 name="Size"><X>2</X><Y>2</Y><Z>2</Z></Vector3>
+          <Color3 name="Color"><R>0.9490</R><G>0.7804</G><B>0.6039</B></Color3>
+          <token name="Material">272</token>
+          <bool name="Anchored">true</bool>
+        </Properties>
+        <Item class="BillboardGui" referent="RBX126">
+          <Properties>
+            <string name="Name">NameTag</string>
+            <UDim2 name="Size"><XS>0</XS><XO>150</XO><YS>0</YS><YO>34</YO></UDim2>
+            <Vector3 name="StudsOffset"><X>0</X><Y>2.4</Y><Z>0</Z></Vector3>
+            <bool name="AlwaysOnTop">true</bool>
+          </Properties>
+          <Item class="Frame" referent="RBX127">
+            <Properties>
+              <string name="Name">Plate</string>
+              <UDim2 name="Size"><XS>1</XS><XO>0</XO><YS>1</YS><YO>0</YO></UDim2>
+              <Color3 name="BackgroundColor3"><R>0.0784</R><G>0.0941</G><B>0.1176</B></Color3>
+              <float name="BackgroundTransparency">0.2</float>
+              <token name="BorderSizePixel">0</token>
+            </Properties>
+            <Item class="UICorner" referent="RBX128">
+              <Properties>
+                <string name="Name">UICorner</string>
+                <UDim name="CornerRadius"><S>0</S><O>8</O></UDim>
+              </Properties>
+            </Item>
+            <Item class="TextLabel" referent="RBX129">
+              <Properties>
+                <string name="Name">Name</string>
+                <string name="Text">Shopkeeper</string>
+                <Font name="FontFace"><Family><url>rbxasset://fonts/families/GothamSSm.json</url></Family><Weight>700</Weight><Style>Normal</Style></Font>
+                <float name="TextSize">20.0</float>
+                <Color3 name="TextColor3"><R>1.0000</R><G>1.0000</G><B>1.0000</B></Color3>
+                <float name="BackgroundTransparency">1.0</float>
+                <UDim2 name="Position"><XS>0</XS><XO>0</XO><YS>0</YS><YO>0</YO></UDim2>
+                <UDim2 name="Size"><XS>1</XS><XO>0</XO><YS>1</YS><YO>0</YO></UDim2>
+                <token name="TextXAlignment">2</token>
+              </Properties>
+            </Item>
+          </Item>
+        </Item>
+      </Item>
+      <Item class="Part" referent="RBX130">
+        <Properties>
+          <string name="Name">Torso</string>
+          <CoordinateFrame name="CFrame"><X>3.5</X><Y>3.5</Y><Z>9.5</Z><R00>1.000000</R00><R01>0.000000</R01><R02>0.000000</R02><R10>0.000000</R10><R11>1.000000</R11><R12>0.000000</R12><R20>-0.000000</R20><R21>0.000000</R21><R22>1.000000</R22></CoordinateFrame>
+          <Vector3 name="Size"><X>2</X><Y>3</Y><Z>1</Z></Vector3>
+          <Color3 name="Color"><R>0.1843</R><G>0.4353</G><B>0.6902</B></Color3>
+          <token name="Material">272</token>
+          <bool name="Anchored">true</bool>
+        </Properties>
+      </Item>
+    </Item>
+  </Item>
+  <Item class="Lighting" referent="RBX131">
+    <Properties>
+      <string name="Name">Lighting</string>
+      <float name="ClockTime">15.2</float>
+      <float name="GeographicLatitude">41.7</float>
+      <float name="Brightness">2.0</float>
+      <Color3 name="Ambient"><R>0.2745</R><G>0.2745</G><B>0.2980</B></Color3>
+      <Color3 name="OutdoorAmbient"><R>0.5020</R><G>0.5020</G><B>0.5412</B></Color3>
+      <bool name="GlobalShadows">true</bool>
+    </Properties>
+  </Item>
+</roblox>
