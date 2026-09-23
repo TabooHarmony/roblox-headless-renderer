@@ -56,8 +56,9 @@ Known differences:
   `rhr check` reports it instead.
 - Right-to-left text with a non-default `LineHeight` keeps the default spacing.
 - A symbol no bundled font has (`✕`, `✓`, `★`, `▶` and their neighbours) is drawn
-  from the operating system's fonts, as Roblox does, so its exact shape depends on
-  the machine. On a machine without such a font it draws as an empty box. Set
+  from a symbol font that comes with the operating system (Segoe UI Symbol, Apple
+  Symbols, DejaVu Sans), as Roblox uses the system's fonts, so its exact shape
+  depends on the machine. On a machine without such a font it draws as an empty box. Set
   `RHR_SYSTEM_FONT_FALLBACK=0` to never use system fonts.
 - Fonts: RHR uses the fonts of a local Roblox or Studio install when there is one
   (stderr says which), then bundled open-licence copies of the builds Roblox ships

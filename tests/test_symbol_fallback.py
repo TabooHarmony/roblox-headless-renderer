@@ -4,7 +4,7 @@
 `✕ ★ ✓` appear in many game UIs and are in no bundled or Roblox-shipped face.
 With the system fallback on, they draw (so the render differs from the fallback-off
 render only where those symbols are); with it off, nothing else changes. Skips when
-the host has no font covering them (a bare container).
+the host has none of the known symbol fonts (a bare container).
 
     python tests/test_symbol_fallback.py
 """
@@ -44,12 +44,13 @@ def render(fixture: Path, name: str, fallback: bool):
 
 
 def main() -> int:
-    import skia
     from PIL import ImageChops
 
-    tf = skia.FontMgr().matchFamilyStyleCharacter("", skia.FontStyle(), [], 0x2715)
-    if tf is None:
-        print("  skip no system font has U+2715 here")
+    sys.path.insert(0, str(REPO / "src" / "rhr" / "vendor" / "pinevex" / "src"))
+    from ui_engine.text_fonts import system_symbol_font_files
+
+    if not system_symbol_font_files():
+        print("  skip no known symbol font on this machine")
         return 0
 
     off, on = render(FIXTURE, "symbols", False), render(FIXTURE, "symbols", True)
