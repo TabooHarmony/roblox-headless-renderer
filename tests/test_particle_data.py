@@ -63,5 +63,11 @@ def main() -> int:
     return 1 if failed else 0
 
 
+def test_main():
+    from _harness import run_main
+
+    run_main(main)
+
+
 if __name__ == "__main__":
     raise SystemExit(main())

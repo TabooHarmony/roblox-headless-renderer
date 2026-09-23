@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import sys
 import json
 import subprocess
 import tempfile
@@ -12,6 +13,7 @@ from typing import cast
 from PIL import Image
 
 ROOT = Path(__file__).resolve().parents[1]
+RHR = [sys.executable, "-m", "rhr"]
 
 
 def main() -> None:
@@ -20,7 +22,7 @@ def main() -> None:
         layout = Path(directory) / "viewport.json"
         subprocess.run(
             [
-                str(ROOT / "bin/rhr"),
+                *RHR,
                 "render",
                 str(ROOT / "tests/fixtures/viewport_frame.rbxmx"),
                 "--viewport",
@@ -45,13 +47,19 @@ def main() -> None:
                     if pixel[0] < 100 and pixel[1] > pixel[0] + 20 and pixel[2] > pixel[0] + 20:
                         colored.append((x, y))
             assert colored, "ViewportFrame produced no cyan 3D pixels"
-            frame = json.loads(layout.read_text())["ViewportFixture/Shell/Preview"]
+            frame = json.loads(layout.read_text())["rects"]["ViewportFixture/Shell/Preview"]
             left = frame["x"]
             top = frame["y"]
             right = left + frame["w"]
             bottom = top + frame["h"]
             assert all(left <= x < right and top <= y < bottom for x, y in colored)
     print("viewport frame: ok")
+
+
+def test_main():
+    from _harness import run_main
+
+    run_main(main)
 
 
 if __name__ == "__main__":

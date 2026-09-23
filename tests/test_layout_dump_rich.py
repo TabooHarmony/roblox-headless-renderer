@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """The rich layout dump: what each node is made of, not just where it sits.
 
-Task 2.1 (docs/plan.md): a per-node dump of path, class, rect, zIndex, visible,
+Task 2.1: a per-node dump of path, class, rect, zIndex, visible,
 resolved background/stroke/gradient colours, text, computed font size and clip
 state, written as stable sorted JSON so two builds diff cleanly. Two things are
 measured here, not claimed:
@@ -11,7 +11,7 @@ measured here, not claimed:
     PNG the same pass produced, and compared against the colours the dump
     reports (Task 2.1 step 3, five nodes on grid_offset).
 
-Run: .venv/bin/python tests/test_layout_dump_rich.py
+Run: python tests/test_layout_dump_rich.py
 """
 
 from __future__ import annotations
@@ -25,7 +25,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "src"))
 sys.path.insert(0, str(REPO / "tests"))
-RHR = REPO / "bin" / "rhr"
+RHR = [sys.executable, "-m", "rhr"]
 FIXTURES = REPO / "tests" / "fixtures"
 OUT = REPO / "out" / "layout_dump_rich"
 
@@ -177,7 +177,7 @@ def main() -> int:
 
     # --- the CLI: rhr layout --rich ---------------------------------------
     proc = subprocess.run(
-        [str(RHR), "layout", str(FIXTURES / "grid_offset.rbxmx"), "--viewport", "400x300", "--rich"],
+        [*RHR, "layout", str(FIXTURES / "grid_offset.rbxmx"), "--viewport", "400x300", "--rich"],
         capture_output=True, text=True, cwd=str(REPO), timeout=300,
     )
     check(proc.returncode == 0, f"rhr layout --rich exits 0 ({proc.stderr.strip()[-120:] or 'clean'})")
@@ -196,7 +196,7 @@ def main() -> int:
         check(dump_json(cli_dump) == dump_json(dump),
               "the CLI dump matches the library dump byte for byte")
         proc2 = subprocess.run(
-            [str(RHR), "layout", str(FIXTURES / "grid_offset.rbxmx"), "--viewport", "400x300", "--rich"],
+            [*RHR, "layout", str(FIXTURES / "grid_offset.rbxmx"), "--viewport", "400x300", "--rich"],
             capture_output=True, text=True, cwd=str(REPO), timeout=300,
         )
         check(proc2.stdout == proc.stdout, "two CLI runs are byte-identical (determinism)")
@@ -215,7 +215,7 @@ def main() -> int:
 
     # --- an empty dump is a pipeline bug: the CLI refuses ------------------
     empty = subprocess.run(
-        [str(RHR), "layout", str(REPO / "out" / "ir" / "unknown_class_values.json"), "--rich"],
+        [*RHR, "layout", str(REPO / "out" / "ir" / "unknown_class_values.json"), "--rich"],
         capture_output=True, text=True, cwd=str(REPO), timeout=300,
     )
     check(empty.returncode == 1, f"an empty structured dump exits 1 (exit {empty.returncode})")
@@ -223,6 +223,12 @@ def main() -> int:
 
     print("layout dump (rich): ok" if not failures else f"layout dump (rich): {len(failures)} failed")
     return 1 if failures else 0
+
+
+def test_main():
+    from _harness import run_main
+
+    run_main(main)
 
 
 if __name__ == "__main__":

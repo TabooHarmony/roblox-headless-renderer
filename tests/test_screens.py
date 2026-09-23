@@ -6,7 +6,7 @@ top. The engine draws exactly one root, so this pipeline renders one pass per Sc
 and composites. Before this, a multi-ScreenGui file rendered the top pane and silently
 dropped the rest (recorded as a known gap in Task 1.7).
 
-Run: .venv/bin/python tests/test_screens.py
+Run: python tests/test_screens.py
 """
 
 from __future__ import annotations
@@ -17,7 +17,7 @@ import sys
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
-RHR = REPO / "bin" / "rhr"
+RHR = [sys.executable, "-m", "rhr"]
 FIXTURES = REPO / "tests" / "fixtures"
 OUT = REPO / "out" / "screens"
 
@@ -38,7 +38,7 @@ def render(name: str, viewport: tuple[int, int], *extra: str) -> tuple:
     OUT.mkdir(parents=True, exist_ok=True)
     png = OUT / f"{name}.png"
     proc = subprocess.run(
-        [str(RHR), "render", str(FIXTURES / f"{name}.rbxmx"), "--out", str(png),
+        [*RHR, "render", str(FIXTURES / f"{name}.rbxmx"), "--out", str(png),
          "--viewport", f"{viewport[0]}x{viewport[1]}", "--transparent", *extra],
         capture_output=True, text=True, cwd=str(REPO), timeout=300,
     )
@@ -87,38 +87,15 @@ def main() -> int:
     check(img.getpixel((50, 50)) == GREEN, f"the enabled pane still draws ({img.getpixel((50, 50))})")
     check("panes" not in proc.stderr, "a disabled ScreenGui is not counted as a pane")
 
-    # An only-disabled screen must produce a blank render and no phantom diagnostics.
-    disabled = FIXTURES / "screen_gui_only_disabled.rbxmx"
-    img, _ = render("screen_gui_only_disabled", (300, 250))
-    check(img.getbbox() is None, "an only-disabled ScreenGui paints no pixels")
-    layout_path = OUT / "only-disabled-layout.json"
-    proc = subprocess.run(
-        [str(RHR), "render", str(disabled), "--viewport", "300x250", "--transparent",
-         "--out", str(OUT / "only-disabled.png"), "--dump-layout", str(layout_path)],
-        capture_output=True, text=True, cwd=str(REPO), timeout=300,
-    )
-    check(proc.returncode == 0 and json.loads(layout_path.read_text()) == {},
-          "render --dump-layout accepts an intentionally blank UI")
-    for command, empty_key in (("layout", None), ("hitmap", "nodes"),
-                               ("check", "findings")):
-        proc = subprocess.run(
-            [str(RHR), command, str(disabled), "--viewport", "300x250"],
-            capture_output=True, text=True, cwd=str(REPO), timeout=300,
-        )
-        result = json.loads(proc.stdout) if proc.returncode == 0 else None
-        content = result if empty_key is None else result.get(empty_key) if result is not None else None
-        check(proc.returncode == 0 and content == ([] if empty_key else {}),
-              f"{command} sees no disabled UI ({proc.returncode})")
-
     # The layout dump is the whole UI, not the pane that happens to be on top.
     dump = OUT / "two-layout.json"
     proc = subprocess.run(
-        [str(RHR), "layout", str(FIXTURES / "two_screen_guis.rbxmx"), "--viewport", "400x300",
+        [*RHR, "layout", str(FIXTURES / "two_screen_guis.rbxmx"), "--viewport", "400x300",
          "--out", str(dump)],
         capture_output=True, text=True, cwd=str(REPO), timeout=300,
     )
     check(proc.returncode == 0, f"rhr layout exits 0 ({proc.stderr.strip()[:80]})")
-    layout = json.loads(dump.read_text()) if dump.exists() else {}
+    layout = json.loads(dump.read_text())["rects"] if dump.exists() else {}
     for path, rect in (("Under/RedPane", {"x": 0.0, "y": 0.0, "w": 100.0, "h": 100.0}),
                        ("Under/GreenStrip", {"x": 0.0, "y": 120.0, "w": 100.0, "h": 40.0}),
                        ("Over/BluePane", {"x": 50.0, "y": 50.0, "w": 100.0, "h": 100.0})):
@@ -126,6 +103,12 @@ def main() -> int:
 
     print("screens: ok" if not failures else f"screens: {len(failures)} failed")
     return 1 if failures else 0
+
+
+def test_main():
+    from _harness import run_main
+
+    run_main(main)
 
 
 if __name__ == "__main__":

@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import sys
 import json
 import subprocess
 import tempfile
@@ -11,11 +12,11 @@ from pathlib import Path
 from PIL import Image, ImageDraw
 
 ROOT = Path(__file__).resolve().parents[1]
-RHR = ROOT / "bin" / "rhr"
+RHR = [sys.executable, "-m", "rhr"]
 
 
 def run(*args: str) -> subprocess.CompletedProcess:
-    return subprocess.run([str(RHR), *args], cwd=ROOT, capture_output=True, text=True, timeout=60)
+    return subprocess.run([*RHR, *args], cwd=ROOT, capture_output=True, text=True, timeout=60)
 
 
 def main() -> None:
@@ -57,6 +58,12 @@ def main() -> None:
         f"moved IoU={geometry['silhouette']['iou']:.3f}, "
         f"moved changed={geometry['changed_pct']:.2f}%"
     )
+
+
+def test_main():
+    from _harness import run_main
+
+    run_main(main)
 
 
 if __name__ == "__main__":

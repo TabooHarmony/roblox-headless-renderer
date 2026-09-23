@@ -12,12 +12,12 @@ from PIL import Image, ImageChops, ImageStat
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
-RHR = ROOT / "bin" / "rhr"
+RHR = [sys.executable, "-m", "rhr"]
 FIXTURE = ROOT / "tests/fixtures/particle_scene.rbxmx"
 
 
 def run(*args: str) -> subprocess.CompletedProcess:
-    return subprocess.run([str(RHR), *args], cwd=ROOT, capture_output=True, text=True, timeout=120)
+    return subprocess.run([*RHR, *args], cwd=ROOT, capture_output=True, text=True, timeout=120)
 
 
 def main() -> None:
@@ -97,6 +97,12 @@ def main() -> None:
         f"preview particles: transparent layer alpha={lo}..{hi}, "
         f"composite delta={mean_delta:.2f}, auto-view camera shared"
     )
+
+
+def test_main():
+    from _harness import run_main
+
+    run_main(main)
 
 
 if __name__ == "__main__":

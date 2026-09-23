@@ -1,0 +1,16 @@
+{
+  "name": "RojoHud",
+  "tree": {
+    "$className": "ScreenGui",
+    "Panel": {
+      "$className": "Frame",
+      "$properties": {
+        "Position": { "UDim2": [[0, 20], [0, 30]] },
+        "Size": { "UDim2": [[0, 200], [0, 100]] },
+        "BackgroundColor3": { "Color3": [1, 0, 0] },
+        "BorderSizePixel": 0
+      },
+      "Badge": { "$path": "src/Badge.model.json" }
+    }
+  }
+}

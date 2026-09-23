@@ -7,7 +7,7 @@ its datatype. The emitter now lists both per node, and this check keeps them lis
 (and keeps the one trap that produced wrong values rather than missing ones closed:
 a property name that is also a child's name).
 
-Run: .venv/bin/python tests/test_ir_props.py
+Run: python tests/test_ir_props.py
 """
 
 from __future__ import annotations
@@ -173,6 +173,12 @@ def main() -> int:
 
     print("ir props: ok" if not failures else f"ir props: {len(failures)} failed")
     return 1 if failures else 0
+
+
+def test_main():
+    from _harness import run_main
+
+    run_main(main)
 
 
 if __name__ == "__main__":

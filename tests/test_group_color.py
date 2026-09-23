@@ -147,5 +147,11 @@ def main():
     return int(bool(FAILURES))
 
 
+def test_main():
+    from _harness import run_main
+
+    run_main(main)
+
+
 if __name__ == "__main__":
     raise SystemExit(main())

@@ -1,0 +1,374 @@
+# Draw text at Roblox's size and let RHR's layout pass supply the rects
+#
+# Apply from src/rhr/vendor/pinevex:  git apply -p1 < patches/0018-roblox-text-size-and-layout-rects.patch
+--- a/src/ui_engine/layout.py
++++ b/src/ui_engine/layout.py
+@@ -35,7 +35,7 @@ def _measured_text_lines(node: dict, wrap_width: float | None = None) -> list[fl
+     try:
+         import skia
+ 
+-        from .text_fonts import _is_italic_style, _load_typeface, _resolve_font, roblox_em_scale
++        from .text_fonts import _is_italic_style, _load_typeface, _resolve_font, roblox_font
+         from .text_runs import _measure_mixed
+     except Exception:
+         return None
+@@ -46,7 +46,7 @@ def _measured_text_lines(node: dict, wrap_width: float | None = None) -> list[fl
+         text = re.sub(r"<[^>]*>", "", text)
+     family, weight = _resolve_font(node.get("font"), node.get("fontWeight"))
+     typeface = _load_typeface(family, weight, _BUNDLED_FONTS_DIR, italic=_is_italic_style(node.get("fontStyle")))
+-    font = skia.Font(typeface, float(node.get("textSize", 14.0)) * roblox_em_scale(typeface, family))
++    font = roblox_font(typeface, float(node.get("textSize", 14.0)))
+ 
+     def width(value: str) -> float:
+         return _measure_mixed(value, font, None, None)
+--- a/src/ui_engine/renderer.py
++++ b/src/ui_engine/renderer.py
+@@ -263,7 +263,14 @@ def _resolve_udim(val, parent_dim: float) -> float:
+ 
+ 
+ def _resolve_node_rect(node: dict, parent_rect: Rect, ctx: dict) -> Rect:
+-    """Resolve a node rect honoring sizeRef + renderer defaults."""
++    """Resolve a node rect honoring sizeRef + renderer defaults.
++
++    When the caller supplies precomputed rects (ctx["_layout_rects"], RHR's layout
++    pass keyed by `_path`), those win: the engine only draws.
++    """
++    layout_rects = ctx.get("_layout_rects")
++    if layout_rects is not None and node.get("_path") in layout_rects:
++        return layout_rects[node["_path"]]
+     return resolve_rect(
+         node,
+         parent_rect,
+@@ -690,6 +697,9 @@ def _render_node_at(canvas: skia.Canvas, node: dict, rect: Rect, ctx: dict,
+     """Render a node at an explicit rect (used by layout systems that override positioning)."""
+     if node.get("visible") is False:
+         return
++    layout_rects = ctx.get("_layout_rects")
++    if layout_rects is not None and node.get("_path") in layout_rects:
++        rect = layout_rects[node["_path"]]
+     if rect.w <= 0 or rect.h <= 0:
+         return
+ 
+@@ -1478,6 +1488,7 @@ def render_json(
+     out: dict | None = None,
+     rect_map: dict | None = None,
+     root_rect: Rect | None = None,
++    layout_rects: dict | None = None,
+ ):
+     """Render a complete PinevexObject to a PNG file.
+ 
+@@ -1515,6 +1526,8 @@ def render_json(
+     }
+     if rect_map is not None:
+         ctx["_rect_map"] = rect_map
++    if layout_rects is not None:
++        ctx["_layout_rects"] = layout_rects
+ 
+     requested_behavior = _normalize_z_index_behavior(z_index_behavior) or "Sibling"
+     root_behavior = _normalize_z_index_behavior(obj.get("zIndexBehavior")) or requested_behavior
+--- a/src/ui_engine/text_fit.py
++++ b/src/ui_engine/text_fit.py
+@@ -50,6 +50,32 @@ def _wrap_lines(text: str, font: skia.Font, max_width: float,
+     return lines
+ 
+ 
++def wrap_lines_table(text: str, table: dict, size: float, max_w: float, wrapped: bool) -> list[str] | None:
++    """Lines as Roblox breaks them, with widths from a Studio advance table.
++
++    Greedy at spaces (explicit newlines always break); None when the table does
++    not cover a character, so the caller falls back to font measurement.
++    """
++    lines: list[str] = []
++    for paragraph in text.split("\n"):
++        words = paragraph.split(" ")
++        current = words[0]
++        for word in words[1:]:
++            candidate = current + " " + word
++            width = string_width(table, candidate, size)
++            if width is None:
++                return None
++            if wrapped and width > max_w:
++                lines.append(current)
++                current = word
++            else:
++                current = candidate
++        if string_width(table, current, size) is None:
++            return None
++        lines.append(current)
++    return lines
++
++
+ def _fit_font_size(text: str, typeface: skia.Typeface, max_w: float, max_h: float,
+                    wrapped: bool, emoji_typeface: skia.Typeface | None = None,
+                    fallback_typefaces: list[skia.Typeface] | None = None,
+@@ -73,25 +99,25 @@ def _fit_font_size(text: str, typeface: skia.Typeface, max_w: float, max_h: floa
+     best = lo
+     for _ in range(30):
+         mid = (lo + hi) / 2
+-        font = skia.Font(typeface, mid)
++        font = roblox_font(typeface, mid)
+         _apply_font_draw_style(font, typeface, requested_weight, italic=italic)
+-        ef = skia.Font(emoji_typeface, mid) if emoji_typeface else None
++        ef = roblox_font(emoji_typeface, mid) if emoji_typeface else None
+         if ef:
+             _apply_font_draw_style(ef, emoji_typeface, requested_weight)
+         fallback_fonts = _build_fallback_fonts(fallback_typefaces or [], mid)
+         metrics = font.getMetrics()
+         line_h = -metrics.fAscent + metrics.fDescent
+-        if advance_table is not None and "\n" not in text:
+-            # Studio rules for TextScaled (measured, plan 0.2a):
+-            # height bound is the size itself; width uses the captured table.
+-            # Roblox TextSize is integral, so the fit picks the largest
+-            # integer size that fits: quantize the probe to integers.
+-            # TextScaled implies TextWrapped, but a string whose table width
+-            # fits max_w at the candidate size stays one line in Studio.
++        if advance_table is not None:
++            # Studio rules for TextScaled (measured, plan 0.2a; tests/studio):
++            # each line box is the size itself, widths come from the captured
++            # table, and Roblox takes the largest integer size at which the
++            # WRAPPED text fits (172x96 box: "Scaled text" on 2 lines at 48).
+             size_i = float(int(mid))
+-            table_w = string_width(advance_table, text, size_i)
+-            if table_w is not None:
+-                fits = size_i <= max_h and table_w <= max_w
++            table_lines = wrap_lines_table(text, advance_table, size_i, max_w, wrapped)
++            if table_lines is not None:
++                widest = max(string_width(advance_table, line, size_i) or 0.0 for line in table_lines)
++                total = size_i + size_i * line_height_mult * (len(table_lines) - 1)
++                fits = total <= max_h and widest <= max_w
+                 if fits:
+                     if size_i > best:
+                         best = size_i
+@@ -114,7 +140,8 @@ def _fit_font_size(text: str, typeface: skia.Typeface, max_w: float, max_h: floa
+                 # Match drawing: LineHeight scales the step between baselines,
+                 # not the first line. Studio shrinks height-limited scaled text
+                 # when this multiplier grows.
+-                step = line_h * line_height_mult + max(0.0, metrics.fLeading)
++                # Roblox steps lines by TextSize x LineHeight, no font line gap.
++                step = line_h * line_height_mult
+                 total_h = line_h + step * (len(lines) - 1)
+             max_line_w = max((_measure_mixed(ln, font, ef, fallback_fonts) for ln in lines), default=0)
+             fits = max_line_w <= max_w and total_h <= max_h
+--- a/src/ui_engine/text_fonts.py
++++ b/src/ui_engine/text_fonts.py
+@@ -1,3 +1,4 @@
++import math
+ import os
+ 
+ from .text_constants import *
+@@ -29,13 +30,12 @@ def roblox_em_scale(typeface: skia.Typeface | None, family: str = "") -> float:
+     Roblox scales a face so its full line box (ascent + descent) is TextSize tall,
+     not its em: Studio's TextBounds for 41 families at TextSize 100 match
+     width x 1/(ascent+descent) within ~1.3% (tests/studio, docs/known-approximations).
+-    Faces with their own Studio-measured handling keep it: pixel faces (Press
+-    Start 2P) and families with an advance table (FredokaOne).
++    Pixel faces (Press Start 2P) keep their own Studio-measured cell model.
+     """
+     if typeface is None:
+         return 1.0
+     name = family or typeface.getFamilyName() or ""
+-    if name in _PIXEL_FONT_FAMILIES or "fredoka" in name.replace(" ", "").lower():
++    if name in _PIXEL_FONT_FAMILIES:
+         return 1.0
+     key = typeface.uniqueID()
+     cached = _EM_SCALE_CACHE.get(key)
+@@ -47,6 +47,21 @@ def roblox_em_scale(typeface: skia.Typeface | None, family: str = "") -> float:
+     return cached
+ 
+ 
++def roblox_em_px(typeface: skia.Typeface | None, text_size: float) -> float:
++    """The em size, in pixels, Roblox draws TextSize `text_size` at (see roblox_em_scale).
++
++    Not rounded: rounding up to whole pixels fit the 20px TextBounds average better
++    (2.3% vs 4.2% mean error) but made a real UI worse (tests/studio/rtl2pcparts:
++    8 wrapped Fredoka labels off by 11px), so the exact em stays.
++    """
++    return text_size * roblox_em_scale(typeface)
++
++
++def roblox_font(typeface: skia.Typeface | None, text_size: float) -> skia.Font:
++    """A skia Font for Roblox TextSize `text_size` (see roblox_em_px)."""
++    return skia.Font(typeface, roblox_em_px(typeface, text_size))
++
++
+ 
+ def _iter_configured_font_dirs() -> list[Path]:
+     raw = os.getenv("PINEVEX_RENDERER_ROBLOX_FONT_DIRS", "")
+@@ -348,7 +363,10 @@ def _build_paragraph(text: str,
+     text_style = skia.textlayout.TextStyle()
+     text_style.setFontFamilies(font_families)
+     text_style.setFontStyle(font_style)
+-    text_style.setFontSize(text_size)
++    # Callers pass Roblox TextSize; the face's em is TextSize x roblox_em_scale.
++    primary = next((tf for alias, tf in (font_typefaces or []) if font_families and alias == font_families[0]), None)
++    text_style.setFontSize(roblox_em_px(primary, text_size) if primary is not None
++                           else text_size * roblox_em_scale(None))
+     text_style.setForegroundPaint(paint)
+     # Pixel faces Roblox advances at 1em per glyph; the TTF advance is smaller
+     # (Press Start 2P: 0.56em, measured from the bundled TTF). Paragraph layout
+@@ -667,6 +685,13 @@ def _font_stem_candidates(family: str, weight: int, italic: bool) -> list[str]:
+             stems.append("BuilderSans-Medium")
+         stems.append("BuilderSans-Regular")
+ 
++    if family == "Roboto":
++        if weight >= 650:
++            stems.append("Roboto-Bold")
++        elif weight >= 450:
++            stems.append("Roboto-Medium")
++        stems.append("Roboto-Regular")
++
+     # Prefer Roblox's split SourceSansPro files for better weight parity.
+     if family == "SourceSansPro":
+         if weight >= 650:
+--- a/src/ui_engine/text_renderers.py
++++ b/src/ui_engine/text_renderers.py
+@@ -11,11 +11,10 @@ def _truncate_ellipsis(text: str, font: skia.Font, max_width: float,
+                        emoji_font=None, fallback_fonts=(), split_word: bool = False) -> str:
+     """Trim text so it plus an ellipsis fits max_width, per TextTruncate mode.
+ 
+-    AtEnd cuts at whatever character boundary fits; SplitWord backs up to the
+-    last word boundary inside that. The star points are measured with the
+-    same mixed-run measurement drawing uses, so the cut is where the engine
+-    itself would stop, not a char count. Exact ellipsis placement parity with
+-    Studio is a ground-truth question this does not guess at.
++    Roblox (Enum.TextTruncate docs, Studio-checked in tests/studio): AtEnd backs
++    up to the end of the last complete word that fits, when there is one;
++    SplitWord cuts inside the word at whatever character boundary fits. Widths
++    are measured with the same mixed-run measurement drawing uses.
+     """
+     if not text:
+         return text
+@@ -35,7 +34,7 @@ def _truncate_ellipsis(text: str, font: skia.Font, max_width: float,
+         else:
+             hi = mid - 1
+     cut = text[:lo]
+-    if split_word and cut and not cut[-1].isspace():
++    if not split_word and cut and not cut[-1].isspace() and not text[len(cut):len(cut) + 1].isspace():
+         # Back up to the last word boundary, if one leaves something.
+         stripped = cut.rstrip()
+         last_break = max(stripped.rfind(" "), stripped.rfind("\t"))
+@@ -149,6 +148,12 @@ def _draw_text_plain_rtl(canvas: skia.Canvas, x: float, y: float, w: float, h: f
+         return False
+ 
+     total_text_h = measure_para.Height
++    node["_textLayout"] = {
++        "size": float(text_size),
++        # skia-python exposes no line count; each line box is TextSize tall.
++        "lines": max(1, round(measure_para.Height / max(float(text_size), 1e-6))),
++        "bounds": [float(measure_para.LongestLine), float(total_text_h)],
++    }
+     y_align = node.get("textYAlignment", "Center")
+     if y_align == "Top":
+         start_y = content_y
+@@ -340,9 +345,9 @@ def _draw_text_plain(canvas: skia.Canvas, x: float, y: float, w: float, h: float
+             advance_table=load_advance_table(family, weight, "normal" if not italic else "italic"),
+         )
+ 
+-    font = skia.Font(typeface, text_size)
++    font = roblox_font(typeface, text_size)
+     _apply_font_draw_style(font, typeface, weight, italic=italic)
+-    emoji_font = skia.Font(emoji_typeface, text_size) if emoji_typeface else None
++    emoji_font = roblox_font(emoji_typeface, text_size) if emoji_typeface else None
+     if emoji_font:
+         _apply_font_draw_style(emoji_font, emoji_typeface, weight)
+     fallback_fonts = _build_fallback_fonts(fallback_typefaces, text_size)
+@@ -377,8 +382,14 @@ def _draw_text_plain(canvas: skia.Canvas, x: float, y: float, w: float, h: float
+         and _table_covers_text(adv_table_early, text)
+         and (_string_width(adv_table_early, text, float(text_size)) or 1e9) <= content_w
+     )
++    table_lines = (
++        wrap_lines_table(text, adv_table_early, float(text_size), content_w, True)
++        if wrapped and adv_table_early is not None else None
++    )
+     if wrapped and table_single_line:
+         lines = [text]
++    elif table_lines is not None:
++        lines = table_lines
+     elif wrapped:
+         lines = _wrap_lines(text, font, content_w, emoji_font, fallback_fonts)
+     else:
+@@ -400,7 +411,9 @@ def _draw_text_plain(canvas: skia.Canvas, x: float, y: float, w: float, h: float
+     metrics = font.getMetrics()
+     ascent = -metrics.fAscent
+     descent = metrics.fDescent
+-    leading = metrics.fLeading if metrics.fLeading > 0 else 0
++    # Roblox steps lines by TextSize x LineHeight with no font line gap (Studio:
++    # two 18px lines are 36px tall in every family measured, tests/studio).
++    leading = 0.0
+     line_height_mult = node.get("lineHeight", 1.0)
+     single_line_h = ascent + descent
+     # Studio-measured model (plan 0.2a): when the family has an advance
+@@ -411,7 +424,9 @@ def _draw_text_plain(canvas: skia.Canvas, x: float, y: float, w: float, h: float
+     table_mode = (
+         adv_table is not None and "\n" not in text
+         and len(lines) == 1
+-        and _table_covers_text(adv_table, text)
++        # The drawn line, not the source text: a truncated line ends in an
++        # ellipsis the table may not cover.
++        and _table_covers_text(adv_table, lines[0])
+         # TextScaled implies TextWrapped; table mode still applies when the
+         # line fits the content width at the fitted size (Studio keeps it
+         # on one line and draws it at the table's advances).
+@@ -419,8 +434,13 @@ def _draw_text_plain(canvas: skia.Canvas, x: float, y: float, w: float, h: float
+              or (string_width_at := _string_width(adv_table, text, float(text_size))) is None
+              or string_width_at <= content_w)
+     )
+-    if table_mode:
++    if table_mode or family not in _PIXEL_FONT_FAMILIES:
++        # Roblox's line box is TextSize itself (TextBounds.Y == TextSize); the
++        # rasterized em is rounded up to whole pixels, so its metrics run a
++        # little taller. Keep the baseline at the font's ascent/descent split.
++        ascent_share = ascent / (ascent + descent) if ascent + descent > 0 else 0.8
+         single_line_h = float(text_size)
++        ascent, descent = single_line_h * ascent_share, single_line_h * (1 - ascent_share)
+     # Pixel faces (Press Start 2P): Roblox's cell sits ON the baseline — the
+     # ink fills the cell upward and the baseline is the cell's bottom edge
+     # (measured, suite Winner pair: box top 143.8 + cell 54 -> ink 176-223,
+@@ -435,10 +455,16 @@ def _draw_text_plain(canvas: skia.Canvas, x: float, y: float, w: float, h: float
+         leading = 0.0
+     line_step = single_line_h * line_height_mult + leading
+     total_text_h = single_line_h + line_step * (len(lines) - 1) if lines else 0
++    # What was laid out, like Roblox's TextBounds: read back by the layout dump.
+     if table_mode:
+-        # Map the baseline into the size-height box proportionally to the
+-        # font's own ascent/descent split.
+-        ascent = single_line_h * (ascent / (ascent + descent))
++        line_widths = [_string_width(adv_table, line, float(text_size)) or 0.0 for line in lines]
++    else:
++        line_widths = [_measure_mixed(line, font, emoji_font, fallback_fonts) for line in lines]
++    node["_textLayout"] = {
++        "size": float(text_size),
++        "lines": len(lines),
++        "bounds": [max(line_widths, default=0.0), float(total_text_h)],
++    }
+ 
+     # Vertical alignment
+     y_align = node.get("textYAlignment", "Center")
+--- a/src/ui_engine/text_rich.py
++++ b/src/ui_engine/text_rich.py
+@@ -392,12 +392,12 @@ class _FontResolver:
+             return cached
+ 
+         tf = _load_typeface(family, weight, self._fonts_dir, italic=style.italic)
+-        main_font = skia.Font(tf, size)
++        main_font = roblox_font(tf, size)
+         _apply_font_draw_style(main_font, tf, weight, italic=style.italic)
+ 
+         emoji_font = None
+         if self._emoji_typeface:
+-            emoji_font = skia.Font(self._emoji_typeface, size)
++            emoji_font = roblox_font(self._emoji_typeface, size)
+             _apply_font_draw_style(emoji_font, self._emoji_typeface, weight)
+ 
+         fallback_fonts = _build_fallback_fonts(self._fallback_typefaces, size)
+--- a/src/ui_engine/text_runs.py
++++ b/src/ui_engine/text_runs.py
+@@ -12,7 +12,7 @@ _PIXEL_FONT_GLYPH_SCALE = _PIXEL_FONT_ROBLOX_INK_EM / _PIXEL_FONT_TTF_INK_EM
+ def _build_fallback_fonts(typefaces: list[skia.Typeface], size: float) -> tuple[skia.Font, ...]:
+     fonts: list[skia.Font] = []
+     for tf in typefaces:
+-        f = skia.Font(tf, size)
++        f = roblox_font(tf, size)
+         f.setEdging(skia.Font.Edging.kAntiAlias)
+         fonts.append(f)
+     return tuple(fonts)

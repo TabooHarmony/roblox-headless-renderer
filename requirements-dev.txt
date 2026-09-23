@@ -1,6 +1,0 @@
-# Development and test dependencies for Python 3.12.
-# Lune and a Chromium executable are separate runtime prerequisites; see README.md.
-Pillow>=12,<13
-numpy>=2,<3
-skia-python>=144,<145
-playwright>=1.58,<1.59

@@ -11,8 +11,15 @@ permissions:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -22,31 +29,53 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-          cache-dependency-path: requirements-dev.txt
+          cache-dependency-path: pyproject.toml
 
-      - name: Install Python dependencies and Chromium
-        run: |
-          python -m venv .venv
-          .venv/bin/python -m pip install --upgrade pip
-          .venv/bin/python -m pip install -r requirements-dev.txt
-          .venv/bin/python -m playwright install --with-deps chromium
+      - name: Install system libraries
+        if: runner.os == 'Linux'
+        # skia-python loads libEGL/libGL at import time, even for CPU rendering.
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libegl1 libgl1
 
-      - name: Install Lune
-        env:
-          LUNE_VERSION: 0.10.5
+      - name: Install RHR and Chromium
         run: |
-          mkdir -p "$HOME/.local/bin" /tmp/lune
-          curl --fail --silent --show-error --location \
-            "https://github.com/lune-org/lune/releases/download/v${LUNE_VERSION}/lune-${LUNE_VERSION}-linux-x86_64.zip" \
-            --output /tmp/lune/lune.zip
-          unzip -q /tmp/lune/lune.zip -d /tmp/lune/unpacked
-          install -m 0755 /tmp/lune/unpacked/lune "$HOME/.local/bin/lune"
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev,mcp]"
+          if [ "$RUNNER_OS" = "Linux" ]; then
+            python -m playwright install --with-deps chromium
+          else
+            python -m playwright install chromium
+          fi
+
+      - name: Install Lune and Rojo
+        run: |
+          case "$RUNNER_OS" in
+            Linux) target=linux-x86_64 ;;
+            Windows) target=windows-x86_64 ;;
+          esac
+          dir="$RUNNER_TEMP/tools"
+          mkdir -p "$dir/bin"
+          for tool in lune-org/lune@0.10.5 rojo-rbx/rojo@7.7.0; do
+            repo="${tool%@*}"; version="${tool#*@}"; name="${repo#*/}"
+            url="https://github.com/${repo}/releases/download/v${version}/${name}-${version}-${target}.zip"
+            curl --fail --silent --show-error --location "$url" --output "$dir/$name.zip"
+            unzip -q -o "$dir/$name.zip" -d "$dir/bin"
+          done
+          chmod +x "$dir"/bin/* || true
+          echo "$dir/bin" >> "$GITHUB_PATH"
+
+      - name: Run checks
+        run: |
           lune --version
-
-      - name: Run repository checks
-        run: |
-          source .venv/bin/activate
+          rojo --version
           node --check src/rhr/scene/scene.js
           git diff --check
-          sh tests/run.sh
+          python -m pytest
+
+      - name: Upload renders on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rhr-out-${{ matrix.os }}
+          path: out/
+          if-no-files-found: ignore
+          retention-days: 7

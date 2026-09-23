@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import sys
 import json
 import subprocess
 import tempfile
@@ -11,7 +12,7 @@ from pathlib import Path
 from PIL import Image, ImageChops, ImageStat
 
 ROOT = Path(__file__).resolve().parents[1]
-RHR = ROOT / "bin" / "rhr"
+RHR = [sys.executable, "-m", "rhr"]
 
 
 def base_ir(light_class: str | None) -> dict:
@@ -98,7 +99,7 @@ def base_ir(light_class: str | None) -> dict:
 
 
 def run(*args: str) -> subprocess.CompletedProcess:
-    return subprocess.run([str(RHR), *args], cwd=ROOT, capture_output=True, text=True, timeout=120)
+    return subprocess.run([*RHR, *args], cwd=ROOT, capture_output=True, text=True, timeout=120)
 
 
 def delta(a: Path, b: Path) -> float:
@@ -163,6 +164,12 @@ def main() -> None:
         + ", ".join(f"{name} delta={value:.2f}" for name, value in deltas.items())
         + f", attachment PointLight delta={attachment_delta:.2f}"
     )
+
+
+def test_main():
+    from _harness import run_main
+
+    run_main(main)
 
 
 if __name__ == "__main__":

@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import sys
 import json
 import statistics
 import subprocess
@@ -12,7 +13,7 @@ from pathlib import Path
 from PIL import Image
 
 ROOT = Path(__file__).resolve().parents[1]
-RHR = ROOT / "bin" / "rhr"
+RHR = [sys.executable, "-m", "rhr"]
 
 
 def part(name: str, x: float, material: str, *, reflectance: float = 0.0) -> dict:
@@ -53,7 +54,7 @@ def write_ir(path: Path, materials: list[tuple[str, float, str, float]]) -> None
 
 
 def run(*args: str) -> subprocess.CompletedProcess:
-    return subprocess.run([str(RHR), *args], cwd=ROOT, capture_output=True, text=True, timeout=120)
+    return subprocess.run([*RHR, *args], cwd=ROOT, capture_output=True, text=True, timeout=120)
 
 
 def foreground_brightness(path: Path, left_half: bool) -> float:
@@ -83,7 +84,7 @@ def main() -> None:
         for output in (first, second):
             proc = run("scene", str(ir), "--viewport", "360x240", "--view", "front", "--out", str(output))
             assert proc.returncode == 0, proc.stderr
-            assert "material-fallbacks=" not in proc.stderr, proc.stderr
+            assert "material-fallbacks=0" in proc.stderr, proc.stderr
         assert first.read_bytes() == second.read_bytes(), "material render is not deterministic"
 
         plastic = foreground_brightness(first, True)
@@ -104,6 +105,12 @@ def main() -> None:
         assert data["parts"][0]["reflectance"] == 0.6
 
     print(f"scene materials: plastic={plastic:.1f} neon={neon:.1f} deterministic")
+
+
+def test_main():
+    from _harness import run_main
+
+    run_main(main)
 
 
 if __name__ == "__main__":

@@ -16,14 +16,13 @@ sys.path.insert(0, str(ROOT / "scripts"))
 
 from render_visual_gallery import GALLERY_MESH_ID, gallery_ir, gallery_mesh_bytes  # noqa: E402
 
-RHR = ROOT / "bin" / "rhr"
+RHR = [sys.executable, "-m", "rhr"]
 ASSETS = ROOT / "tests" / "fixtures" / "assets"
-BACKGROUND = (32, 36, 43)
 
 
 def run(*args: str) -> subprocess.CompletedProcess:
     return subprocess.run(
-        [str(RHR), *args],
+        [*RHR, *args],
         cwd=ROOT,
         capture_output=True,
         text=True,
@@ -66,10 +65,23 @@ def main() -> None:
         render(ir, mesh_dir, shadowed, shadows=True)
         render(ir, mesh_dir, plain, shadows=False)
         render(ir, empty_mesh_dir, mesh_fallback, shadows=True)
+        # The backdrop (default sky under the gallery's Lighting) varies by row, so
+        # "background" means: identical to the same lighting with no geometry or UI.
+        backdrop_ir = tmp / "backdrop.json"
+        backdrop = json.loads(ir.read_text())
+        for root in backdrop["roots"]:
+            if root.get("className") != "Lighting":
+                root["children"] = [child for child in root.get("children") or [] if child.get("className") == "Camera"]
+        backdrop_ir.write_text(json.dumps(backdrop))
+        backdrop_png = tmp / "backdrop.png"
+        render(backdrop_ir, empty_mesh_dir, backdrop_png, shadows=False)
+        with Image.open(backdrop_png).convert("RGB") as backdrop_image:
+            background = list(backdrop_image.get_flattened_data())
+            background_crop = list(backdrop_image.crop((0, 0, 190, 60)).get_flattened_data())
 
         with Image.open(shadowed).convert("RGB") as image:
             pixels = list(image.get_flattened_data())
-            non_background = sum(pixel != BACKGROUND for pixel in pixels)
+            non_background = sum(pixel != base for pixel, base in zip(pixels, background))
             coverage = non_background / len(pixels)
             unique_colors = len(set(pixels))
 
@@ -94,7 +106,7 @@ def main() -> None:
             # The composed ScreenGui title occupies this corner and must not vanish.
             hud_crop = image.crop((0, 0, 190, 60))
             hud_non_background = sum(
-                pixel != BACKGROUND for pixel in hud_crop.get_flattened_data()
+                pixel != base for pixel, base in zip(hud_crop.get_flattened_data(), background_crop)
             )
             assert hud_non_background > 900, hud_non_background
 
@@ -136,6 +148,12 @@ def main() -> None:
         f"shadow_delta={shadow_delta:.2f} mesh_delta={mesh_delta:.2f} "
         f"mesh_changed={changed} mesh_bbox={mesh_bbox}"
     )
+
+
+def test_main():
+    from _harness import run_main
+
+    run_main(main)
 
 
 if __name__ == "__main__":

@@ -6,11 +6,11 @@ Two things are asserted, both from real renders:
     read the legacy ContentId property, so the emitter reads the renamed
     `ImageContent` and reports it as `Image`; if that regression returns, images
     silently disappear again and this check fails.
-  * the renderer paints that image from `assets/cache/icons/<id>.png`, i.e. the
+  * the renderer paints that image from `<rhr cache>/cache/icons/<id>.png`, i.e. the
     location scripts/fetch_assets.py fills. The same render without the cache must
     paint nothing red, so a pass cannot come from some other element.
 
-Run: .venv/bin/python tests/test_assets.py
+Run: python tests/test_assets.py
 """
 
 from __future__ import annotations
@@ -39,16 +39,9 @@ def check(name: str, ok: bool, detail: str = "") -> None:
 
 
 def emit_ir() -> Path:
-    out = REPO / "out" / "ir" / "image_asset.json"
-    out.parent.mkdir(parents=True, exist_ok=True)
-    proc = subprocess.run(
-        ["lune", "run", str(REPO / "scripts" / "rhr-ir.luau"), str(FIXTURE), str(out)],
-        capture_output=True,
-        text=True,
-    )
-    if proc.returncode != 0:
-        raise RuntimeError(f"lune failed: {proc.stderr.strip()}")
-    return out
+    from rhr.ir import emit_ir as emit
+
+    return emit(FIXTURE, REPO / "out" / "ir" / "image_asset.json")
 
 
 def find_node(node: dict, name: str) -> dict | None:
@@ -96,19 +89,26 @@ def main() -> int:
     )
 
     # the cache the renderer reads must be the cache fetch_assets.py fills, and it
-    # must live outside vendor/ so the vendored tree stays reconstructible
+    # must live in the per-user cache, outside the package and the vendored tree
     from ui_engine.assets import _asset_cache_dir
+
+    from rhr import paths
 
     cache_dir = _asset_cache_dir(ICONS_DIR)
     check(
-        "icon root is assets/icon_library",
-        ICONS_DIR == REPO / "assets" / "icon_library",
-        str(ICONS_DIR.relative_to(REPO)),
+        "icon root is <cache>/icon_library",
+        ICONS_DIR == paths.CACHE / "icon_library",
+        str(ICONS_DIR),
     )
     check(
-        "asset cache resolves to assets/cache/icons",
-        cache_dir == REPO / "assets" / "cache" / "icons",
-        str(cache_dir.relative_to(REPO)),
+        "asset cache resolves to rhr.paths.ICON_CACHE",
+        cache_dir == paths.ICON_CACHE,
+        str(cache_dir),
+    )
+    check(
+        "asset cache is outside the package",
+        paths.PACKAGE not in cache_dir.parents,
+        str(cache_dir),
     )
 
     sys.path.insert(0, str(REPO / "scripts"))
@@ -172,6 +172,12 @@ def main() -> int:
 
 def cache_dir_path(tmp: str) -> Path:
     return Path(tmp) / "cache" / "icons"
+
+
+def test_main():
+    from _harness import run_main
+
+    run_main(main)
 
 
 if __name__ == "__main__":

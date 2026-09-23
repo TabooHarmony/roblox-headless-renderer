@@ -1,9 +1,9 @@
 """Long-lived browser worker used by RHR's optional persistent render path.
 
-This module is launched by a host Python that has Playwright available. It is not
-imported by the project venv. The caller sends local HTTP requests containing an
-already-running RHR page URL; this worker owns Chromium and captures the page once
-its explicit data-rhr-ready contract is satisfied.
+`rhr.browser_session` launches this module with the same Python that runs RHR. The
+caller sends local HTTP requests containing an already-running RHR page URL; this
+worker owns Chromium and captures pages through `rhr.browser_render`, exactly as a
+one-shot render does.
 """
 
 from __future__ import annotations
@@ -15,6 +15,8 @@ import os
 import signal
 import threading
 from pathlib import Path
+
+from rhr.browser_render import capture, launch
 
 
 class RenderServer(http.server.HTTPServer):
@@ -60,40 +62,18 @@ class Handler(http.server.BaseHTTPRequestHandler):
         try:
             length = int(self.headers.get("Content-Length", "0"))
             request = json.loads(self.rfile.read(length) or b"{}")
-            url = str(request["url"])
-            out = Path(request["out"])
             width = int(request["width"])
             height = int(request["height"])
-            transparent = bool(request.get("transparent", False))
             if width <= 0 or height <= 0:
                 raise ValueError("render dimensions must be positive")
-
-            context = self.server.browser.new_context(
-                viewport={"width": width, "height": height},
-                device_scale_factor=1,
+            capture(
+                self.server.browser,
+                url=str(request["url"]),
+                out=Path(request["out"]),
+                width=width,
+                height=height,
+                transparent=bool(request.get("transparent", False)),
             )
-            try:
-                page = context.new_page()
-                page.goto(url, wait_until="load", timeout=45_000)
-                page.wait_for_function(
-                    """() => document.documentElement.dataset.rhrReady === 'true'
-                       || Boolean(document.documentElement.dataset.rhrError)""",
-                    timeout=45_000,
-                )
-                error = page.evaluate(
-                    "() => document.documentElement.dataset.rhrError || null"
-                )
-                if error:
-                    raise RuntimeError(f"browser page error: {error}")
-                out.parent.mkdir(parents=True, exist_ok=True)
-                page.screenshot(
-                    path=str(out),
-                    omit_background=transparent,
-                    animations="disabled",
-                    timeout=45_000,
-                )
-            finally:
-                context.close()
             self._json(200, {"ok": True})
         except Exception as exc:
             self._json(500, {"error": str(exc)})
@@ -104,7 +84,6 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--chrome", required=True)
     parser.add_argument("--port-file", type=Path, required=True)
     parser.add_argument("--token", required=True)
     args = parser.parse_args()
@@ -112,16 +91,7 @@ def main() -> int:
     from playwright.sync_api import sync_playwright
 
     playwright = sync_playwright().start()
-    browser = playwright.chromium.launch(
-        executable_path=args.chrome,
-        headless=True,
-        args=[
-            "--no-sandbox",
-            "--disable-dev-shm-usage",
-            "--disable-background-networking",
-            "--hide-scrollbars",
-        ],
-    )
+    browser = launch(playwright)
     server = RenderServer(("127.0.0.1", 0), Handler)
     server.browser = browser
     server.token = args.token

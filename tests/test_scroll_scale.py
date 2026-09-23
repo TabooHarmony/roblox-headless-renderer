@@ -5,15 +5,15 @@ Roblox lays a ScrollingFrame's direct children out against the ScrollingFrame's
 absolute (window) size; CanvasSize only extends the scrollable range and the
 clip. Patch 0015 fixed the vendored renderer, which resolved Scale against the
 full canvas extent and pushed children (Trading's dark BackgroundFrame panels,
-CanvasSize yScale 3) far below the visible window. The real-suite numbers this
-fix moved: Trading 85.74 -> 92.38 within8, EggRarity 92.69 -> 95.96.
+CanvasSize yScale 3) far below the visible window. On the (since removed)
+real-game captures this fix moved Trading 85.74 -> 92.38 within8, EggRarity 92.69 -> 95.96.
 
 Fixture: a ScrollingFrame (100x100 at 50,50 content coords, CanvasSize yScale 3)
 with one blue child Panel at yScale 0.06, height yScale 10.067. Before the fix
 the panel's top lands at content-y 0.06 * 300 (canvas height) = 18px too low and
 its extent explodes; after, Scale uses the window and the clip still bounds it.
 
-Run: .venv/bin/python tests/test_scroll_scale.py
+Run: python tests/test_scroll_scale.py
 """
 
 from __future__ import annotations
@@ -84,6 +84,12 @@ def main() -> int:
             print(f"ok    {name}: {detail}")
     print(f"\n{len(CHECKS) - failures}/{len(CHECKS)} scroll-scale checks pass")
     return 1 if failures else 0
+
+
+def test_main():
+    from _harness import run_main
+
+    run_main(main)
 
 
 if __name__ == "__main__":

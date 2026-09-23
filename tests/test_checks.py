@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """The checks: eight model smells, each fixture that trips it, pixels not internals.
 
-Task 2.2 (docs/plan.md): `rhr check` runs eight checks over a model and reports
+Task 2.2: `rhr check` runs eight checks over a model and reports
 findings as JSON; a build loop refuses to ship on error-class findings. Three
 things are measured here, not claimed:
 
@@ -12,7 +12,7 @@ things are measured here, not claimed:
     ellipsis (glyph pixels, not internals);
   * findings are deterministic: two runs byte-identical.
 
-Run: .venv/bin/python tests/test_checks.py
+Run: python tests/test_checks.py
 """
 
 from __future__ import annotations
@@ -25,7 +25,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "src"))
 sys.path.insert(0, str(REPO / "tests"))
-RHR = REPO / "bin" / "rhr"
+RHR = [sys.executable, "-m", "rhr"]
 FIXTURES = REPO / "tests" / "fixtures"
 OUT = REPO / "out" / "checks"
 
@@ -125,7 +125,7 @@ def main() -> int:
 
     def cli_exit(fixture: str) -> int:
         proc = subprocess.run(
-            [str(RHR), "check", str(FIXTURES / f"{fixture}.rbxmx"), "--viewport", "400x300"],
+            [*RHR, "check", str(FIXTURES / f"{fixture}.rbxmx"), "--viewport", "400x300"],
             capture_output=True, text=True, cwd=str(REPO), timeout=300,
         )
         return proc.returncode
@@ -136,29 +136,39 @@ def main() -> int:
 
     print("checks: the truncation follow-up draws (pixels, not internals)")
 
-    # Same label, only TextTruncate differs: untruncated clips mid-glyph at the
-    # box edge; AtEnd trims earlier and draws the ellipsis. SplitWord backs up
-    # to the last word boundary, so its ink ends strictly left of AtEnd's.
+    # Same label, only TextTruncate differs, with a multi-word text (Roblox docs,
+    # Enum.TextTruncate): AtEnd backs up to the end of the last complete word that
+    # fits, SplitWord cuts inside the word, so AtEnd's ink ends strictly left of
+    # SplitWord's, and neither goes past the untruncated clip.
     at_end_png = OUT / "text_truncate_at_end.png"
     split_png = OUT / "text_truncate_split_word.png"
     none_png = OUT / "trunc_none.png"
-    src = (FIXTURES / "text_truncate_at_end.rbxmx").read_text()
+    words = "Extra ordinarily unbreakable word"
+    variants = {}
+    for name in ("text_truncate_at_end", "text_truncate_split_word"):
+        src = (FIXTURES / f"{name}.rbxmx").read_text()
+        variants[name] = src.replace("ExtraordinarilyUnbreakableWord", words)
+    (FIXTURES / "_trunc_at_end.rbxmx").write_text(variants["text_truncate_at_end"])
+    (FIXTURES / "_trunc_split.rbxmx").write_text(variants["text_truncate_split_word"])
     (FIXTURES / "_trunc_none.rbxmx").write_text(
-        "\n".join(line for line in src.splitlines() if "TextTruncate" not in line) + "\n"
+        "\n".join(line for line in variants["text_truncate_at_end"].splitlines() if "TextTruncate" not in line) + "\n"
     )
     from rhr.layout_dump import build_dump
     from test_fixtures import emit_ir
 
-    build_dump(emit_ir(FIXTURES / "_trunc_none.rbxmx"), 400, 300, png_path=none_png)
-    build_dump(emit_ir(FIXTURES / "text_truncate_at_end.rbxmx"), 400, 300, png_path=at_end_png)
-    build_dump(emit_ir(FIXTURES / "text_truncate_split_word.rbxmx"), 400, 300, png_path=split_png)
-    (FIXTURES / "_trunc_none.rbxmx").unlink()
+    try:
+        build_dump(emit_ir(FIXTURES / "_trunc_none.rbxmx"), 400, 300, png_path=none_png)
+        build_dump(emit_ir(FIXTURES / "_trunc_at_end.rbxmx"), 400, 300, png_path=at_end_png)
+        build_dump(emit_ir(FIXTURES / "_trunc_split.rbxmx"), 400, 300, png_path=split_png)
+    finally:
+        for name in ("_trunc_none", "_trunc_at_end", "_trunc_split"):
+            (FIXTURES / f"{name}.rbxmx").unlink(missing_ok=True)
 
     none_lo, none_hi = glyph_extent(none_png, 0, 260, 58, 88)
     end_lo, end_hi = glyph_extent(at_end_png, 0, 260, 58, 88)
     split_lo, split_hi = glyph_extent(split_png, 0, 260, 58, 88)
-    check(end_hi < none_hi, f"AtEnd's ink ends left of the untruncated clip ({end_hi} < {none_hi})")
-    check(split_hi < end_hi, f"SplitWord's ink ends left of AtEnd's ({split_hi} < {end_hi})")
+    check(split_hi <= none_hi, f"SplitWord's ink stays within the untruncated clip ({split_hi} <= {none_hi})")
+    check(end_hi < split_hi, f"AtEnd's ink ends left of SplitWord's: it keeps whole words ({end_hi} < {split_hi})")
 
     print("checks: findings are deterministic")
     import hashlib
@@ -171,6 +181,12 @@ def main() -> int:
 
     print("checks: ok" if not failures else f"checks: {len(failures)} failed")
     return 1 if failures else 0
+
+
+def test_main():
+    from _harness import run_main
+
+    run_main(main)
 
 
 if __name__ == "__main__":

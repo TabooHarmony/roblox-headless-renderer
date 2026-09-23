@@ -1,19 +1,19 @@
 #!/usr/bin/env python3
-"""Host-side MCP adapter: protocol discovery + preview image content.
+"""MCP adapter: protocol discovery + preview image content.
 
-The core project venv intentionally does not depend on the MCP SDK. This test
-uses the host python when the SDK exists and cleanly skips otherwise.
+The MCP SDK is an optional extra (`pip install -e ".[mcp]"`). This test runs when
+it is installed in the current Python and skips otherwise.
 """
 
 from __future__ import annotations
 
-import shutil
 import subprocess
 import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-HOST_PYTHON = shutil.which("python3")
+RHR = [sys.executable, "-m", "rhr"]
+SERVER = [sys.executable, "-m", "rhr.mcp_server"]
 
 CLIENT = r'''
 import anyio
@@ -21,7 +21,7 @@ from mcp.client.stdio import stdio_client, StdioServerParameters
 from mcp import ClientSession
 
 async def main():
-    params = StdioServerParameters(command="./bin/rhr-mcp", cwd=".")
+    params = StdioServerParameters(command=SERVER[0], args=SERVER[1:], cwd=".")
     async with stdio_client(params) as (read, write):
         async with ClientSession(read, write) as session:
             await session.initialize()
@@ -54,21 +54,12 @@ anyio.run(main)
 
 
 def main() -> int:
-    if HOST_PYTHON is None:
-        print("mcp adapter: SKIP (no host python3)")
-        return 0
-    probe = subprocess.run(
-        [HOST_PYTHON, "-c", "import mcp.server.fastmcp"],
-        cwd=ROOT,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
-    if probe.returncode:
-        print("mcp adapter: SKIP (host MCP SDK unavailable)")
+    if not _has_mcp():
+        print("mcp adapter: SKIP (MCP SDK not installed)")
         return 0
 
     check = subprocess.run(
-        [str(ROOT / "bin/rhr-mcp"), "--self-check"],
+        [*SERVER, "--self-check"],
         cwd=ROOT,
         capture_output=True,
         text=True,
@@ -80,7 +71,7 @@ def main() -> int:
         return check.returncode
 
     result = subprocess.run(
-        [HOST_PYTHON, "-c", CLIENT],
+        [sys.executable, "-c", f"SERVER = {SERVER!r}\n" + CLIENT],
         cwd=ROOT,
         capture_output=True,
         text=True,
@@ -88,7 +79,7 @@ def main() -> int:
     )
     # Always leave the optional shared worker stopped after this test.
     subprocess.run(
-        [str(ROOT / "bin/rhr"), "browser", "stop"],
+        [*RHR, "browser", "stop"],
         cwd=ROOT,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
@@ -101,6 +92,22 @@ def main() -> int:
     print(result.stdout.strip())
     print("mcp adapter: ok")
     return 0
+
+
+def _has_mcp() -> bool:
+    import importlib.util
+
+    return importlib.util.find_spec("mcp") is not None
+
+
+def test_main():
+    import pytest
+
+    from _harness import run_main
+
+    if not _has_mcp():
+        pytest.skip("MCP SDK not installed (pip install -e \".[mcp]\")")
+    run_main(main)
 
 
 if __name__ == "__main__":

@@ -34,11 +34,12 @@ import tempfile
 import time
 from pathlib import Path
 
-REPO = Path(__file__).resolve().parents[2]
-if str(REPO / "src") not in sys.path:
-    sys.path.insert(0, str(REPO / "src"))
+from rhr.paths import IR_DIR
+from rhr.schema import stamp
 
-# Default canvas size for CLI commands; override with --viewport for your target.
+
+# The reference viewport: upstream pinevex's reference renders and this project's
+# early Studio captures are 1615x1080. Override with --viewport.
 DEFAULT_VIEWPORT = (1615, 1080)
 
 MODEL_SUFFIXES = {".rbxm", ".rbxmx", ".rbxl", ".rbxlx"}
@@ -112,19 +113,27 @@ def parse_background(text: str) -> tuple[int, int, int, int]:
 
 
 def ir_for(source: Path, ir_out: Path | None, *, profile: str = "full") -> Path:
-    """IR JSON for `source`: the file itself if it is IR, else a fresh lune dump."""
-    from rhr.ir import emit_ir, load_ir
+    """IR JSON for `source`: the file itself if it is IR, else a fresh lune dump.
 
-    if source.suffix == ".json":
+    `source` may also be a Rojo project (a *.project.json file or a directory with
+    default.project.json), which is built with `rojo build` first.
+    """
+    from rhr.ir import emit_ir, load_ir
+    from rhr import rojo
+
+    project = rojo.project_file(source)
+    if project is not None:
+        source = rojo.build(project, IR_DIR)
+    elif source.suffix == ".json":
         load_ir(source)  # fail here, with a clear message, not deeper in the render
         return source
     if source.suffix not in MODEL_SUFFIXES:
         raise ValueError(
-            f"{source} is neither a Roblox model ({', '.join(sorted(MODEL_SUFFIXES))}) "
-            "nor an IR .json file"
+            f"{source} is neither a Roblox file ({', '.join(sorted(MODEL_SUFFIXES))}), "
+            "a Rojo project, nor an IR .json file"
         )
     suffix = ".json" if profile == "full" else f".{profile}.json"
-    target = ir_out or (REPO / "out" / "ir" / f"{source.stem}{suffix}")
+    target = ir_out or (IR_DIR / f"{source.stem}{suffix}")
     return emit_ir(source, target, profile=profile)
 
 
@@ -178,10 +187,11 @@ def _render(args) -> int:
 
     if rect_map is not None:
         layout = {path: rect_to_dict(rect) for path, rect in rect_map.items()}
+        document = stamp("layout", {"viewport": [width, height], "rects": layout})
         Path(args.dump_layout).parent.mkdir(parents=True, exist_ok=True)
-        Path(args.dump_layout).write_text(json.dumps(layout, indent=2, sort_keys=True))
+        Path(args.dump_layout).write_text(json.dumps(document, indent=2, sort_keys=True), encoding="utf-8")
         print(f"layout {args.dump_layout}  {len(layout)} rects", file=sys.stderr)
-        if not layout and screens:
+        if not layout:
             print(
                 "rhr: the layout dump is empty. That is a bug in the pipeline, not an "
                 "empty UI: nodes reach the renderer without a _path.",
@@ -218,7 +228,7 @@ def _layout(args) -> int:
         count = len(dump["nodes"])
         # Same guard as the plain path: an empty dump is a pipeline bug, not an
         # empty UI — nodes reached the renderer without a _path.
-        if not count and screens:
+        if not count:
             print(
                 "rhr: the structured dump is empty. That is a bug in the pipeline, "
                 "not an empty UI: nodes reached the renderer without a _path.",
@@ -227,7 +237,7 @@ def _layout(args) -> int:
             return 1
         if args.out:
             Path(args.out).parent.mkdir(parents=True, exist_ok=True)
-            Path(args.out).write_text(text)
+            Path(args.out).write_text(text, encoding="utf-8")
             print(args.out, file=sys.stderr)
         else:
             print(text)
@@ -241,7 +251,7 @@ def _layout(args) -> int:
     rect_map: dict = {}
     render_screens(
         screens,
-        REPO / "out" / "ir" / f"{source.stem}-layout.png",
+        IR_DIR / f"{source.stem}-layout.png",
         width,
         height,
         bg_color=(0, 0, 0, 0),
@@ -251,21 +261,23 @@ def _layout(args) -> int:
         label = f"{name}: " if len(screens) > 1 else ""
         print(f"inset  {label}{inset.describe()}", file=sys.stderr)
     layout = {path: rect_to_dict(rect) for path, rect in rect_map.items()}
-    if not layout and screens:
+    if not layout:
         print("rhr: no rects resolved: nodes reached the renderer without a _path", file=sys.stderr)
         return 1
     # JSON on stdout, the count on stderr, so `rhr layout model.rbxm | jq` works.
     print(f"layout {len(layout)} rects", file=sys.stderr)
+    document = stamp("layout", {"viewport": [width, height], "rects": layout})
     if args.out:
         Path(args.out).parent.mkdir(parents=True, exist_ok=True)
-        Path(args.out).write_text(json.dumps(layout, indent=2, sort_keys=True))
+        Path(args.out).write_text(json.dumps(document, indent=2, sort_keys=True), encoding="utf-8")
         print(args.out, file=sys.stderr)
     else:
-        print(json.dumps(layout, indent=2, sort_keys=True))
+        print(json.dumps(document, indent=2, sort_keys=True))
     return 0
 
 
 def _ir(args) -> int:
+    from rhr import rojo
     from rhr.ir import emit_ir
 
     source = Path(args.file)
@@ -273,11 +285,14 @@ def _ir(args) -> int:
         return _die(f"no such file: {source}")
     t0 = time.perf_counter()
     try:
+        project = rojo.project_file(source)
+        if project is not None:
+            source = rojo.build(project, IR_DIR)
         out = emit_ir(source, Path(args.out))
-    except RuntimeError as exc:
+    except (ValueError, RuntimeError, OSError) as exc:
         return _die(str(exc))
     elapsed = int((time.perf_counter() - t0) * 1000)
-    data = json.loads(Path(out).read_text())
+    data = json.loads(Path(out).read_text(encoding="utf-8"))
 
     def count(node: dict) -> int:
         return 1 + sum(count(c) for c in node.get("children") or [])
@@ -297,8 +312,8 @@ def _check(args) -> int:
     width, height = args.viewport
     t0 = time.perf_counter()
     try:
-        result = check_model(source, width, height, topbar_height=args.topbar_height)
-    except (ValueError, RuntimeError) as exc:
+        result = check_model(ir_for(source, None), width, height, topbar_height=args.topbar_height)
+    except (ValueError, RuntimeError, OSError) as exc:
         return _die(str(exc))
     elapsed = int((time.perf_counter() - t0) * 1000)
 
@@ -307,7 +322,7 @@ def _check(args) -> int:
     warnings = len(findings) - errors
     if args.out:
         Path(args.out).parent.mkdir(parents=True, exist_ok=True)
-        Path(args.out).write_text(findings_json(result))
+        Path(args.out).write_text(findings_json(result), encoding="utf-8")
         print(args.out, file=sys.stderr)
     else:
         print(findings_json(result))
@@ -319,11 +334,10 @@ def _check(args) -> int:
 
 def _browser(args) -> int:
     from rhr.browser_session import ensure, status, stop
-    from rhr.scene import _chrome_path
 
     try:
         if args.action == "start":
-            state, started = ensure(_chrome_path())
+            state, started = ensure()
             result = {
                 "running": True,
                 "started": started,
@@ -336,7 +350,7 @@ def _browser(args) -> int:
             result = status()
     except (OSError, RuntimeError) as exc:
         return _die(str(exc))
-    print(json.dumps(result, sort_keys=True))
+    print(json.dumps(stamp("browser", result), sort_keys=True))
     return 0
 
 
@@ -350,7 +364,7 @@ def _compare(args) -> int:
             return _die(f"no such file: {path}")
     metrics = compare(before, after, bg=args.background[:3], silhouette_threshold=args.silhouette_threshold)
     if args.json:
-        print(json.dumps(metrics, indent=2, sort_keys=True))
+        print(json.dumps(stamp("compare", metrics), indent=2, sort_keys=True))
     else:
         print(format_report(metrics))
     return 0 if metrics.get("size_match") else 2
@@ -372,7 +386,7 @@ def _hitmap(args) -> int:
     text = dump_json(hitmap)
     if args.out:
         Path(args.out).parent.mkdir(parents=True, exist_ok=True)
-        Path(args.out).write_text(text)
+        Path(args.out).write_text(text, encoding="utf-8")
         print(args.out, file=sys.stderr)
     else:
         print(text)
@@ -412,28 +426,15 @@ def _scene(args) -> int:
             texture_dir=texture_dir,
             mesh_dir=mesh_dir,
         )
-        scene_info = None
-        if args.coverage:
-            from rhr.scene_dump import build_scene_dump
-            scene_info = build_scene_dump(ir_path, texture_dir=texture_dir, mesh_dir=mesh_dir)
+        from rhr.scene_dump import build_scene_dump, notes_line
+
+        notes = notes_line(build_scene_dump(ir_path, texture_dir=texture_dir, mesh_dir=mesh_dir))
     except (ValueError, RuntimeError, OSError) as exc:
         return _die(str(exc))
     elapsed = int((time.perf_counter() - t0) * 1000)
     print(f"ir     {ir_path}", file=sys.stderr)
     print(f"scene  {out}  {actual[0]}x{actual[1]}  {elapsed}ms", file=sys.stderr)
-    if scene_info is not None:
-        geometry_fallbacks = sum(scene_info["fallbacks"].values())
-        material_fallbacks = sum(scene_info["materialFallbacks"].values())
-        unsupported = sum(scene_info["unsupportedVisualClasses"].values())
-        missing_assets = sum(1 for item in scene_info["assetReferences"] if not item["available"])
-        print(
-            f"scene-notes geometry-fallbacks={geometry_fallbacks} "
-            f"material-fallbacks={material_fallbacks} unsupported-visuals={unsupported} "
-            f"missing-assets={missing_assets}",
-            file=sys.stderr,
-        )
-    else:
-        print(f"coverage use: rhr scene-dump {ir_path}", file=sys.stderr)
+    print(notes, file=sys.stderr)
     print(out)
     return 0
 
@@ -527,6 +528,12 @@ def _preview(args) -> int:
     elapsed = int((time.perf_counter() - t0) * 1000)
     print(f"ir      {ir_path}", file=sys.stderr)
     print(f"preview {out}  {width}x{height}  {elapsed}ms", file=sys.stderr)
+    try:
+        from rhr.scene_dump import build_scene_dump, notes_line
+
+        print(notes_line(build_scene_dump(ir_path)), file=sys.stderr)
+    except (ValueError, RuntimeError, OSError) as exc:
+        print(f"notes  unavailable: {exc}", file=sys.stderr)
     print(out)
     return 0
 
@@ -550,7 +557,7 @@ def _scene_dump(args) -> int:
     text = dump_json(scene_dump)
     if args.out:
         Path(args.out).parent.mkdir(parents=True, exist_ok=True)
-        Path(args.out).write_text(text)
+        Path(args.out).write_text(text, encoding="utf-8")
         print(args.out, file=sys.stderr)
     else:
         print(text)
@@ -699,7 +706,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_scene.add_argument("--mesh-dir",
                          help="local directory containing decompressed <asset_id>.mesh files")
     p_scene.add_argument("--coverage", action="store_true",
-                         help="scan and report fallbacks/unsupported visuals/missing assets after render")
+                         help="no-op: the fallback/experimental notes line is always printed")
     p_scene.set_defaults(func=_scene)
 
     p_scene_dump = sub.add_parser("scene-dump", help="machine-readable static 3D geometry and fallback summary")
@@ -760,6 +767,10 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    # Instance names can be any Unicode; a Windows console's code page must not crash output.
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8", errors="replace")
     args = build_parser().parse_args(argv)
     return args.func(args)
 

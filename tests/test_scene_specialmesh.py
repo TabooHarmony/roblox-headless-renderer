@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import sys
 import json
 import subprocess
 import tempfile
@@ -11,7 +12,7 @@ from pathlib import Path
 from PIL import Image, ImageChops, ImageStat
 
 ROOT = Path(__file__).resolve().parents[1]
-RHR = ROOT / "bin" / "rhr"
+RHR = [sys.executable, "-m", "rhr"]
 
 
 def part(name: str, x: float, special: dict | None = None) -> dict:
@@ -50,7 +51,7 @@ def render(ir: dict, path: Path) -> None:
     src = path.with_suffix(".json")
     src.write_text(json.dumps(ir))
     proc = subprocess.run(
-        [str(RHR), "scene", str(src), "--viewport", "320x240",
+        [*RHR, "scene", str(src), "--viewport", "320x240",
          "--camera", "0,0,-16", "--look-at", "0,0,0", "--out", str(path)],
         cwd=ROOT, capture_output=True, text=True, timeout=120,
     )
@@ -89,7 +90,7 @@ def main() -> None:
         src = tmp / "mixed.json"
         src.write_text(json.dumps(mixed))
         proc = subprocess.run(
-            [str(RHR), "scene-dump", str(src)],
+            [*RHR, "scene-dump", str(src)],
             cwd=ROOT, capture_output=True, text=True, timeout=120,
         )
         assert proc.returncode == 0, proc.stderr
@@ -98,6 +99,12 @@ def main() -> None:
         assert [item["supported"] for item in dump["specialMeshes"]] == [True, False]
 
     print(f"scene specialmesh: sphere-vs-box delta={delta:.2f}, FileMesh remains explicit")
+
+
+def test_main():
+    from _harness import run_main
+
+    run_main(main)
 
 
 if __name__ == "__main__":

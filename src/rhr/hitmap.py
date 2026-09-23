@@ -1,10 +1,8 @@
-"""Interactive GUI hit-region dump built on Pinevex's hit-test traversal.
+"""Interactive GUI hit-region dump on RHR's layout pass.
 
-The vendored ``ui_engine.hit_test`` already owns layout, clipping, list/grid
-placement, and sibling/global z-order. This module deliberately reuses its
-private traversal with the same pane root rectangle as the renderer instead of
-copying those rules. The IR remains the source for Roblox interaction
-properties because flatten_node does not need to carry them to the painter.
+Rects, clipping and paint order come from ``rhr.ui_layout`` (the same pass the
+renderer draws at and ``rhr layout`` reports), so a hit region can never disagree
+with the picture. The IR is the source for Roblox interaction properties.
 
 Output shape::
 
@@ -44,14 +42,12 @@ cannot appear in a hit test.
 
 from __future__ import annotations
 
-import copy
+from rhr.schema import stamp
+
 import json
 import sys
 from pathlib import Path
 
-REPO = Path(__file__).resolve().parents[2]
-if str(REPO / "src") not in sys.path:
-    sys.path.insert(0, str(REPO / "src"))
 
 _GUI_CLASSES = {
     "Frame",
@@ -109,55 +105,19 @@ def _path_index(raw: dict) -> dict[str, list[dict]]:
     return out
 
 
-def _remove_visibility(obj: dict) -> dict:
-    """Copy an engine tree while laying out hidden nodes for input diagnostics."""
-    clone = copy.deepcopy(obj)
-
-    def walk(node: dict) -> None:
-        node.pop("visible", None)
-        for child in node.get("children") or []:
-            walk(child)
-
-    walk(clone)
-    return clone
-
-
 def _inside(rect, x: float, y: float) -> bool:
     return rect.x <= x < rect.x + rect.w and rect.y <= y < rect.y + rect.h
 
 
-def _paint_entries(obj: dict, root_rect, width: int, height: int) -> list[tuple[dict, object]]:
-    """Return all hypothetical hit-test entries in bottom-to-top order."""
-    from ui_engine import hit_test
-    from ui_engine.layout import Rect
+def _paint_entries(ir_pane: dict, root_rect) -> list[tuple[dict, object]]:
+    """All GuiObjects of a pane bottom-to-top, as (engine-style node, clipped rect)."""
+    from rhr.ui_layout import paint_entries
 
-    probe_tree = _remove_visibility(obj)
-    ctx = {
-        "_viewport_rect": root_rect,
-        "_default_size_ref": "parent",
-    }
-    resolved_root = hit_test._resolve_node_rect(probe_tree, root_rect, ctx)
-    if obj.get("zIndexBehavior") == "Global":
-        entries: list[tuple[int, int, dict, object]] = []
-        hit_test._collect_global_entries(probe_tree, resolved_root, [], entries, ctx)
-        entries.sort(key=lambda item: (item[0], item[1]))
-        return [(node, rect) for _z, _order, node, rect in entries]
-
-    hits: list[dict] = []
-    rect_index: dict[int, object] = {}
-    query = Rect(-1.0e12, -1.0e12, 2.0e12, 2.0e12)
-    hit_test._hit_node(
-        probe_tree,
-        resolved_root,
-        query,
-        [],
-        hits,
-        ctx,
-        rect_index=rect_index,
-    )
-    # _hit_node appends in draw order. Keep that order for the output's
-    # bottom-to-top index; point probes reverse it below.
-    return [(node, rect_index[id(node)]) for node in hits if id(node) in rect_index]
+    rect = (root_rect.x, root_rect.y, root_rect.w, root_rect.h)
+    return [
+        ({"_path": node["path"], "type": node.get("className")}, box)
+        for node, box in paint_entries(ir_pane, rect)
+    ]
 
 
 def _pane_raw_nodes(raw_nodes: list[dict]) -> list[dict]:
@@ -166,7 +126,7 @@ def _pane_raw_nodes(raw_nodes: list[dict]) -> list[dict]:
 
     screens = _screen_nodes(raw_nodes)
     if not screens:
-        pane = find_renderable(_strip_screens(raw_nodes))
+        pane = find_renderable(raw_nodes)
         return [pane] if pane is not None else []
     panes: list[dict] = []
     container = find_renderable(_strip_screens(raw_nodes))
@@ -194,7 +154,6 @@ def build_hitmap(ir_path, width: int, height: int, topbar_height: float | None =
     from rhr.insets import REFERENCE_TOPBAR_HEIGHT, for_nodes
     from rhr.ir import load_ir
     from rhr.pipeline import load_screens
-    from ui_engine.layout import Rect
 
     ir = load_ir(ir_path)
     raw_nodes = ir_to_raw_nodes(ir)
@@ -214,9 +173,15 @@ def build_hitmap(ir_path, width: int, height: int, topbar_height: float | None =
     probe_candidates: list[tuple[float, float, list[dict], int]] = []
     pane_records = []
 
+    from rhr.pipeline import _index_paths
+
+    ir_by_path = _index_paths(ir["roots"])
     for pane_index, ((obj, root_rect, inset, pane_name), raw_pane) in enumerate(zip(screens, raw_panes)):
         metadata = _raw_pane_metadata(raw_pane)
-        entries = _paint_entries(obj, root_rect, width, height)
+        ir_pane = ir_by_path.get(raw_pane.get("_path"))
+        if ir_pane is None:
+            raise ValueError(f"hitmap: pane {pane_name!r} has no IR node")
+        entries = _paint_entries(ir_pane, root_rect)
         # The path index retains collisions, while the converted object is what
         # establishes the exact rendered class/path and effective clipped rect.
         occurrence: dict[str, int] = {}
@@ -332,13 +297,13 @@ def build_hitmap(ir_path, width: int, height: int, topbar_height: float | None =
         pane.pop("entries", None)
 
     node_records.sort(key=lambda record: (record["path"], record["pane"], record["zOrder"] is None, record["zOrder"] or 0))
-    return {
+    return stamp("hitmap", {
         "model": Path(ir_path).name,
         "viewport": [width, height],
         "panes": pane_records,
         "nodes": node_records,
         "hitTests": hit_tests,
-    }
+    })
 
 
 def dump_json(hitmap: dict) -> str:

@@ -2,17 +2,20 @@
 
 from __future__ import annotations
 
+from rhr.schema import stamp
+
 import json
 import math
 import re
 from pathlib import Path
 
+from rhr.paths import ICON_CACHE, MESH_CACHE
+
 from rhr.ir import load_ir
 from rhr.rbxl_raw import EMPTY_TERRAIN_SMOOTH_GRID, BinaryRbxError, extract_serialized_string_property
 
-REPO = Path(__file__).resolve().parents[2]
 ASSET_EXTENSIONS = ("png", "webp", "jpg", "jpeg", "svg")
-DEFAULT_MESH_DIR = REPO / "assets/cache/meshes"
+DEFAULT_MESH_DIR = MESH_CACHE
 
 PART_CLASSES = {"Part", "WedgePart", "CornerWedgePart", "MeshPart", "UnionOperation"}
 BOX_FALLBACK_CLASSES = {"MeshPart", "UnionOperation"}
@@ -32,10 +35,6 @@ def _children(node: dict) -> list[dict]:
     if isinstance(children, dict):
         return list(children.values())
     return list(children)
-
-
-def _path_name(node: dict) -> str:
-    return node.get("name") or node.get("className") or "Instance"
 
 
 def _enum_name(value, default=None):
@@ -96,18 +95,31 @@ def _asset_available(asset_id: str | None, texture_dir: Path | None) -> bool:
     roots = []
     if texture_dir is not None:
         roots.append(texture_dir)
-    roots.append(REPO / "assets/cache/icons")
+    roots.append(ICON_CACHE)
     return any((root / f"{asset_id}.{extension}").is_file() for root in roots for extension in ASSET_EXTENSIONS)
 
 
-def _part_aabb(props: dict, scale: float) -> tuple[list[float], list[float]] | None:
+def _orientation(cf: dict) -> list[float]:
+    """Roblox `Orientation` in degrees (CFrame:ToOrientation: R = Ry * Rx * Rz)."""
+    r = [[_number(cf.get(f"R{row}{col}"), 1.0 if row == col else 0.0) for col in range(3)] for row in range(3)]
+    x = math.asin(max(-1.0, min(1.0, -r[1][2])))
+    if abs(r[1][2]) < 0.999999:
+        y = math.atan2(r[0][2], r[2][2])
+        z = math.atan2(r[1][0], r[1][1])
+    else:  # gimbal lock: fold Z into Y
+        y = math.atan2(-r[2][0], r[0][0])
+        z = 0.0
+    return [round(math.degrees(value) + 0.0, 4) for value in (x, y, z)]
+
+
+def _part_aabb(props: dict) -> tuple[list[float], list[float]] | None:
     cf = props.get("CFrame")
     size = props.get("Size")
     if not isinstance(cf, dict) or not isinstance(size, dict):
         return None
 
-    position = [_number(cf.get(axis)) * scale for axis in ("X", "Y", "Z")]
-    sx, sy, sz = (_number(size.get(axis), 1.0) * abs(scale) for axis in ("X", "Y", "Z"))
+    position = [_number(cf.get(axis)) for axis in ("X", "Y", "Z")]
+    sx, sy, sz = (_number(size.get(axis), 1.0) for axis in ("X", "Y", "Z"))
     half = [sx / 2, sy / 2, sz / 2]
     rotation = [
         [_number(cf.get("R00"), 1), _number(cf.get("R01")), _number(cf.get("R02"))],
@@ -130,6 +142,28 @@ def build_scene_dump(
     mesh_dir: Path | None = None,
 ) -> dict:
     data = load_ir(ir_path)
+    path_by_id: dict[int, str] = {}
+    path_by_full_name: dict[str, str | None] = {}
+
+    def index_ids(node: dict, full_name: str) -> None:
+        if "id" in node:
+            path_by_id[node["id"]] = node["path"]
+        # GetFullName() is dotted and not unique; a shared one resolves to None.
+        path_by_full_name[full_name] = None if full_name in path_by_full_name else node["path"]
+        for child in node.get("children") or []:
+            index_ids(child, f"{full_name}.{child.get('name') or child.get('className')}")
+
+    for root in data["roots"]:
+        index_ids(root, root.get("name") or root.get("className"))
+
+    def ref_path(node: dict, prop: str) -> str | None:
+        """Unique path of a reference target: by id, else by an unambiguous full name."""
+        target = (node.get("refs") or {}).get(prop)
+        if target is not None:
+            return path_by_id.get(target)
+        full_name = (node.get("props") or {}).get(prop)
+        return path_by_full_name.get(full_name) if isinstance(full_name, str) else None
+
     nodes: list[dict] = []
     cameras: list[dict] = []
     lights: list[dict] = []
@@ -140,6 +174,7 @@ def build_scene_dump(
     atmosphere: dict | None = None
     sky: dict | None = None
     class_counts: dict[str, int] = {}
+    experimental_materials = 0
     fallback_counts: dict[str, int] = {}
     material_fallback_counts: dict[str, int] = {}
     unsupported_counts: dict[str, int] = {}
@@ -153,8 +188,6 @@ def build_scene_dump(
     source_path = data.get("sourcePath")
     if source_path:
         candidate = Path(source_path)
-        if not candidate.is_absolute():
-            candidate = REPO / candidate
         if candidate.is_file():
             try:
                 terrain_payloads = extract_serialized_string_property(
@@ -178,21 +211,19 @@ def build_scene_dump(
     def visit(
         node: dict,
         path: str,
-        inherited_scale: float,
         in_lighting: bool = False,
         parent: dict | None = None,
     ) -> None:
         if parent is not None:
             parent_by_id[id(node)] = parent
-        nonlocal lighting, atmosphere, sky, terrain_index
+        nonlocal lighting, atmosphere, sky, terrain_index, experimental_materials
         class_name = node.get("className") or "Instance"
         props = node.get("props") or {}
         in_lighting = in_lighting or class_name == "Lighting"
         class_counts[class_name] = class_counts.get(class_name, 0) + 1
 
-        scale = inherited_scale
-        if class_name == "Model":
-            scale *= _number(props.get("Scale"), 1.0)
+        # Model.Scale is not applied: saved parts already carry their scaled
+        # CFrames and Sizes (ScaleTo rewrites them; Scale only records the factor).
 
         if class_name == "SpecialMesh":
             mesh_type = _enum_name(props.get("MeshType"), "FileMesh")
@@ -221,8 +252,8 @@ def build_scene_dump(
         if class_name == "Beam":
             beams.append({
                 "path": path,
-                "attachment0": props.get("Attachment0"),
-                "attachment1": props.get("Attachment1"),
+                "attachment0": ref_path(node, "Attachment0"),
+                "attachment1": ref_path(node, "Attachment1"),
                 "width0": _number(props.get("Width0"), 0.2),
                 "width1": _number(props.get("Width1"), 0.2),
                 "curveSize0": _number(props.get("CurveSize0"), 0.0),
@@ -235,8 +266,8 @@ def build_scene_dump(
             history_source = trail_history_source(node)
             trails.append({
                 "path": path,
-                "attachment0": props.get("Attachment0"),
-                "attachment1": props.get("Attachment1"),
+                "attachment0": ref_path(node, "Attachment0"),
+                "attachment1": ref_path(node, "Attachment1"),
                 "lifetime": _number(props.get("Lifetime"), 2.0),
                 "minLength": _number(props.get("MinLength"), 0.1),
                 "maxLength": _number(props.get("MaxLength"), 0.0),
@@ -341,14 +372,15 @@ def build_scene_dump(
 
         if class_name in PART_CLASSES:
             cf = props.get("CFrame") or {}
-            bounds = _part_aabb(props, scale)
+            bounds = _part_aabb(props)
             material_name = _enum_name(props.get("Material"), "Plastic")
             entry = {
                 "path": path,
                 "class": class_name,
                 "name": node.get("name"),
-                "position": [round(_number(cf.get(axis)) * scale, 6) for axis in ("X", "Y", "Z")],
-                "size": [round(value * abs(scale), 6) for value in _vec3(props.get("Size"), 1.0)],
+                "position": [round(_number(cf.get(axis)), 6) for axis in ("X", "Y", "Z")],
+                "orientation": _orientation(cf),
+                "size": [round(value, 6) for value in _vec3(props.get("Size"), 1.0)],
                 "material": material_name,
                 "reflectance": _number(props.get("Reflectance"), 0.0),
                 "transparency": _number(props.get("Transparency"), 0.0),
@@ -384,6 +416,8 @@ def build_scene_dump(
                 fallback_counts[class_name] = fallback_counts.get(class_name, 0) + 1
             if material_name not in SUPPORTED_MATERIALS:
                 material_fallback_counts[material_name] = material_fallback_counts.get(material_name, 0) + 1
+            if material_name not in {"Plastic", "SmoothPlastic"}:
+                experimental_materials += 1
 
         if class_name in {"Decal", "Texture"}:
             uri = props.get("Texture")
@@ -398,10 +432,10 @@ def build_scene_dump(
             })
 
         for child in _children(node):
-            visit(child, f"{path}/{_path_name(child)}", scale, in_lighting, node)
+            visit(child, child["path"], in_lighting, node)
 
     for root in data.get("roots", []):
-        visit(root, _path_name(root), 1.0, root.get("className") == "Lighting", None)
+        visit(root, root["path"], root.get("className") == "Lighting", None)
 
     bounds = None
     if nodes and all(math.isfinite(value) for value in overall_min + overall_max):
@@ -416,7 +450,7 @@ def build_scene_dump(
     if preferred is None and cameras:
         preferred = cameras[0]["path"]
 
-    return {
+    return stamp("scene-dump", {
         "source": data.get("sourcePath"),
         "bounds": bounds,
         "parts": nodes,
@@ -436,7 +470,35 @@ def build_scene_dump(
         "meshReferences": mesh_references,
         "unsupportedVisualClasses": dict(sorted(unsupported_counts.items())),
         "classCounts": dict(sorted(class_counts.items())),
-    }
+        "experimental": _experimental(class_counts, experimental_materials),
+    })
+
+
+# Rough approximations (docs/GOAL.md): present in the render, but not to be trusted
+# the way Part geometry, cameras and UI layout are.
+EXPERIMENTAL_CLASSES = (
+    "Atmosphere", "Beam", "Decal", "MeshPart", "ParticleEmitter", "PointLight", "Sky",
+    "SpecialMesh", "SpotLight", "SurfaceLight", "Texture", "Trail",
+)
+
+
+def _experimental(class_counts: dict[str, int], materials: int) -> dict[str, int]:
+    found = {name: class_counts[name] for name in EXPERIMENTAL_CLASSES if class_counts.get(name)}
+    if materials:
+        found["Material"] = materials
+    return dict(sorted(found.items()))
+
+
+def notes_line(scene_dump: dict) -> str:
+    """One stderr line: what in this render is a fallback, unsupported, or experimental."""
+    experimental = ",".join(f"{name}x{count}" for name, count in scene_dump["experimental"].items())
+    missing_assets = sum(1 for item in scene_dump["assetReferences"] if not item["available"])
+    return (
+        f"notes  geometry-fallbacks={sum(scene_dump['fallbacks'].values())} "
+        f"material-fallbacks={sum(scene_dump['materialFallbacks'].values())} "
+        f"unsupported-visuals={sum(scene_dump['unsupportedVisualClasses'].values())} "
+        f"missing-assets={missing_assets} experimental={experimental or 'none'}"
+    )
 
 
 def dump_json(scene_dump: dict) -> str:

@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """CLI checks: the three subcommands a human (or an agent) actually types.
 
-These run the real `bin/rhr`, not the functions behind it: an argument parser that
+These run the real `rhr` CLI (`python -m rhr`), not the functions behind it: an argument parser that
 silently drops a flag, or a shim that does not find the venv, has to fail here.
 
-Run: .venv/bin/python tests/test_cli.py
+Run: python tests/test_cli.py
 """
 
 from __future__ import annotations
@@ -16,7 +16,7 @@ import sys
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
-RHR = REPO / "bin" / "rhr"
+RHR = [sys.executable, "-m", "rhr"]
 FIXTURE = REPO / "tests" / "fixtures" / "grid_offset.rbxmx"
 OUT = REPO / "out" / "cli"
 
@@ -31,7 +31,7 @@ def check(ok: bool, message: str) -> None:
 
 def run(*args: str) -> subprocess.CompletedProcess:
     return subprocess.run(
-        [str(RHR), *args], capture_output=True, text=True, cwd=str(REPO), timeout=300
+        [*RHR, *args], capture_output=True, text=True, cwd=str(REPO), timeout=300
     )
 
 
@@ -92,7 +92,8 @@ def main() -> int:
     proc = run("layout", str(FIXTURE), "--viewport", "400x300", "--out", str(layout_out))
     check(proc.returncode == 0, f"rhr layout exits 0 ({proc.stderr.strip()[:120] or 'clean'})")
     if layout_out.exists():
-        dump = json.loads(layout_out.read_text())
+        document = json.loads(layout_out.read_text())
+        dump = document["rects"]
         check(len(dump) == 5, f"the layout dump has every drawn node ({len(dump)})")
         # Two independent outputs must agree: the inset the CLI reports on stderr
         # and the root rect in the dump. Neither is asserted against a constant.
@@ -116,6 +117,12 @@ def main() -> int:
 
     print("cli: ok" if not failures else f"cli: {len(failures)} failed")
     return 1 if failures else 0
+
+
+def test_main():
+    from _harness import run_main
+
+    run_main(main)
 
 
 if __name__ == "__main__":

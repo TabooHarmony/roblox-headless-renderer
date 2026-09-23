@@ -3,20 +3,15 @@
 from __future__ import annotations
 
 import http.server
-import html
 import json
 import os
-import re
-import shutil
 import struct
-import subprocess
-import tempfile
 import threading
-import time
 from pathlib import Path
 from urllib.parse import urlencode, urlparse
 
-REPO = Path(__file__).resolve().parents[2]
+from rhr.paths import ICON_CACHE, MESH_CACHE, PACKAGE, PARTICLE_CACHE
+
 
 
 class _SceneHandler(http.server.SimpleHTTPRequestHandler):
@@ -24,10 +19,12 @@ class _SceneHandler(http.server.SimpleHTTPRequestHandler):
     metadata_sink: dict | None = None
     asset_manifest_payload: bytes = b"{}"
     mesh_manifest_payload: bytes = b"{}"
+    asset_files: dict[str, Path] = {}
     mesh_files: dict[str, Path] = {}
+    ir_cache: dict | None = None
 
     def __init__(self, *args, **kwargs):
-        kwargs["directory"] = str(REPO)
+        kwargs["directory"] = str(PACKAGE)
         super().__init__(*args, **kwargs)
 
     def do_GET(self):  # noqa: N802, required by SimpleHTTPRequestHandler
@@ -56,15 +53,16 @@ class _SceneHandler(http.server.SimpleHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(payload)
             return
-        if request_path.startswith("/__rhr_mesh__/"):
+        if request_path.startswith(("/__rhr_mesh__/", "/__rhr_asset__/")):
+            files = self.mesh_files if request_path.startswith("/__rhr_mesh__/") else self.asset_files
             asset_id = request_path.rsplit("/", 1)[-1]
-            path = self.mesh_files.get(asset_id)
+            path = files.get(asset_id)
             if path is None or not path.is_file():
                 self.send_error(404)
                 return
             payload = path.read_bytes()
             self.send_response(200)
-            self.send_header("Content-Type", "application/octet-stream")
+            self.send_header("Content-Type", self.guess_type(str(path)))
             self.send_header("Content-Length", str(len(payload)))
             self.end_headers()
             self.wfile.write(payload)
@@ -72,6 +70,9 @@ class _SceneHandler(http.server.SimpleHTTPRequestHandler):
         super().do_GET()
 
     def do_POST(self):  # noqa: N802, required by SimpleHTTPRequestHandler
+        if urlparse(self.path).path == "/__rhr_gui__.png":
+            self._render_gui()
+            return
         if urlparse(self.path).path == "/__rhr_camera__.json" and self.metadata_sink is not None:
             try:
                 length = int(self.headers.get("Content-Length", "0"))
@@ -85,46 +86,56 @@ class _SceneHandler(http.server.SimpleHTTPRequestHandler):
             return
         self.send_error(404)
 
+    def _render_gui(self) -> None:
+        """Draw an in-world GUI subtree with the 2D engine at the size the page asks for."""
+        import tempfile
+
+        from rhr.ir import load_ir
+        from rhr.pipeline import render_gui_node
+
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+            request = json.loads(self.rfile.read(length) or b"{}")
+            if self.ir_cache is None:
+                type(self).ir_cache = load_ir(self.ir_path)
+            with tempfile.TemporaryDirectory(prefix="rhr-gui-") as tmp:
+                out = render_gui_node(
+                    self.ir_cache, str(request["path"]), int(request["width"]), int(request["height"]),
+                    Path(tmp) / "gui.png",
+                )
+                payload = out.read_bytes()
+        except Exception as exc:  # reported to the page, which fails the render loudly
+            body = f"{type(exc).__name__}: {exc}".encode()
+            self.send_response(500)
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+        self.send_response(200)
+        self.send_header("Content-Type", "image/png")
+        self.send_header("Content-Length", str(len(payload)))
+        self.end_headers()
+        self.wfile.write(payload)
+
     def log_message(self, format, *_args):
         return
-
-
-def _chrome_path() -> str:
-    candidates = [
-        os.environ.get("RHR_CHROME"),
-        str(Path.home() / ".cache/ms-playwright/chromium_headless_shell-1228/chrome-headless-shell-linux64/chrome-headless-shell"),
-        str(Path.home() / ".cache/ms-playwright/chromium-1228/chrome-linux64/chrome"),
-        shutil.which("google-chrome"),
-        shutil.which("chromium"),
-        shutil.which("chrome"),
-    ]
-    for candidate in candidates:
-        if candidate and Path(candidate).is_file() and os.access(candidate, os.X_OK):
-            return candidate
-    raise RuntimeError("no Chromium executable found; set RHR_CHROME to a headless Chrome binary")
 
 
 _ASSET_EXTENSIONS = ("png", "webp", "jpg", "jpeg", "svg")
 
 
-def _asset_manifest(roots: list[Path]) -> dict[str, str]:
-    """Return asset-id -> repo-relative URL, preserving root/extension priority."""
-    manifest: dict[str, str] = {}
-    repo = REPO.resolve()
+def _asset_files(roots: list[Path]) -> dict[str, Path]:
+    """Return asset-id -> local image file, preserving root/extension priority."""
+    found: dict[str, Path] = {}
     for root in roots:
-        resolved = root.resolve()
-        if not resolved.is_dir():
+        if not root.is_dir():
             continue
-        try:
-            relative_root = resolved.relative_to(repo)
-        except ValueError as exc:
-            raise ValueError("asset directory must be inside the repository") from exc
         for extension in _ASSET_EXTENSIONS:
-            for path in sorted(resolved.glob(f"*.{extension}")):
-                if not path.stem.isdigit() or path.stem in manifest:
-                    continue
-                manifest[path.stem] = "/" + (relative_root / path.name).as_posix()
-    return manifest
+            for path in sorted(root.glob(f"*.{extension}")):
+                if path.stem.isdigit() and path.stem not in found:
+                    found[path.stem] = path.resolve()
+    return found
 
 
 def _mesh_files(roots: list[Path]) -> dict[str, Path]:
@@ -154,11 +165,10 @@ def _render_browser(
     page: str,
     query: str = "",
     metadata_sink: dict | None = None,
-    asset_manifest: dict[str, str] | None = None,
+    asset_files: dict[str, Path] | None = None,
     mesh_files: dict[str, Path] | None = None,
 ) -> tuple[int, int]:
     """Render one local browser page and return its verified PNG dimensions."""
-    chrome = _chrome_path()
     out.parent.mkdir(parents=True, exist_ok=True)
     handler = type(
         "RHRSceneHandler",
@@ -166,7 +176,11 @@ def _render_browser(
         {
             "ir_path": ir_path,
             "metadata_sink": metadata_sink,
-            "asset_manifest_payload": json.dumps(asset_manifest or {}).encode(),
+            "asset_manifest_payload": json.dumps({
+                asset_id: f"/__rhr_asset__/{asset_id}"
+                for asset_id in (asset_files or {})
+            }).encode(),
+            "asset_files": asset_files or {},
             "mesh_manifest_payload": json.dumps({
                 asset_id: f"/__rhr_mesh__/{asset_id}"
                 for asset_id in (mesh_files or {})
@@ -183,6 +197,7 @@ def _render_browser(
     url = f"http://127.0.0.1:{server.server_port}/{page}"
     if query:
         url += "?" + query
+    transparent = "mode=viewport" in query or "effectsOnly=1" in query
     try:
         persistent_setting = os.environ.get("RHR_PERSISTENT_BROWSER")
         if persistent_setting is None:
@@ -194,49 +209,11 @@ def _render_browser(
         if persistent:
             from rhr.browser_session import render as render_persistent
 
-            render_persistent(
-                chrome,
-                url=url,
-                out=out,
-                width=width,
-                height=height,
-                transparent=("mode=viewport" in query or "effectsOnly=1" in query),
-            )
+            render_persistent(url=url, out=out, width=width, height=height, transparent=transparent)
         else:
-            profile = tempfile.mkdtemp(prefix="rhr-chrome-")
-            try:
-                command = [
-                    chrome,
-                    "--no-sandbox",
-                    "--disable-dev-shm-usage",
-                    "--disable-background-networking",
-                    "--hide-scrollbars",
-                    f"--user-data-dir={profile}",
-                    f"--window-size={width},{height}",
-                    "--run-all-compositor-stages-before-draw",
-                    "--virtual-time-budget=2000",
-                    "--dump-dom",
-                    f"--screenshot={out}",
-                    url,
-                ]
-                if not chrome.endswith("chrome-headless-shell"):
-                    command.insert(1, "--headless=new")
-                if "mode=viewport" in query or "effectsOnly=1" in query:
-                    command.insert(1, "--default-background-color=00000000")
-                try:
-                    result = subprocess.run(command, capture_output=True, text=True, timeout=45)
-                except subprocess.TimeoutExpired as exc:
-                    raise RuntimeError("Chromium scene render timed out after 45s") from exc
-                if result.returncode:
-                    detail = (result.stderr or result.stdout).strip().splitlines()[-5:]
-                    raise RuntimeError("Chromium scene render failed: " + " | ".join(detail))
-                error_match = re.search(r'data-rhr-error="([^"]*)"', result.stdout or "")
-                if error_match:
-                    raise RuntimeError(
-                        "browser page error: " + html.unescape(error_match.group(1))
-                    )
-            finally:
-                shutil.rmtree(profile, ignore_errors=True)
+            from rhr.browser_render import render_once
+
+            render_once(url=url, out=out, width=width, height=height, transparent=transparent)
     finally:
         server.shutdown()
         thread.join(timeout=2)
@@ -249,25 +226,11 @@ def _render_browser(
     return actual
 
 
-def _ir_has_path(ir_path: Path, wanted: str) -> bool:
-    """Return whether the emitted IR contains the exact slash-separated node path."""
-    from rhr.ir import load_ir
+def _check_path(ir_path: Path, wanted: str) -> None:
+    """Raise unless `wanted` names exactly one node in the IR (see rhr.ir.resolve_path)."""
+    from rhr.ir import load_ir, resolve_path
 
-    data = load_ir(ir_path)
-
-    def descend(node: dict, current: str) -> bool:
-        if current == wanted:
-            return True
-        for child in (node.get("children") or {}).values() if isinstance(node.get("children"), dict) else node.get("children") or []:
-            name = child.get("name") or child.get("className")
-            if descend(child, f"{current}/{name}"):
-                return True
-        return False
-
-    for root in data.get("roots", []):
-        if descend(root, root.get("name") or root.get("className")):
-            return True
-    return False
+    resolve_path(load_ir(ir_path)["roots"], wanted)
 
 
 def _vector_query(value: tuple[float, float, float] | None) -> str | None:
@@ -301,8 +264,10 @@ def render_scene(
     if fov is not None:
         query_values["fov"] = fov
     if focus:
-        if not _ir_has_path(ir_path, focus):
-            raise ValueError(f"focus path not found in IR: {focus}")
+        try:
+            _check_path(ir_path, focus)
+        except ValueError as exc:
+            raise ValueError(f"focus {exc}") from None
         query_values["focus"] = focus
     if view:
         query_values["view"] = view
@@ -312,32 +277,27 @@ def render_scene(
         query_values["reportCamera"] = "1"
     if texture_dir is not None:
         resolved = texture_dir.resolve()
-        try:
-            texture_root = resolved.relative_to(REPO.resolve()).as_posix()
-        except ValueError as exc:
-            raise ValueError("texture directory must be inside the repository") from exc
         if not resolved.is_dir():
             raise ValueError(f"no such texture directory: {texture_dir}")
-        query_values["textureDir"] = texture_root
         asset_roots.append(resolved)
-    asset_roots.append(REPO / "assets/cache/icons")
+    asset_roots.append(ICON_CACHE)
     mesh_roots = []
     if mesh_dir is not None:
         resolved_mesh_dir = mesh_dir.resolve()
         if not resolved_mesh_dir.is_dir():
             raise ValueError(f"no such mesh directory: {mesh_dir}")
         mesh_roots.append(resolved_mesh_dir)
-    mesh_roots.append(REPO / "assets/cache/meshes")
+    mesh_roots.append(MESH_CACHE)
     cached_meshes = _mesh_files(mesh_roots)
     return _render_browser(
         ir_path,
         out,
         width,
         height,
-        "src/rhr/scene/index.html",
+        "scene/index.html",
         urlencode(query_values),
         metadata_sink=camera_state_out,
-        asset_manifest=_asset_manifest(asset_roots),
+        asset_files=_asset_files(asset_roots),
         mesh_files=cached_meshes,
     )
 
@@ -352,14 +312,16 @@ def render_viewport(
     """Render one ViewportFrame subtree to a transparent PNG."""
     if width <= 0 or height <= 0:
         raise ValueError("ViewportFrame dimensions must be positive")
-    if not _ir_has_path(ir_path, node_path):
-        raise ValueError(f"ViewportFrame path not found in IR: {node_path}")
+    try:
+        _check_path(ir_path, node_path)
+    except ValueError as exc:
+        raise ValueError(f"ViewportFrame {exc}") from None
     return _render_browser(
         ir_path,
         out,
         width,
         height,
-        "src/rhr/scene/index.html",
+        "scene/index.html",
         urlencode({"mode": "viewport", "path": node_path}),
     )
 
@@ -386,17 +348,11 @@ def render_particle_sheet(
         raise ValueError("particle capture times must be non-negative")
     if texture_dir is not None:
         resolved = texture_dir.resolve()
-        try:
-            texture_root = resolved.relative_to(REPO.resolve()).as_posix()
-        except ValueError as exc:
-            raise ValueError("texture directory must be inside the repository") from exc
         if not resolved.is_dir():
             raise ValueError(f"no such texture directory: {texture_dir}")
-    else:
-        texture_root = None
     asset_roots = [
-        resolved if texture_dir is not None else REPO / "assets/cache/particles",
-        REPO / "assets/cache/icons",
+        resolved if texture_dir is not None else PARTICLE_CACHE,
+        ICON_CACHE,
     ]
     query_values = {
         "width": width,
@@ -405,8 +361,6 @@ def render_particle_sheet(
         "seed": seed,
         "burst": burst,
     }
-    if texture_root:
-        query_values["textureDir"] = texture_root
     if effects_only:
         query_values["effectsOnly"] = "1"
     if camera is not None:
@@ -425,7 +379,7 @@ def render_particle_sheet(
         out,
         width,
         height * len(times),
-        "src/rhr/particles/index.html",
+        "particles/index.html",
         query,
-        asset_manifest=_asset_manifest(asset_roots),
+        asset_files=_asset_files(asset_roots),
     )

@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import sys
 import subprocess
 import tempfile
 import json
@@ -12,6 +13,7 @@ from typing import cast
 from PIL import Image
 
 ROOT = Path(__file__).resolve().parents[1]
+RHR = [sys.executable, "-m", "rhr"]
 
 
 def main() -> None:
@@ -19,7 +21,7 @@ def main() -> None:
         output = Path(directory) / "billboard.png"
         ir_output = Path(directory) / "billboard.json"
         subprocess.run(
-            [str(ROOT / "bin/rhr"), "ir", str(ROOT / "tests/fixtures/billboard_gui.rbxmx"), "--out", str(ir_output)],
+            [*RHR, "ir", str(ROOT / "tests/fixtures/billboard_gui.rbxmx"), "--out", str(ir_output)],
             cwd=ROOT,
             check=True,
             stdout=subprocess.PIPE,
@@ -40,7 +42,7 @@ def main() -> None:
         assert billboards[0]["props"].get("ExtentsOffset") == {"X": 1, "Y": 0, "Z": 0, "_t": "Vector3"}
         subprocess.run(
             [
-                str(ROOT / "bin/rhr"),
+                *RHR,
                 "scene",
                 str(ROOT / "tests/fixtures/billboard_gui.rbxmx"),
                 "--viewport",
@@ -81,7 +83,7 @@ def main() -> None:
         output = Path(directory) / "billboard-offset.png"
         subprocess.run(
             [
-                str(ROOT / "bin/rhr"), "scene",
+                *RHR, "scene",
                 str(ROOT / "tests/fixtures/billboard_offset.rbxmx"),
                 "--viewport", "500x350", "--out", str(output),
             ], cwd=ROOT, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
@@ -93,7 +95,9 @@ def main() -> None:
                     pixel = cast(tuple[int, int, int], image.getpixel((x, y)))
                     if pixel[0] > 180 and 80 < pixel[1] < 190 and pixel[2] < 90:
                         orange.append((x, y))
-            assert len(orange) > 3000, "offset-sized BillboardGui panel did not render"
+            # The 120x32 panel is 3840 px; the label's text (drawn by the 2D engine
+            # in the model's font) covers part of it. The exact bbox checks follow.
+            assert len(orange) > 2500, "offset-sized BillboardGui panel did not render"
             left = min(x for x, _ in orange)
             right = max(x for x, _ in orange)
             top = min(y for _, y in orange)
@@ -107,7 +111,7 @@ def main() -> None:
         output = Path(directory) / "billboard-layout.png"
         subprocess.run(
             [
-                str(ROOT / "bin/rhr"), "scene",
+                *RHR, "scene",
                 str(ROOT / "tests/fixtures/inworld_child_layout.rbxmx"),
                 "--viewport", "500x350", "--out", str(output),
             ], cwd=ROOT, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
@@ -125,6 +129,12 @@ def main() -> None:
             assert 142 < min(y for _, y in orange) < 154
             assert 153 < max(y for _, y in orange) < 165
     print("billboard: ok")
+
+
+def test_main():
+    from _harness import run_main
+
+    run_main(main)
 
 
 if __name__ == "__main__":

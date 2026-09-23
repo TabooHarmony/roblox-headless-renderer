@@ -31,14 +31,16 @@ def main():
         for text in ('Hello world', 'Hello\nworld'):
             node = dict(base, text=text, textScaled=scaled)
             target = out / f'{scaled}-{len(images)}.png'
-            with patch.object(text_renderers, '_wrap_lines', wraps=text_fit._wrap_lines) as wrap:
+            with patch.object(text_renderers, '_wrap_lines', wraps=text_fit._wrap_lines) as wrap, \
+                    patch.object(text_renderers, 'wrap_lines_table', wraps=text_fit.wrap_lines_table) as table_wrap:
                 render_object(node, target, 240, 60)
             # Advance-table mode (plan 0.2a) skips the wrapper for a
             # no-newline string the table proves fits one line: measured
             # Studio keeps it on one line at the table's narrower advances.
-            # Explicit newlines always reach the wrapper.
+            # Explicit newlines always reach a wrapper: the font measurer, or the
+            # table wrapper when the family has a Studio advance table (FredokaOne).
             if '\n' in text:
-                check(wrap.called, f'{scaled}/{text!r}: plain wrapped path executed')
+                check(wrap.called or table_wrap.called, f'{scaled}/{text!r}: plain wrapped path executed')
             pixels = np.array(Image.open(target).convert('RGBA'))
             occupied = (pixels[:,:,3] > 128).any(axis=1)
             bands = int(np.count_nonzero(occupied & ~np.r_[False, occupied[:-1]]))
@@ -50,7 +52,8 @@ def main():
         check(images[0] != images[1], f'{scaled}: explicit break changes output')
     # Same wrapper is used by font fitting; preserve blank and edge paragraphs.
     import skia
-    font = skia.Font(skia.Typeface.MakeFromFile(str(REPO / "vendor/pinevex/src/ui_engine/fonts/FredokaOne-Regular.ttf")), 20)
+    from ui_engine.text_fonts import _typeface_from_file
+    font = skia.Font(_typeface_from_file(str(REPO / "src/rhr/vendor/pinevex/src/ui_engine/fonts/FredokaOne-Regular.ttf")), 20)
     for text, expected in [('A\n\nB', ['A','','B']), ('\nA\n', ['', 'A', '']),
                            ('A B\nC D', ['A B','C D']), ('', [''])]:
         check(text_fit._wrap_lines(text, font, 1000) == expected, f'paragraphs {text!r}')
@@ -99,6 +102,12 @@ def main():
             render_object(node, repeat, 240, 160)
             check(literal.read_bytes() == repeat.read_bytes(), 'rich deterministic bytes')
     return int(status)
+
+
+def test_main():
+    from _harness import run_main
+
+    run_main(main)
 
 
 if __name__ == '__main__':

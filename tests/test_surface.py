@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import sys
 import subprocess
 import tempfile
 from pathlib import Path
@@ -11,6 +12,7 @@ from typing import cast
 from PIL import Image
 
 ROOT = Path(__file__).resolve().parents[1]
+RHR = [sys.executable, "-m", "rhr"]
 
 
 def main() -> None:
@@ -18,7 +20,7 @@ def main() -> None:
         output = Path(directory) / "surface.png"
         subprocess.run(
             [
-                str(ROOT / "bin/rhr"), "scene",
+                *RHR, "scene",
                 str(ROOT / "tests/fixtures/surface_gui.rbxmx"),
                 "--viewport", "500x350", "--out", str(output),
             ], cwd=ROOT, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
@@ -41,7 +43,7 @@ def main() -> None:
         output = Path(directory) / "surface-depth.png"
         subprocess.run(
             [
-                str(ROOT / "bin/rhr"), "scene",
+                *RHR, "scene",
                 str(ROOT / "tests/fixtures/surface_depth.rbxmx"),
                 "--viewport", "300x300", "--out", str(output),
             ], cwd=ROOT, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
@@ -56,7 +58,7 @@ def main() -> None:
         output = Path(directory) / "surface-zoffset.png"
         subprocess.run(
             [
-                str(ROOT / "bin/rhr"), "scene",
+                *RHR, "scene",
                 str(ROOT / "tests/fixtures/surface_zoffset.rbxmx"),
                 "--viewport", "300x300", "--out", str(output),
             ], cwd=ROOT, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
@@ -71,23 +73,43 @@ def main() -> None:
         output = Path(directory) / "surface-max-distance.png"
         subprocess.run(
             [
-                str(ROOT / "bin/rhr"), "scene",
+                *RHR, "scene",
                 str(ROOT / "tests/fixtures/surface_max_distance.rbxmx"),
                 "--viewport", "300x300", "--out", str(output),
             ], cwd=ROOT, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
         )
-        with Image.open(output).convert("RGB") as image:
+        # Culled means the frame is exactly what it would be without the SurfaceGui.
+        import json
+
+        ir_path = Path(directory) / "surface-max-distance.json"
+        subprocess.run([*RHR, "ir", str(ROOT / "tests/fixtures/surface_max_distance.rbxmx"), "--out", str(ir_path)],
+                       cwd=ROOT, check=True, capture_output=True)
+        data = json.loads(ir_path.read_text(encoding="utf-8"))
+
+        def strip(node: dict) -> None:
+            node["children"] = [child for child in node.get("children") or [] if child.get("className") != "SurfaceGui"]
+            for child in node["children"]:
+                strip(child)
+
+        for root in data["roots"]:
+            strip(root)
+        without = Path(directory) / "without-surfacegui.json"
+        without.write_text(json.dumps(data), encoding="utf-8")
+        reference = Path(directory) / "without-surfacegui.png"
+        subprocess.run([*RHR, "scene", str(without), "--viewport", "300x300", "--out", str(reference)],
+                       cwd=ROOT, check=True, capture_output=True)
+        with Image.open(output).convert("RGB") as image, Image.open(reference).convert("RGB") as expected_image:
             center = cast(tuple[int, int, int], image.getpixel((150, 150)))
-            expected_background = (179, 186, 199)
+            expected_background = cast(tuple[int, int, int], expected_image.getpixel((150, 150)))
             assert max(abs(actual - expected) for actual, expected in zip(center, expected_background)) <= 8, (
-                f"SurfaceGui beyond MaxDistance still rendered: {center}"
+                f"SurfaceGui beyond MaxDistance still rendered: {center} vs {expected_background}"
             )
 
     with tempfile.TemporaryDirectory(prefix="rhr-surface-oblique-test-") as directory:
         output = Path(directory) / "surface-oblique.png"
         subprocess.run(
             [
-                str(ROOT / "bin/rhr"), "scene",
+                *RHR, "scene",
                 str(ROOT / "tests/fixtures/surface_oblique.rbxmx"),
                 "--viewport", "500x350", "--out", str(output),
             ], cwd=ROOT, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
@@ -109,7 +131,7 @@ def main() -> None:
         output = Path(directory) / "surface-right.png"
         subprocess.run(
             [
-                str(ROOT / "bin/rhr"), "scene",
+                *RHR, "scene",
                 str(ROOT / "tests/fixtures/surface_right.rbxmx"),
                 "--viewport", "500x350", "--out", str(output),
             ], cwd=ROOT, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
@@ -131,7 +153,7 @@ def main() -> None:
         output = Path(directory) / "surface-top.png"
         subprocess.run(
             [
-                str(ROOT / "bin/rhr"), "scene",
+                *RHR, "scene",
                 str(ROOT / "tests/fixtures/surface_top.rbxmx"),
                 "--viewport", "500x350", "--out", str(output),
             ], cwd=ROOT, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
@@ -153,7 +175,7 @@ def main() -> None:
         output = Path(directory) / "surface-left.png"
         subprocess.run(
             [
-                str(ROOT / "bin/rhr"), "scene",
+                *RHR, "scene",
                 str(ROOT / "tests/fixtures/surface_left.rbxmx"),
                 "--viewport", "500x350", "--out", str(output),
             ], cwd=ROOT, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
@@ -175,7 +197,7 @@ def main() -> None:
         output = Path(directory) / "surface-bottom.png"
         subprocess.run(
             [
-                str(ROOT / "bin/rhr"), "scene",
+                *RHR, "scene",
                 str(ROOT / "tests/fixtures/surface_bottom.rbxmx"),
                 "--viewport", "500x350", "--out", str(output),
             ], cwd=ROOT, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
@@ -197,7 +219,7 @@ def main() -> None:
         output = Path(directory) / "surface-occlusion.png"
         subprocess.run(
             [
-                str(ROOT / "bin/rhr"), "scene",
+                *RHR, "scene",
                 str(ROOT / "tests/fixtures/surface_occlusion.rbxmx"),
                 "--viewport", "500x350", "--out", str(output),
             ], cwd=ROOT, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
@@ -216,6 +238,12 @@ def main() -> None:
             assert green > 7000, "unoccluded non-AlwaysOnTop SurfaceGui did not render"
             assert yellow > 7000, "AlwaysOnTop SurfaceGui did not survive occlusion"
     print("surface gui: ok")
+
+
+def test_main():
+    from _harness import run_main
+
+    run_main(main)
 
 
 if __name__ == "__main__":

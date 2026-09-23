@@ -1,8 +1,9 @@
 # Changelog
 
-This public-source cut is a v0.1 alpha candidate and has not yet been tagged.
+All notable changes are recorded here. The repository has not been tagged yet, so
+these notes describe the current unreleased tree.
 
-## Unreleased (v0.1 alpha candidate)
+## Unreleased
 
 ### Added
 
@@ -15,8 +16,8 @@ This public-source cut is a v0.1 alpha candidate and has not yet been tagged.
   Atmosphere, local mesh assets, Beam and Trail ribbons, and in-world UI baselines.
 - ViewportFrame previews and deterministic ParticleEmitter simulation with bursts,
   shape volumes, flipbooks, brightness, transparency, and depth offset.
-- Authored regression fixtures, pixel and silhouette comparison tools, and a
-  deterministic end-to-end test suite. Private Studio captures are not distributed.
+- Studio ground-truth fixtures, pixel and silhouette comparison tools, and a
+  deterministic end-to-end test suite.
 
 ### Changed
 

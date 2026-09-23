@@ -1,0 +1,81 @@
+# Load every bundled font through one FreeType font manager, not the platform default
+#
+# Apply from src/rhr/vendor/pinevex:  git apply -p1 < patches/0016-freetype-font-manager.patch
+--- a/src/ui_engine/text_fonts.py
++++ b/src/ui_engine/text_fonts.py
+@@ -10,6 +10,15 @@
+ # Keyed by both the rbxasset family id ("PressStart2P") and the TTF family name.
+ _PIXEL_FONT_FAMILIES = set(_PIXEL_FONT_ALIAS_EM) | {"PressStart2P"}
+ 
++# Every bundled font file is loaded through one FreeType font manager, never the
++# platform default (DirectWrite on Windows, CoreText on macOS), so the same TTF
++# rasterizes to the same pixels on every OS.
++_FREETYPE_FONT_MGR = skia.FontMgr.New_Custom_Empty()
++
++
++def _typeface_from_file(path: str) -> skia.Typeface | None:
++    return _FREETYPE_FONT_MGR.makeFromFile(path)
++
+ 
+ 
+ def _iter_configured_font_dirs() -> list[Path]:
+@@ -36,7 +45,7 @@
+         for path in paths:
+             if not path.exists():
+                 continue
+-            tf = skia.Typeface.MakeFromFile(str(path))
++            tf = _typeface_from_file(str(path))
+             if tf:
+                 return tf
+         return None
+@@ -178,12 +187,12 @@
+         for filename in _FALLBACK_FONT_FILES:
+             path = fonts_dir / filename
+             if path.exists():
+-                add_typeface(skia.Typeface.MakeFromFile(str(path)))
++                add_typeface(_typeface_from_file(str(path)))
+ 
+     # Do not ask the host system for fallback fonts in serverless runtimes.
+     # On Vercel this triggers Fontconfig lookups, which are noisy and unreliable.
+     for path in _iter_roblox_font_candidates():
+-        add_typeface(skia.Typeface.MakeFromFile(str(path)))
++        add_typeface(_typeface_from_file(str(path)))
+ 
+     return _fallback_typefaces
+ 
+@@ -656,7 +665,7 @@
+         fname = "ubuntu-italic.ttf" if italic else "ubuntu-regular.ttf"
+         roblox_path = roblox_fonts.get(fname)
+         if roblox_path and roblox_path.exists():
+-            tf = skia.Typeface.MakeFromFile(str(roblox_path))
++            tf = _typeface_from_file(str(roblox_path))
+             if tf:
+                 return tf
+ 
+@@ -668,7 +677,7 @@
+                 roblox_path = roblox_fonts.get(f"{stem}{suffix}".lower())
+                 if not roblox_path or not roblox_path.exists():
+                     continue
+-                tf = skia.Typeface.MakeFromFile(str(roblox_path))
++                tf = _typeface_from_file(str(roblox_path))
+                 if tf:
+                     return tf
+ 
+@@ -678,7 +687,7 @@
+             for stem in stems:
+                 path = fonts_dir / f"{stem}{suffix}"
+                 if path.exists():
+-                    tf = skia.Typeface.MakeFromFile(str(path))
++                    tf = _typeface_from_file(str(path))
+                     if tf:
+                         # For variable fonts, set the weight axis when possible.
+                         coord = skia.FontArguments.VariationPosition.Coordinate(
+@@ -717,7 +726,7 @@
+         for name in ("Montserrat-Regular.ttf", "SourceSansPro.ttf", "Roboto.ttf"):
+             path = fonts_dir / name
+             if path.exists():
+-                tf = skia.Typeface.MakeFromFile(str(path))
++                tf = _typeface_from_file(str(path))
+                 if tf:
+                     return tf
+     return skia.Typeface.MakeDefault()

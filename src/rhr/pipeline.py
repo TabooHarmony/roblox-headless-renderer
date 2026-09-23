@@ -12,26 +12,47 @@ render attributable: same renderer, same postprocess, only the parser differs.
 from __future__ import annotations
 
 import json
+import os
 import sys
 from pathlib import Path
 
-REPO = Path(__file__).resolve().parents[2]
-PINEVEX = REPO / "vendor" / "pinevex"
+from rhr.paths import ICONS_DIR, PINEVEX
+
 ENGINE = PINEVEX / "src"
 COMPONENT = PINEVEX / "web_demo" / "rbxm_parser_component"
 PRODUCT_OUTPUT = PINEVEX / "vendor" / "product_output"
+
+# The engine looks up faces by file name in these folders before its own bundled
+# fonts (text_fonts.py): a local Roblox install first (rhr.paths.roblox_font_dirs),
+# then RHR's own open-license copies of Roblox's builds (src/rhr/fonts).
+if "PINEVEX_RENDERER_ROBLOX_FONT_DIRS" not in os.environ:
+    from rhr.paths import FONTS, roblox_font_dirs
+
+    os.environ["PINEVEX_RENDERER_ROBLOX_FONT_DIRS"] = os.pathsep.join(
+        str(p) for p in [*roblox_font_dirs(), FONTS]
+    )
+
+
+def font_source() -> str:
+    """One line for stderr: which fonts text is drawn with."""
+    from rhr.paths import FONTS
+
+    dirs = [p for p in os.environ.get("PINEVEX_RENDERER_ROBLOX_FONT_DIRS", "").split(os.pathsep) if p]
+    install = [p for p in dirs if Path(p).resolve() != FONTS.resolve()]
+    if install:
+        return f"fonts  Roblox install: {install[0]}"
+    return ("fonts  bundled (no Roblox install found): faces Roblox does not license for "
+            "redistribution, such as Builder Sans, fall back to similar open fonts")
+
 
 for _p in (ENGINE, COMPONENT, PRODUCT_OUTPUT.parent):
     if str(_p) not in sys.path:
         sys.path.insert(0, str(_p))
 
 FONTS_DIR = ENGINE / "ui_engine" / "fonts"
-# Icon root for the renderer. The engine derives its asset cache from the parent of
-# this dir (`_asset_cache_dir`: <parent>/cache/icons/<asset_id>.png), so the cache
-# lives in assets/cache/icons and scripts/fetch_assets.py writes there. Kept out of
-# vendor/ so the vendored tree stays reconstructible against upstream.
-ASSETS_DIR = REPO / "assets"
-ICONS_DIR = ASSETS_DIR / "icon_library"
+# The engine's icon root (rhr.paths.ICONS_DIR). The engine derives its image cache
+# from the parent of this dir (`_asset_cache_dir`: <parent>/cache/icons/<asset_id>.png),
+# which is rhr.paths.ICON_CACHE, where scripts/fetch_assets.py writes.
 
 _SCREEN_GUI_CLASSES = {"ScreenGui", "SurfaceGui", "BillboardGui"}
 _RENDERABLE_CLASSES = {
@@ -112,6 +133,7 @@ def render_object(
 ) -> Path:
     from ui_engine.renderer import render_json
 
+    layout_rects = obj.pop("_layoutRects", None) if isinstance(obj, dict) else None
     out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     icons = Path(icons_dir) if icons_dir is not None else ICONS_DIR
@@ -125,6 +147,7 @@ def render_object(
         bg_color=bg_color,
         rect_map=rect_map,
         root_rect=root_rect,
+        layout_rects=layout_rects,
     )
     return out_path
 
@@ -213,20 +236,18 @@ def load_screens(
     from rhr.ir import load_ir
 
     topbar = insets.REFERENCE_TOPBAR_HEIGHT if topbar_height is None else topbar_height
-    raw = ir_to_raw_nodes(load_ir(ir_path))
+    ir = load_ir(ir_path)
+    ir_by_path = _index_paths(ir["roots"])
+    raw = ir_to_raw_nodes(ir)
     screens = _screen_nodes(raw, classes={"ScreenGui"} if screen_gui_only else None)
     if not screens:
         if screen_gui_only:
             return []
-        container = find_renderable(_strip_screens(raw))
-        if container is None:
-            if find_renderable(raw) is None:
-                raise ValueError("no renderable ScreenGui or GuiObject found in this tree")
-            # Every GUI lives under a disabled ScreenGui: an intentionally blank UI.
-            return []
-        inset = insets.for_nodes([container], topbar_height=topbar)
+        inset = insets.for_nodes(raw, topbar_height=topbar)
         x, y, w, h = inset.rect(width, height)
-        return [(to_pinevex_object([container], postprocess), Rect(x, y, w, h), inset, Path(ir_path).stem)]
+        obj = to_pinevex_object(raw, postprocess)
+        _attach_layout(obj, find_renderable(raw), ir_by_path, (x, y, w, h))
+        return [(obj, Rect(x, y, w, h), inset, Path(ir_path).stem)]
 
     # Bottom pane first: the UI outside the ScreenGuis (what a ScreenGui-less model has
     # always rendered), then each ScreenGui by DisplayOrder. A container pane has no
@@ -241,10 +262,57 @@ def load_screens(
     for node in panes:
         inset = insets.for_nodes([node], topbar_height=topbar)
         x, y, w, h = inset.rect(width, height)
-        out.append(
-            (to_pinevex_object([node], postprocess), Rect(x, y, w, h), inset, node.get("name", "ScreenGui"))
-        )
+        obj = to_pinevex_object([node], postprocess)
+        _attach_layout(obj, node, ir_by_path, (x, y, w, h))
+        out.append((obj, Rect(x, y, w, h), inset, node.get("name", "ScreenGui")))
     return out
+
+
+def _index_paths(roots: list[dict]) -> dict[str, dict]:
+    found: dict[str, dict] = {}
+
+    def walk(node: dict) -> None:
+        found[node["path"]] = node
+        for child in node.get("children") or []:
+            walk(child)
+
+    for root in roots:
+        walk(root)
+    return found
+
+
+def _attach_layout(obj: dict, pane: dict | None, ir_by_path: dict[str, dict], rect) -> None:
+    """Lay the pane out with rhr.ui_layout and hand the rects to the engine.
+
+    The engine draws at these rects (obj["_layoutRects"], read by render_object); its
+    own layout code only runs for objects this pass has no rect for. Under UIScale the
+    drawn text size and outline thickness scale with the object, as in Roblox.
+    """
+    from ui_engine.layout import Rect
+
+    from rhr.ui_layout import lay_out_pane
+
+    ir_node = ir_by_path.get((pane or {}).get("_path"))
+    if ir_node is None:
+        return
+    boxes = lay_out_pane(ir_node, rect)
+    obj["_layoutRects"] = {path: Rect(b.x, b.y, b.w, b.h) for path, b in boxes.items()}
+    scales = {path: b.scale for path, b in boxes.items() if abs(b.scale - 1.0) > 1e-9}
+    if not scales:
+        return
+
+    def walk(node: dict) -> None:
+        factor = scales.get(node.get("_path"))
+        if factor is not None:
+            if "textSize" in node:
+                node["textSize"] = float(node["textSize"]) * factor
+            for stroke in node.get("strokes") or []:
+                if isinstance(stroke, dict) and "thickness" in stroke:
+                    stroke["thickness"] = float(stroke["thickness"]) * factor
+        for child in node.get("children") or []:
+            walk(child)
+
+    walk(obj)
 
 
 def load_for_screen(
@@ -392,6 +460,28 @@ def render_ir(
     return render_screens(screens, out_path, width, height, bg_color, rect_map, icons_dir, source_ir=ir_path)
 
 
+MAX_GUI_CANVAS = 4096
+
+
+def render_gui_node(ir, node_path: str, width: int, height: int, out_path) -> Path:
+    """Render one BillboardGui/SurfaceGui subtree with the 2D engine at width x height.
+
+    In-world UI goes through the same renderer as ScreenGuis, laid out on the canvas
+    size Roblox would give it (the scene page computes that: camera distance for a
+    BillboardGui, face size x PixelsPerStud or CanvasSize for a SurfaceGui). Canvases
+    larger than MAX_GUI_CANVAS per side are clamped (see known-approximations).
+    """
+    from rhr.adapter import ir_node_to_raw
+    from rhr.ir import resolve_path
+
+    node = resolve_path(ir["roots"], node_path)
+    if node.get("className") not in {"BillboardGui", "SurfaceGui"}:
+        raise ValueError(f"{node_path} is a {node.get('className')}, not a BillboardGui or SurfaceGui")
+    width = max(1, min(int(width), MAX_GUI_CANVAS))
+    height = max(1, min(int(height), MAX_GUI_CANVAS))
+    return render_object(to_pinevex_object([ir_node_to_raw(node)]), out_path, width, height, (0, 0, 0, 0))
+
+
 def render_pinevex_json(
     json_path,
     out_path,
@@ -407,7 +497,7 @@ def render_pinevex_json(
     way. Used by the regression baseline.
     """
     return render_object(
-        json.loads(Path(json_path).read_text()),
+        json.loads(Path(json_path).read_text(encoding="utf-8")),
         out_path,
         width,
         height,

@@ -1,0 +1,10 @@
+{
+  "ClassName": "TextLabel",
+  "Properties": {
+    "Position": { "UDim2": [[0, 10], [0, 10]] },
+    "Size": { "UDim2": [[0, 80], [0, 24]] },
+    "Text": "rojo",
+    "BackgroundColor3": { "Color3": [0, 0, 1] },
+    "BorderSizePixel": 0
+  }
+}

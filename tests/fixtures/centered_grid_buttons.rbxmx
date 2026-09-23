@@ -1,0 +1,72 @@
+<roblox version="4">
+  <Item class="ScreenGui" referent="RBX0">
+    <Properties>
+      <string name="Name">Shop</string>
+    </Properties>
+    <Item class="Frame" referent="RBX1">
+      <Properties>
+        <string name="Name">Parts</string>
+        <UDim2 name="Position"><XS>0</XS><XO>20</XO><YS>0</YS><YO>20</YO></UDim2>
+        <UDim2 name="Size"><XS>0</XS><XO>360</XO><YS>0</YS><YO>200</YO></UDim2>
+        <token name="BorderSizePixel">0</token>
+      </Properties>
+      <Item class="UIGridLayout" referent="RBX2">
+        <Properties>
+          <UDim2 name="CellSize"><XS>0</XS><XO>50</XO><YS>0</YS><YO>40</YO></UDim2>
+          <UDim2 name="CellPadding"><XS>0</XS><XO>10</XO><YS>0</YS><YO>10</YO></UDim2>
+          <int name="FillDirectionMaxCells">4</int>
+          <token name="HorizontalAlignment">0</token>
+          <token name="SortOrder">0</token>
+        </Properties>
+      </Item>
+      <Item class="TextButton" referent="RBX10">
+        <Properties>
+          <string name="Name">Common</string>
+          <string name="Text">Common</string>
+          <UDim2 name="Size"><XS>0</XS><XO>0</XO><YS>0</YS><YO>0</YO></UDim2>
+          <token name="BorderSizePixel">0</token>
+        </Properties>
+      </Item>
+      <Item class="TextButton" referent="RBX11">
+        <Properties>
+          <string name="Name">Rare</string>
+          <string name="Text">Rare</string>
+          <UDim2 name="Size"><XS>0</XS><XO>0</XO><YS>0</YS><YO>0</YO></UDim2>
+          <token name="BorderSizePixel">0</token>
+        </Properties>
+      </Item>
+      <Item class="TextButton" referent="RBX12">
+        <Properties>
+          <string name="Name">Rare</string>
+          <string name="Text">Rare</string>
+          <UDim2 name="Size"><XS>0</XS><XO>0</XO><YS>0</YS><YO>0</YO></UDim2>
+          <token name="BorderSizePixel">0</token>
+        </Properties>
+      </Item>
+      <Item class="TextButton" referent="RBX13">
+        <Properties>
+          <string name="Name">Epic</string>
+          <string name="Text">Epic</string>
+          <UDim2 name="Size"><XS>0</XS><XO>0</XO><YS>0</YS><YO>0</YO></UDim2>
+          <token name="BorderSizePixel">0</token>
+        </Properties>
+      </Item>
+      <Item class="TextButton" referent="RBX14">
+        <Properties>
+          <string name="Name">Legendary</string>
+          <string name="Text">Legendary</string>
+          <UDim2 name="Size"><XS>0</XS><XO>0</XO><YS>0</YS><YO>0</YO></UDim2>
+          <token name="BorderSizePixel">0</token>
+        </Properties>
+      </Item>
+      <Item class="TextButton" referent="RBX15">
+        <Properties>
+          <string name="Name">Mythic</string>
+          <string name="Text">Mythic</string>
+          <UDim2 name="Size"><XS>0</XS><XO>0</XO><YS>0</YS><YO>0</YO></UDim2>
+          <token name="BorderSizePixel">0</token>
+        </Properties>
+      </Item>
+    </Item>
+  </Item>
+</roblox>

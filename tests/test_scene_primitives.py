@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import sys
 import json
 import subprocess
 import tempfile
@@ -11,7 +12,7 @@ from pathlib import Path
 from PIL import Image
 
 ROOT = Path(__file__).resolve().parents[1]
-RHR = ROOT / "bin" / "rhr"
+RHR = [sys.executable, "-m", "rhr"]
 BG = (32, 36, 43)
 
 
@@ -51,7 +52,7 @@ def render(shape: str, size: tuple[float, float, float], camera: str, look_at: s
     }))
     proc = subprocess.run(
         [
-            str(RHR), "scene", str(ir),
+            *RHR, "scene", str(ir),
             "--viewport", "320x240",
             "--camera", camera,
             "--look-at", look_at,
@@ -104,6 +105,12 @@ def main() -> None:
         f"scene primitives: ball={ball_w}x{ball_h} ratio={ball_ratio:.2f}, "
         f"cylinder-end={cyl_w}x{cyl_h} ratio={cyl_ratio:.2f}"
     )
+
+
+def test_main():
+    from _harness import run_main
+
+    run_main(main)
 
 
 if __name__ == "__main__":

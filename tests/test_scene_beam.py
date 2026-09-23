@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import sys
 import json
 import subprocess
 import tempfile
@@ -11,7 +12,7 @@ from pathlib import Path
 from PIL import Image, ImageChops
 
 ROOT = Path(__file__).resolve().parents[1]
-RHR = ROOT / "bin" / "rhr"
+RHR = [sys.executable, "-m", "rhr"]
 FIXTURE = ROOT / "tests" / "fixtures" / "beam_transparency.rbxmx"
 
 
@@ -28,7 +29,7 @@ def find_node(node: dict, class_name: str) -> dict | None:
 def render_scene(source: Path, output: Path) -> None:
     proc = subprocess.run(
         [
-            str(RHR), "scene", str(source), "--viewport", "320x240",
+            *RHR, "scene", str(source), "--viewport", "320x240",
             "--camera", "0,0,-14", "--look-at", "0,0,0", "--out", str(output),
         ],
         cwd=ROOT,
@@ -123,7 +124,7 @@ def main() -> None:
         src.write_text(json.dumps(ir))
         out = tmp / "beam.png"
         proc = subprocess.run(
-            [str(RHR), "scene", str(src), "--viewport", "320x240",
+            [*RHR, "scene", str(src), "--viewport", "320x240",
              "--camera", "0,0,-14", "--look-at", "0,0,0", "--out", str(out)],
             cwd=ROOT, capture_output=True, text=True, timeout=120,
         )
@@ -136,14 +137,15 @@ def main() -> None:
         assert red > 500, red
 
         proc = subprocess.run(
-            [str(RHR), "scene-dump", str(src)],
+            [*RHR, "scene-dump", str(src)],
             cwd=ROOT, capture_output=True, text=True, timeout=120,
         )
         assert proc.returncode == 0, proc.stderr
         dump = json.loads(proc.stdout)
         assert dump["unsupportedVisualClasses"] == {}
-        assert dump["beams"][0]["attachment0"] == "Workspace.P0.A0"
-        assert dump["beams"][0]["attachment1"] == "Workspace.P1.A1"
+        assert dump["beams"][0]["attachment0"] == "Workspace/P0/A0"
+        assert dump["beams"][0]["attachment1"] == "Workspace/P1/A1"
+        assert dump["experimental"].get("Beam") == 1, dump["experimental"]
 
         # CurveSize control points use each attachment's local X axis. The
         # pre-fix cylinder path renders this curved and straight case identically.
@@ -168,7 +170,7 @@ def main() -> None:
         curved_out = tmp / "beam-curved.png"
         curved_src.write_text(json.dumps(curved_ir))
         proc = subprocess.run(
-            [str(RHR), "scene", str(curved_src), "--viewport", "320x240",
+            [*RHR, "scene", str(curved_src), "--viewport", "320x240",
              "--camera", "0,0,-14", "--look-at", "0,0,0", "--out", str(curved_out)],
             cwd=ROOT, capture_output=True, text=True, timeout=120,
         )
@@ -180,7 +182,7 @@ def main() -> None:
 
         emitted = tmp / "beam-emitted.json"
         emit_proc = subprocess.run(
-            [str(RHR), "ir", str(FIXTURE), "--out", str(emitted)],
+            [*RHR, "ir", str(FIXTURE), "--out", str(emitted)],
             cwd=ROOT,
             capture_output=True,
             text=True,
@@ -219,6 +221,12 @@ def main() -> None:
         f"scene beam: red pixels={red}, curved-vs-straight changed={changed}, "
         f"fade-tip/tail={tip_red}/{tail_red}"
     )
+
+
+def test_main():
+    from _harness import run_main
+
+    run_main(main)
 
 
 if __name__ == "__main__":

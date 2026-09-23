@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import sys
 import json
 import statistics
 import subprocess
@@ -12,12 +13,12 @@ from pathlib import Path
 from PIL import Image, ImageChops, ImageStat
 
 ROOT = Path(__file__).resolve().parents[1]
-RHR = ROOT / "bin" / "rhr"
+RHR = [sys.executable, "-m", "rhr"]
 FIXTURE = ROOT / "tests/fixtures/scene_lighting.rbxmx"
 
 
 def run(*args: str) -> subprocess.CompletedProcess:
-    return subprocess.run([str(RHR), *args], cwd=ROOT, capture_output=True, text=True, timeout=120)
+    return subprocess.run([*RHR, *args], cwd=ROOT, capture_output=True, text=True, timeout=120)
 
 
 def find_class(node: dict, class_name: str) -> dict | None:
@@ -33,14 +34,20 @@ def find_class(node: dict, class_name: str) -> dict | None:
     return None
 
 
-def foreground_mean(path: Path) -> float:
-    with Image.open(path).convert("RGB") as image:
-        values: list[float] = []
-        for r, g, b in image.get_flattened_data():
-            if max(abs(r - 32), abs(g - 36), abs(b - 43)) > 18:
-                values.append((r + g + b) / 3)
-        assert values
-        return statistics.mean(values)
+def foreground_means(first: Path, second: Path) -> tuple[float, float]:
+    """Mean brightness of the geometry in two renders of the same scene.
+
+    The backdrop (Roblox's default sky for a place with Lighting) does not depend on
+    Brightness, so pixels identical in both renders are the backdrop and excluded.
+    """
+    with Image.open(first).convert("RGB") as a, Image.open(second).convert("RGB") as b:
+        pairs = [
+            (sum(pa) / 3, sum(pb) / 3)
+            for pa, pb in zip(a.get_flattened_data(), b.get_flattened_data())
+            if pa != pb
+        ]
+    assert pairs
+    return statistics.mean(x for x, _ in pairs), statistics.mean(y for _, y in pairs)
 
 
 def main() -> None:
@@ -85,8 +92,7 @@ def main() -> None:
         dark_png = tmp / "dark.png"
         proc = run("scene", str(dark), "--viewport", "360x240", "--view", "iso", "--out", str(dark_png))
         assert proc.returncode == 0, proc.stderr
-        normal_mean = foreground_mean(dawn)
-        dark_mean = foreground_mean(dark_png)
+        normal_mean, dark_mean = foreground_means(dawn, dark_png)
         assert normal_mean > dark_mean + 10, (normal_mean, dark_mean)
 
         proc = run("scene-dump", str(ir))
@@ -97,6 +103,12 @@ def main() -> None:
         assert abs(dumped["clockTime"] - 6) < 1e-6
 
     print(f"scene lighting: clock delta={mean_delta:.2f}, brightness {dark_mean:.1f}->{normal_mean:.1f}")
+
+
+def test_main():
+    from _harness import run_main
+
+    run_main(main)
 
 
 if __name__ == "__main__":

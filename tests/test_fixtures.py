@@ -7,7 +7,7 @@ internal state: every element under test has a colour of its own, so the check
 compares that colour's bounding box against Roblox's own layout rules. A wrong
 rect cannot pass by accident and a dropped child cannot pass at all.
 
-Run: .venv/bin/python tests/test_fixtures.py
+Run: python tests/test_fixtures.py
 """
 
 from __future__ import annotations
@@ -33,16 +33,9 @@ BUTTON = (0, 102, 255)
 
 def emit_ir(fixture: Path, out: Path | None = None) -> Path:
     """Emit our IR for a .rbxm/.rbxmx/.rbxl model via the in-repo lune script."""
-    out = out or REPO / "out" / "ir" / f"{fixture.stem}.json"
-    out.parent.mkdir(parents=True, exist_ok=True)
-    proc = subprocess.run(
-        ["lune", "run", str(REPO / "scripts" / "rhr-ir.luau"), str(fixture), str(out)],
-        capture_output=True,
-        text=True,
-    )
-    if proc.returncode != 0:
-        raise RuntimeError(f"lune failed on {fixture.name}: {proc.stderr.strip()}")
-    return out
+    from rhr.ir import emit_ir as emit
+
+    return emit(fixture, out or REPO / "out" / "ir" / f"{fixture.stem}.json")
 
 
 _ORIGIN_CACHE: dict[str, tuple[int, int]] = {}
@@ -132,13 +125,14 @@ def check_zero_size_parent() -> str:
 
 
 def check_autosize_padding() -> str:
-    # Text is 14px, one unwrapped line in the vendored heuristic: 14 * 1.2 = 16.8.
-    # With UIPadding 8 all round, Roblox grows the box to 16.8 + 8 + 8 = 32.8.
+    # Text is 14px, one unwrapped line. Roblox's line box is TextSize tall (Studio:
+    # tests/studio/ui_layouts, 20px text -> 20px), so with UIPadding 8 all round the
+    # box grows to 14 + 8 + 8 = 30. (The old heuristic used 1.2 x TextSize = 32.8.)
     img = _render("autosize_padding")
     box = _bbox(img, LABEL)
     assert box is not None, "label not drawn at all"
     height = box[3] - box[1] + 1
-    assert 32 <= height <= 34, f"label height {height}px, expected ~33 (16.8 text + 16 padding)"
+    assert 29 <= height <= 31, f"label height {height}px, expected ~30 (14 text + 16 padding)"
     return f"label{box}  height {height}px"
 
 
@@ -176,6 +170,12 @@ def main() -> int:
             print(f"ok    {name}: {detail}")
     print(f"\n{len(CHECKS) - failures}/{len(CHECKS)} fixtures pass")
     return 1 if failures else 0
+
+
+def test_main():
+    from _harness import run_main
+
+    run_main(main)
 
 
 if __name__ == "__main__":

@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import sys
 import subprocess
 import tempfile
 from pathlib import Path
@@ -10,7 +11,7 @@ from pathlib import Path
 from PIL import Image
 
 ROOT = Path(__file__).resolve().parents[1]
-RHR = ROOT / "bin" / "rhr"
+RHR = [sys.executable, "-m", "rhr"]
 FIXTURE = ROOT / "tests/fixtures/preview_world_ui.rbxmx"
 
 
@@ -19,7 +20,7 @@ def main() -> None:
         out = Path(directory) / "preview.png"
         proc = subprocess.run(
             [
-                str(RHR), "preview", str(FIXTURE),
+                *RHR, "preview", str(FIXTURE),
                 "--viewport", "360x240",
                 "--camera", "0,0,-14",
                 "--look-at", "0,0,0",
@@ -47,6 +48,12 @@ def main() -> None:
         assert "preview " in proc.stderr
 
     print(f"preview: red world pixels={red}, green ScreenGui pixels={green}")
+
+
+def test_main():
+    from _harness import run_main
+
+    run_main(main)
 
 
 if __name__ == "__main__":

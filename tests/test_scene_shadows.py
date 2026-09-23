@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import sys
 import json
 import subprocess
 import tempfile
@@ -11,12 +12,12 @@ from pathlib import Path
 from PIL import Image, ImageChops, ImageStat
 
 ROOT = Path(__file__).resolve().parents[1]
-RHR = ROOT / "bin" / "rhr"
+RHR = [sys.executable, "-m", "rhr"]
 FIXTURE = ROOT / "tests/fixtures/scene_lighting.rbxmx"
 
 
 def run(*args: str) -> subprocess.CompletedProcess:
-    return subprocess.run([str(RHR), *args], cwd=ROOT, capture_output=True, text=True, timeout=120)
+    return subprocess.run([*RHR, *args], cwd=ROOT, capture_output=True, text=True, timeout=120)
 
 
 def find_class(node: dict, class_name: str) -> dict | None:
@@ -43,6 +44,12 @@ def main() -> None:
         ir = tmp / "lighting.json"
         proc = run("ir", str(FIXTURE), "--out", str(ir))
         assert proc.returncode == 0, proc.stderr
+        # The fixture's 6:00 puts Roblox's sun on the horizon (GetSunDirection y = 0):
+        # grazing light barely reaches the floor, so shadows are faint. Test them in
+        # the afternoon, as Studio shows them.
+        afternoon = json.loads(ir.read_text())
+        next(find_class(root, "Lighting") for root in afternoon["roots"] if find_class(root, "Lighting"))["props"]["ClockTime"] = 14
+        ir.write_text(json.dumps(afternoon))
 
         plain = tmp / "plain.png"
         shadowed = tmp / "shadowed.png"
@@ -71,6 +78,12 @@ def main() -> None:
         assert disabled_delta < 0.02, f"GlobalShadows=false still changed the frame ({disabled_delta})"
 
     print(f"scene shadows: visible delta={delta:.2f}, disabled delta={disabled_delta:.3f}")
+
+
+def test_main():
+    from _harness import run_main
+
+    run_main(main)
 
 
 if __name__ == "__main__":

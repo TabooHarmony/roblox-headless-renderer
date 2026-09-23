@@ -11,7 +11,7 @@ Rect values come from Roblox's layout rules and the fixture XML, so a wrong one
 cannot pass: a UIGridLayout with CellSize 32 and CellPadding 8 puts cells at x =
 0, 40, 80, 120 whatever order they are walked in.
 
-Run: .venv/bin/python tests/test_layout_dump.py
+Run: python tests/test_layout_dump.py
 """
 
 from __future__ import annotations
@@ -94,7 +94,8 @@ def main() -> int:
     auto = layout("autosize_padding")
     # Label: 300 wide, text height 32.8 tall: AutomaticSize plus its own UIPadding.
     check(
-        rect(auto, "AutosizePadding/Card/Label", "autosize_padding") == (0, 0, 300, 32.8),
+        # 14px text is a 14px line box (Studio-measured) + 8 + 8 padding.
+        rect(auto, "AutosizePadding/Card/Label", "autosize_padding") == (0, 0, 300, 30.0),
         "an autosized label reports its padded height",
     )
 
@@ -106,6 +107,12 @@ def main() -> int:
 
     print("layout dump: ok" if not failures else f"layout dump: {len(failures)} failed")
     return 1 if failures else 0
+
+
+def test_main():
+    from _harness import run_main
+
+    run_main(main)
 
 
 if __name__ == "__main__":

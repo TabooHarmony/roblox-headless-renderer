@@ -1,7 +1,7 @@
 """The structured layout dump: what each pane is made of, not just where it sits.
 
 `rhr layout` (Phase 1) reports the rect the paint pass resolved per node path.
-Task 2.1 (docs/plan.md Phase 2) extends that to the node's *content*: zIndex,
+Task 2.1 extends that to the node's *content*: zIndex,
 visibility, resolved background/stroke/gradient colours, text, font size and
 clip state, written as stable sorted JSON so two builds diff cleanly.
 
@@ -69,13 +69,14 @@ therefore uses the paint pass's rect map, exactly as `rhr layout` does.
 
 from __future__ import annotations
 
+from rhr.schema import stamp
+
 import json
 import sys
 from pathlib import Path
 
-REPO = Path(__file__).resolve().parents[2]
-if str(REPO / "src") not in sys.path:
-    sys.path.insert(0, str(REPO / "src"))
+from rhr.paths import IR_DIR
+
 
 _VISUAL_CLASSES = {
     "Frame",
@@ -170,6 +171,14 @@ def _text_of(node: dict) -> dict | None:
     graphemes = node.get("maxVisibleGraphemes")
     if graphemes is not None and graphemes != -1:
         out["maxVisibleGraphemes"] = graphemes
+    # What the paint pass laid out (plain text only), in Roblox units: the size
+    # actually drawn (a TextScaled label's fitted size), the line count, and the
+    # text's extent like TextLabel.TextBounds.
+    laid_out = node.get("_textLayout")
+    if laid_out:
+        out["drawnSize"] = _round(laid_out["size"])
+        out["lines"] = laid_out["lines"]
+        out["bounds"] = [_round(value) for value in laid_out["bounds"]]
     return out
 
 
@@ -254,7 +263,7 @@ def build_dump(ir_path, width: int, height: int, png_path=None, topbar_height: f
     screens = load_screens(str(ir_path), width, height, topbar_height)
     render_screens(
         screens,
-        Path(png_path) if png_path else REPO / "out" / "ir" / f"{Path(ir_path).stem}-layout.png",
+        Path(png_path) if png_path else IR_DIR / f"{Path(ir_path).stem}-layout.png",
         width,
         height,
         bg_color=(0, 0, 0, 0),
@@ -277,11 +286,11 @@ def build_dump(ir_path, width: int, height: int, png_path=None, topbar_height: f
         nodes += pane_nodes
     nodes.sort(key=lambda entry: entry["path"])
 
-    return {
+    return stamp("layout-rich", {
         "model": str(Path(ir_path).name),
         "viewport": [width, height],
         "nodes": nodes,
-    }
+    })
 
 
 def dump_json(dump: dict) -> str:

@@ -19,12 +19,13 @@ import re
 import sys
 from pathlib import Path
 
-REPO = Path(__file__).resolve().parents[2]
+from rhr.paths import PINEVEX
+
 
 # Vendored helpers we reuse rather than re-derive: asset URL normalization and the
 # built-in font asset table. Imported lazily so the module stays importable in
 # environments without requests installed.
-_WEB_DEMO = REPO / "vendor" / "pinevex" / "web_demo"
+_WEB_DEMO = PINEVEX / "web_demo"
 
 
 def _vendored_adapter():
@@ -121,10 +122,14 @@ def _convert(prop: str, v):
     return v
 
 
-def ir_node_to_raw(node: dict, path: str = "") -> dict:
-    """Convert one IR node (and its subtree) to the raw node shape."""
+def ir_node_to_raw(node: dict) -> dict:
+    """Convert one IR node (and its subtree) to the raw node shape.
+
+    `_path` is the IR's unique node path (rhr.ir.ensure_paths), so same-named
+    siblings keep separate rects in the layout dump and hit map.
+    """
     name = node.get("name") or node.get("className", "Frame")
-    here = f"{path}/{name}" if path else name
+    here = node["path"]
 
     props = {}
     for prop, value in (node.get("props") or {}).items():
@@ -144,7 +149,7 @@ def ir_node_to_raw(node: dict, path: str = "") -> dict:
         "name": name,
         "_path": here,
         "properties": props,
-        "children": [ir_node_to_raw(child, here) for child in node.get("children") or []],
+        "children": [ir_node_to_raw(child) for child in node.get("children") or []],
     }
 
 
@@ -156,6 +161,9 @@ def ir_to_raw_nodes(ir: dict) -> list[dict]:
     happens to list them. pinevex draws one root, so "first" is the pane you end up
     seeing: the top one. Ties keep file order (fixture: display_order).
     """
+    from rhr.ir import ensure_paths
+
+    ensure_paths(ir["roots"])
     nodes = [ir_node_to_raw(root) for root in ir["roots"]]
     nodes.sort(key=_display_order, reverse=True)
     return nodes

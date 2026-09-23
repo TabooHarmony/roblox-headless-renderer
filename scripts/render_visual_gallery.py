@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import sys
 import json
 import struct
 import subprocess
@@ -11,7 +12,7 @@ from pathlib import Path
 from PIL import Image, ImageDraw
 
 ROOT = Path(__file__).resolve().parents[1]
-RHR = ROOT / "bin" / "rhr"
+RHR = [sys.executable, "-m", "rhr"]
 OUT = ROOT / "out" / "visual-gallery"
 ASSETS = ROOT / "tests" / "fixtures" / "assets"
 GALLERY_MESH_ID = "900000002"
@@ -312,7 +313,7 @@ def gallery_ir() -> dict:
 
 
 def render(args: list[str], out: Path) -> None:
-    command = [str(RHR), *args, "--out", str(out)]
+    command = [*RHR, *args, "--out", str(out)]
     result = subprocess.run(command, cwd=ROOT, capture_output=True, text=True, timeout=180)
     if result.returncode:
         raise RuntimeError(result.stderr or result.stdout)

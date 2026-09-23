@@ -49,12 +49,13 @@ no set or dict iteration anywhere, so two runs are byte-identical.
 
 from __future__ import annotations
 
+from rhr.schema import stamp
+
 import sys
 from pathlib import Path
 
-REPO = Path(__file__).resolve().parents[2]
-if str(REPO / "src") not in sys.path:
-    sys.path.insert(0, str(REPO / "src"))
+from rhr.paths import IR_DIR
+
 
 TRUNCATE_OVERFLOW_MODES = {"AtEnd", "SplitWord"}
 # _load_typeface's own ladder ends at Montserrat (bundled with the engine), so
@@ -80,7 +81,9 @@ def _measure_text_width(content: str, text: dict) -> float:
 
     from rhr.pipeline import FONTS_DIR
 
-    typeface = skia.Typeface.MakeFromFile(str(FONTS_DIR / _DEFAULT_FONT_FILE))
+    from ui_engine.text_fonts import _typeface_from_file
+
+    typeface = _typeface_from_file(str(FONTS_DIR / _DEFAULT_FONT_FILE))
     if typeface is None:
         typeface = skia.Typeface()  # skia's default face; better than guessing by chars
     font = skia.Font(typeface, float(text.get("size", 14)))
@@ -439,7 +442,7 @@ def check_model(ir_path, width: int, height: int, topbar_height: float | None = 
 
     ir_path = Path(ir_path)
     if ir_path.suffix != ".json":
-        ir_path = emit_ir(ir_path, REPO / "out" / "ir" / f"{ir_path.stem}.json")
+        ir_path = emit_ir(ir_path, IR_DIR / f"{ir_path.stem}.json")
     dump = build_dump(ir_path, width, height, topbar_height=topbar_height)
     findings = run_checks(dump)
     # The dump cannot see image assets; the IR can. An ImageLabel whose
@@ -457,7 +460,7 @@ def check_model(ir_path, width: int, height: int, topbar_height: float | None = 
             )
         ]
         findings.sort(key=lambda f: (f["severity"] != "error", f["paths"][0], f["check"]))
-    return {"model": dump["model"], "findings": findings}
+    return stamp("check", {"model": dump["model"], "findings": findings})
 
 
 def _image_paths(ir: dict) -> set[str]:

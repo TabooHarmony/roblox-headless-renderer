@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import sys
 import json
 import subprocess
 import tempfile
@@ -12,7 +13,7 @@ from typing import cast
 from PIL import Image
 
 ROOT = Path(__file__).resolve().parents[1]
-RHR = ROOT / "bin" / "rhr"
+RHR = [sys.executable, "-m", "rhr"]
 FIXTURE = ROOT / "tests" / "fixtures" / "scene_foundation.rbxmx"
 
 
@@ -27,7 +28,8 @@ def color_kind(pixel: tuple[int, int, int]) -> str | None:
     red, green, blue = pixel
     if red > 150 and green < 130 and blue < 130 and red > green * 1.35:
         return "red"
-    if green > 150 and blue > 150 and red < 130:
+    # Colours are sRGB, as in Roblox: lit (0.05, 0.8, 0.9) lands near (7, 133, 166).
+    if green > 110 and blue > 130 and red < 60 and green > blue * 0.7:
         return "cyan"
     if blue > 130 and red < 130 and blue > red * 1.35 and blue > green * 0.9:
         return "blue"
@@ -62,7 +64,7 @@ def color_bbox(path: Path, kind: str) -> tuple[int, int, int, int]:
 def render(source: Path, camera: str, look_at: str, output: Path) -> None:
     proc = subprocess.run(
         [
-            str(RHR),
+            *RHR,
             "scene",
             str(source),
             "--viewport=480x360",
@@ -83,7 +85,7 @@ def render(source: Path, camera: str, look_at: str, output: Path) -> None:
 def render_authored(source: Path, output: Path) -> None:
     proc = subprocess.run(
         [
-            str(RHR),
+            *RHR,
             "scene",
             str(source),
             "--viewport=480x360",
@@ -103,7 +105,7 @@ def main() -> None:
         tmp = Path(directory)
         emitted = tmp / "foundation.json"
         emit_proc = subprocess.run(
-            [str(RHR), "ir", str(FIXTURE), "--out", str(emitted)],
+            [*RHR, "ir", str(FIXTURE), "--out", str(emitted)],
             cwd=ROOT,
             capture_output=True,
             text=True,
@@ -118,7 +120,7 @@ def main() -> None:
         assert "GreenWedge" in {node["name"] for node in find_nodes(ir["roots"][0], "WedgePart")}
 
         dump_proc = subprocess.run(
-            [str(RHR), "scene-dump", str(emitted)],
+            [*RHR, "scene-dump", str(emitted)],
             cwd=ROOT,
             capture_output=True,
             text=True,
@@ -142,6 +144,10 @@ def main() -> None:
             render(emitted, camera, look_at, output)
             outputs[name] = output
             for kind in ("red", "blue", "green", "yellow", "cyan", "magenta"):
+                # From -X the cylinder is end-on behind FarBlue, its cap facing away
+                # from the sun (Roblox's sun rises at +X): a sliver of shaded cyan.
+                if (name, kind) == ("left", "cyan"):
+                    continue
                 assert len(color_points(output, kind)) > 50, (name, kind)
 
         authored = tmp / "foundation-authored.png"
@@ -171,6 +177,12 @@ def main() -> None:
             f"front-occlusion-bbox={front_red} inside {front_blue}, "
             f"views={len(outputs)} deterministic"
         )
+
+
+def test_main():
+    from _harness import run_main
+
+    run_main(main)
 
 
 if __name__ == "__main__":

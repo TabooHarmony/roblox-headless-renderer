@@ -17,7 +17,7 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from rhr.ir import emit_ir  # noqa: E402
 
-RHR = ROOT / "bin" / "rhr"
+RHR = [sys.executable, "-m", "rhr"]
 FIXTURE = ROOT / "tests/fixtures/ir_profiles.rbxmx"
 
 
@@ -59,7 +59,7 @@ def find_named(data: dict, name: str) -> dict:
 
 def run(*args: str) -> subprocess.CompletedProcess:
     return subprocess.run(
-        [str(RHR), *args],
+        [*RHR, *args],
         cwd=ROOT,
         capture_output=True,
         text=True,
@@ -122,6 +122,12 @@ def main() -> None:
             f"nodes full={sum(full.values())} visual={sum(visual.values())} static={sum(static.values())}, "
             "static pixels identical, DisplayOrder preserved"
         )
+
+
+def test_main():
+    from _harness import run_main
+
+    run_main(main)
 
 
 if __name__ == "__main__":

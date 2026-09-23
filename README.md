@@ -1,51 +1,115 @@
-# roblox-headless-renderer
+# roblox-headless-renderer (rhr)
 
-An **unofficial, local static preview and inspection tool** for Roblox `.rbxm` / `.rbxmx` models and place files. It produces UI and 3D PNGs plus machine-readable layout, hit regions, checks, and scene geometry without opening Studio. It is not a Roblox client or a replacement for Studio: scripts, gameplay, physics, and many visual effects are not reproduced.
+A command-line tool that lets an AI agent **see** the Roblox UI and 3D builds it is
+making, with no Roblox Studio, GPU or display. Point it at a `.rbxm` / `.rbxmx` /
+`.rbxl` / `.rbxlx` file or a Rojo project and get a preview PNG plus JSON: where
+things are, how big they are, what overlaps, what is clickable, and what looks broken.
 
-**Status: v0.1 alpha candidate.** 2D UI rendering and static 3D preview work end to end, but visual parity with Roblox Studio is incomplete. Materials, lighting, in-world UI, particles, and text are approximations. Missing or unsupported scene assets are reported in `scene-dump`; missing cached images can leave visible gaps. Validate final work in Studio.
+**Agents: start with [`docs/AGENTS.md`](docs/AGENTS.md)** (which command answers which
+question, the edit loop, and how far to trust each output).
 
-## Setup (Linux, Python 3.12)
+The goal is a **useful preview**, not a pixel-perfect copy of Studio. Anything the
+tool cannot draw faithfully is reported in its output rather than silently dropped
+or guessed. The full statement of what this project is and is not, and the path to
+v1, is in [`docs/GOAL.md`](docs/GOAL.md).
 
-Requirements: Python 3.12, [Lune 0.10.5](https://github.com/lune-org/lune) on `PATH`, and Chromium via Playwright. No GPU or display is needed. From the repository root:
+## Status: pre-release, not ready for general use
 
-```sh
-python3.12 -m venv .venv
-.venv/bin/python -m pip install -r requirements-dev.txt
-.venv/bin/python -m playwright install --with-deps chromium
-sh tests/run.sh
-```
+- The test suite runs in CI on clean Ubuntu and Windows machines.
+- It is not published to PyPI yet; install it from a clone (below).
+- Every JSON output names its schema (`"schema": "rhr.layout/1"`, ...).
+- Several 3D features are rough approximations and are marked experimental below.
 
-The source tree is a CLI checkout, not a pip-installable package. The test suite uses authored fixtures and needs no private game captures. A fresh checkout contains no downloaded image or mesh cache; render-time network access is never required.
+## Commands
 
-## Use
+**Core**
 
-```sh
-bin/rhr ir model.rbxm --out model.json
-bin/rhr render model.rbxm --out ui.png --viewport 676x336
-bin/rhr layout model.rbxm --rich
-bin/rhr check model.rbxm
-bin/rhr hitmap model.rbxm
-bin/rhr scene-dump model.rbxm > scene.json
-bin/rhr scene model.rbxm --view iso --out scene.png
-bin/rhr preview model.rbxm --view iso --out preview.png
-bin/rhr compare before.png after.png --json
-```
+| Command | What it gives you |
+| --- | --- |
+| `rhr render <file>` | PNG of every ScreenGui, in `DisplayOrder` paint order, including 3D content inside ViewportFrames |
+| `rhr layout <file>` | JSON: the on-screen rectangle of every UI element (matches Studio within 2 px on the Studio fixtures). `--rich` adds class, z-index, colours and the laid-out text (drawn size, lines, bounds) |
+| `rhr check <file>` | JSON findings for common UI mistakes (zero-size grid cells, unreadable or truncated text, dead branches, ambiguous z-order). Exits 1 on errors |
+| `rhr hitmap <file>` | JSON: which regions are clickable or focusable, and which element is on top where they overlap |
+| `rhr scene <file>` | PNG of the 3D parts from an authored camera or one you choose (`--camera`, `--look-at`, `--fov`, `--focus <path>`, `--view iso/front/back/left/right/top`) |
+| `rhr scene-dump <file>` | JSON: paths, positions, sizes, bounds and materials of 3D parts, plus everything that was approximated or unsupported |
+| `rhr preview <file>` | One PNG combining the 3D world, in-world UI and ScreenGuis |
+| `rhr compare a.png b.png` | How much changed between two renders (pixels and silhouette), to tell a geometry change from a colour change |
+| `rhr ir <file>` | The parsed model as JSON, including every property read and the ones that could not be |
 
-`render` targets ScreenGui UI; `scene` targets static 3D, and `preview` composes both. `scene-dump` reports missing meshes, textures and unsupported visuals. For assets referenced by your own model, emit the IR first, then optionally populate the local caches:
+**Experimental** (rough approximations; expect gaps)
 
-```sh
-bin/rhr ir model.rbxm --out model.json
-.venv/bin/python scripts/fetch_assets.py model.json
-.venv/bin/python scripts/fetch_meshes.py model.json
-```
+- Materials, Lighting properties, `--shadows`, Sky and Atmosphere in `scene` / `preview`.
+- Decal/Texture images and MeshPart/FileMesh geometry (need locally cached assets).
+- Point/Spot/Surface lights, Beams and Trails.
+- `rhr particles <file>` and `rhr preview --time T`: deterministic ParticleEmitter
+  simulation.
 
-The fetch commands contact Roblox's asset service and may fail for private assets; downloaded content is gitignored and is **not** part of this release. `bin/rhr-mcp` is an optional stdio integration; it requires the separate Python `mcp` SDK in the host interpreter.
+**Other**
 
-## Boundaries
+- `rhr browser start|status|stop` keeps one Chromium running so repeated 3D renders
+  are faster.
+- `rhr-mcp` is an MCP server exposing a small subset (scene inspection, preview,
+  compare, browser control) for agent hosts. Install with the `mcp` extra.
 
-- The default 58 px top-bar inset is an approximation for runtime UI. Pass `--topbar-height 0` when comparing to Studio edit-view captures.
-- Text fitting and font rasterization can differ substantially from Studio. Cached thumbnail images may not match originals.
-- Non-empty Terrain and unions have no full geometry render; skinned meshes, runtime animations, scripts and physics are outside the static preview. Lighting and material values are not Studio-calibrated.
-- The public test suite checks deterministic behavior and authored fixture geometry. It does **not** establish a percentage of Studio pixel parity. Private third-party game captures and the upstream demo model are intentionally omitted from this source release.
+## Install
 
-`vendor/pinevex/` is a patched Apache-2.0 renderer; `vendor/three/` is MIT. See [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) and [`third_party_licenses/`](third_party_licenses/README.md) for attribution and font licences. This project is independent and is not affiliated with or endorsed by Roblox Corporation. Roblox is a trademark of Roblox Corporation.
+Needs Python 3.12+ and [Lune](https://github.com/lune-org/lune) 0.10.5, which RHR
+uses to read Roblox files.
+
+    git clone https://github.com/TabooHarmony/roblox-headless-renderer
+    cd roblox-headless-renderer
+    python -m venv .venv
+    # activate it: `source .venv/bin/activate` (Linux/macOS) or `.venv\Scripts\activate` (Windows)
+    pip install -e .                     # add ".[mcp]" for the MCP server, ".[dev]" for tests
+    python -m playwright install chromium
+
+For Lune (and [Rojo](https://rojo.space) 7.7.0, needed only for Rojo projects),
+either install [Rokit](https://github.com/rojo-rbx/rokit) and run
+`rokit add --global lune-org/lune@0.10.5` (and `rojo-rbx/rojo@7.7.0`), or download
+them from their releases pages and put them on `PATH`. Inside this clone,
+`rokit install` reads `rokit.toml`. `rhr` tells you if it cannot find either.
+
+## Usage
+
+    rhr render  model.rbxm --out shot.png --viewport 1615x1080 --transparent
+    rhr layout  model.rbxm --rich > layout.json
+    rhr check   model.rbxm
+    rhr scene   model.rbxm --focus Workspace/Build --view iso --out build.png
+    rhr scene   model.rbxm --camera 30,20,30 --look-at 0,5,0 --fov 50 --out scene.png
+    rhr preview model.rbxm --view iso --out preview.png
+    rhr compare before.png after.png --json
+    rhr render  path/to/rojo-project --out ui.png   # a folder with default.project.json, or a *.project.json
+
+Run the tests with `pip install -e ".[dev]"` and then `python -m pytest`
+(`-m "not browser"` skips the slower 3D checks).
+
+Notes:
+
+- UI layout assumes Roblox's default 58 px top bar (`ScreenInsets = CoreUISafeInsets`).
+  Use `--topbar-height 0` to match a Studio edit-mode view.
+- Rendering never needs network access. `scripts/fetch_assets.py` and
+  `scripts/fetch_meshes.py` fill a local cache for images and meshes ahead of time;
+  without them, images are skipped and meshes fall back to boxes, and the JSON says so.
+- Caches and intermediate files go to a per-user cache directory
+  (`%LOCALAPPDATA%\rhr\cache` on Windows, `~/.cache/rhr` on Linux,
+  `~/Library/Caches/rhr` on macOS). Set `RHR_CACHE_DIR` to move it.
+- Every known approximation is listed in `docs/known-approximations.md`.
+
+## Repository layout
+
+- `src/rhr/`: the package (parser bridge, UI pipeline, 3D scene, CLI, MCP server).
+- `src/rhr/luau/rhr-ir.luau`: turns Roblox files into JSON using Lune and rbx-dom.
+- `src/rhr/vendor/pinevex/`: the 2D UI renderer we build on (Apache-2.0), with our fixes
+  applied. See `src/rhr/vendor/VENDOR.md` and `patches/`.
+- `src/rhr/vendor/three/`: THREE.js 0.186.0 for the 3D preview, bundled so there are no CDN
+  downloads.
+- `tests/`: test scripts and hand-written fixtures. `tests/studio/` holds places built
+  in Studio with Studio's own measurements saved inside.
+- `scripts/studio/`: tools for recording ground truth in Studio and comparing to it.
+- `docs/GOAL.md`: project direction (source of truth).
+
+## Licensing
+
+Apache License 2.0. Third-party components are listed in `THIRD_PARTY_NOTICES.md`.
+Test fixtures are made for this repository (hand-written, or built in Studio for
+`tests/studio/`); no third-party game content is included.

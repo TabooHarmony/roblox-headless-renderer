@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import sys
 import json
 import struct
 import subprocess
@@ -12,7 +13,7 @@ from pathlib import Path
 from PIL import Image, ImageChops, ImageStat
 
 ROOT = Path(__file__).resolve().parents[1]
-RHR = ROOT / "bin" / "rhr"
+RHR = [sys.executable, "-m", "rhr"]
 BG = (32, 36, 43)
 
 VERTICES = [
@@ -166,7 +167,7 @@ def special_ir(asset_id: str) -> dict:
 
 def render(src: Path, mesh_dir: Path | None, out: Path) -> None:
     args = [
-        str(RHR), "scene", str(src),
+        *RHR, "scene", str(src),
         "--viewport", "360x280",
         "--camera", "0,0,-14",
         "--look-at", "0,0,0",
@@ -255,7 +256,7 @@ def main() -> None:
         assert len(silhouette(special_out)) > len(silhouette(special_missing)) * 10
 
         dump_proc = subprocess.run(
-            [str(RHR), "scene-dump", str(tmp / "1002.json"), "--mesh-dir", str(meshes)],
+            [*RHR, "scene-dump", str(tmp / "1002.json"), "--mesh-dir", str(meshes)],
             cwd=ROOT, capture_output=True, text=True, timeout=120,
         )
         assert dump_proc.returncode == 0, dump_proc.stderr
@@ -272,7 +273,7 @@ def main() -> None:
         }]
 
         special_dump_proc = subprocess.run(
-            [str(RHR), "scene-dump", str(special_src), "--mesh-dir", str(meshes)],
+            [*RHR, "scene-dump", str(special_src), "--mesh-dir", str(meshes)],
             cwd=ROOT, capture_output=True, text=True, timeout=120,
         )
         assert special_dump_proc.returncode == 0, special_dump_proc.stderr
@@ -287,6 +288,12 @@ def main() -> None:
         f"mesh/box IoU={iou(v1, missing_shape):.3f}, delta={delta:.2f}, "
         f"FileMesh delta={special_delta:.2f}"
     )
+
+
+def test_main():
+    from _harness import run_main
+
+    run_main(main)
 
 
 if __name__ == "__main__":

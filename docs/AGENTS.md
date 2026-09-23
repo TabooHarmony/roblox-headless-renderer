@@ -1,0 +1,86 @@
+# Using RHR from an agent
+
+RHR lets you check Roblox UI and 3D builds without Studio: point a command at a
+`.rbxm` / `.rbxmx` / `.rbxl` / `.rbxlx` file or a Rojo project and read back a PNG
+and JSON. This page is the working guide: which command answers which question,
+the edit loop, and how to read the output without being misled.
+
+## Which command
+
+| You want to know | Run | Read |
+| --- | --- | --- |
+| What the UI looks like | `rhr render <file> --out ui.png` | the PNG |
+| Where every UI element is | `rhr layout <file>` | `rects[path]` = `{x, y, w, h}` in pixels |
+| What each element is made of, and how its text laid out | `rhr layout <file> --rich` | `nodes[]`: class, rect, zIndex, colours, `text.drawnSize`, `text.lines`, `text.bounds` |
+| Whether the UI has obvious mistakes | `rhr check <file>` | `findings[]`; exit code 1 if any is an error |
+| What is clickable, and what is on top where things overlap | `rhr hitmap <file>` | `nodes[]` (interactive elements), `hitTests[]` (topmost target at each element's centre) |
+| What a 3D build looks like | `rhr scene <file> --view iso --out build.png` | the PNG, plus the `notes` line on stderr |
+| Where every part is, and what was approximated | `rhr scene-dump <file>` | `parts[]`, `bounds`, `fallbacks`, `unsupportedVisualClasses`, `experimental` |
+| World, in-world UI and screen UI together | `rhr preview <file> --view iso --out frame.png` | the PNG |
+| Whether an edit changed geometry or only colours | `rhr compare before.png after.png --json` | `changed_pct`, `silhouette.iou` |
+
+Every JSON document has a `schema` field (`rhr.layout/1`, `rhr.check/1`, ...). Check
+it: a different version means the shape changed.
+
+## The loop
+
+1. Edit the model (or the Rojo project).
+2. `rhr check` it. Fix error findings first; they are real mistakes (zero-size grid
+   cells, unreadable text, text that cannot fit).
+3. `rhr layout` it and compare the rects you care about with what you intended,
+   numerically. This is cheaper and more exact than reading pixels.
+4. `rhr render` (UI) or `rhr scene` / `rhr preview` (3D) and look at the picture.
+5. After the next edit, `rhr compare` the two PNGs to confirm only what you meant to
+   change moved.
+
+For repeated 3D renders, `rhr browser start` once keeps Chromium warm; renders then
+take well under a second. `rhr browser stop` when done.
+
+## Reading paths
+
+A path is the instance's names from the root, joined with `/`:
+`StarterGui/Shop/Main/BuyButton`. Siblings that share a name are all numbered in
+child order: `Card[1]`, `Card[2]`. A bare `Card` where there are several is an
+error, not a guess. Use the exact path from RHR's own output when you pass one back
+(`--focus`).
+
+## How far to trust the output
+
+RHR's goal is a useful preview, not a pixel-exact copy of Studio. What has been
+measured against Studio (tests/studio/):
+
+- **UI rects** (`rhr layout`, and therefore the render and the hit map) match Studio
+  within 2 px on every fixture, including a complete game UI and a stress test of
+  flex/grid/table layouts, UIScale, scrolling and auto-sized containers.
+- **Text**: sizes and line breaks follow Roblox's rules; text widths are within a
+  few percent. A line that only just overflows its box can wrap differently.
+- **3D part positions, sizes and rotations** (`rhr scene-dump`) match Studio exactly.
+- **3D pictures** are approximations: lighting, materials and shadows look
+  plausible, not identical.
+
+What RHR tells you it did not do exactly:
+
+- `scene` / `preview` print a `notes` line: geometry fallbacks (meshes drawn as boxes),
+  unsupported visual classes, missing assets and **experimental** features (Beams,
+  Trails, particles, Sky, Atmosphere, lights, decals, meshes, non-plastic materials).
+  Treat experimental output as a rough sketch.
+- `scene-dump` lists the same under `fallbacks`, `unsupportedVisualClasses` and
+  `experimental`.
+- Images and meshes need a local cache (`scripts/fetch_assets.py`,
+  `scripts/fetch_meshes.py`); without it images are skipped and meshes are boxes, and
+  the output says so.
+- `docs/known-approximations.md` lists every known difference.
+
+What RHR does not do at all: run scripts, physics or animation. A UI that a script
+builds or moves at runtime is previewed as saved in the file.
+
+## Setup reminders
+
+- `lune` 0.10.5 must be on PATH (and `rojo` 7.7.0 for Rojo projects); RHR says how to
+  install them if they are missing.
+- Screen UI assumes Roblox's default 58 px top bar. Use `--topbar-height 0` to match
+  what Studio shows in edit mode.
+- With a local Roblox or Studio install, RHR uses its fonts (stderr says which); without
+  one it uses bundled open fonts, and a few proprietary faces fall back to look-alikes.
+- `rhr-mcp` exposes `scene-dump`, `preview`, `compare` and the browser worker as MCP
+  tools, for hosts that prefer tools to shell commands.

@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import sys
 import json
 import os
 import subprocess
@@ -10,13 +11,13 @@ import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-RHR = ROOT / "bin" / "rhr"
+RHR = [sys.executable, "-m", "rhr"]
 FIXTURE = ROOT / "tests/fixtures/scene_geometry.rbxmx"
 
 
 def run(*args: str, env: dict | None = None) -> subprocess.CompletedProcess:
     return subprocess.run(
-        [str(RHR), *args],
+        [*RHR, *args],
         cwd=ROOT,
         capture_output=True,
         text=True,
@@ -75,6 +76,12 @@ def main() -> None:
     assert json.loads(run("browser", "status").stdout)["running"] is False
 
     print(f"browser session: reused pid={pid}, byte-identical renders")
+
+
+def test_main():
+    from _harness import run_main
+
+    run_main(main)
 
 
 if __name__ == "__main__":

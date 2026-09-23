@@ -6,13 +6,17 @@ import http.client
 import json
 import os
 import secrets
+import signal
 import shutil
 import subprocess
+import sys
+import tempfile
 import time
 from pathlib import Path
 
-REPO = Path(__file__).resolve().parents[2]
-SESSION_ROOT = Path("/tmp/rhr-browser-session")
+# The directory that contains the `rhr` package, so the worker imports this copy.
+IMPORT_ROOT = Path(__file__).resolve().parents[1]
+SESSION_ROOT = Path(tempfile.gettempdir()) / "rhr-browser-session"
 PID_FILE = SESSION_ROOT / "pid"
 PORT_FILE = SESSION_ROOT / "port"
 TOKEN_FILE = SESSION_ROOT / "token"
@@ -20,11 +24,33 @@ LOG_FILE = SESSION_ROOT / "daemon.log"
 
 
 def _pid_alive(pid: int) -> bool:
+    if sys.platform == "win32":
+        # os.kill(pid, 0) sends CTRL_C_EVENT on Windows; ask the kernel instead.
+        import ctypes
+
+        kernel32 = ctypes.windll.kernel32
+        handle = kernel32.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
+        if not handle:
+            return False
+        try:
+            code = ctypes.c_ulong()
+            if not kernel32.GetExitCodeProcess(handle, ctypes.byref(code)):
+                return False
+            return code.value == 259  # STILL_ACTIVE
+        finally:
+            kernel32.CloseHandle(handle)
     try:
         os.kill(pid, 0)
     except (ProcessLookupError, PermissionError):
         return False
     return True
+
+
+def _terminate(pid: int) -> None:
+    try:
+        os.kill(pid, signal.SIGTERM)
+    except (ProcessLookupError, OSError):
+        pass
 
 
 def _read_state() -> tuple[int, int, str] | None:
@@ -79,34 +105,6 @@ def status() -> dict:
     }
 
 
-def _host_python() -> str:
-    configured = os.environ.get("RHR_BROWSER_PYTHON")
-    candidates = [
-        configured,
-        shutil.which("python3"),
-        "/usr/local/bin/python3",
-        "/usr/bin/python3",
-    ]
-    for candidate in candidates:
-        if not candidate:
-            continue
-        path = Path(candidate)
-        if not path.is_file():
-            continue
-        probe = subprocess.run(
-            [str(path), "-c", "import playwright.sync_api"],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            timeout=5,
-        )
-        if probe.returncode == 0:
-            return str(path)
-    raise RuntimeError(
-        "persistent browser needs a host Python with Playwright; "
-        "set RHR_BROWSER_PYTHON or use the normal one-shot renderer"
-    )
-
-
 def _cleanup_stale() -> None:
     state = _read_state()
     if state is not None:
@@ -114,10 +112,7 @@ def _cleanup_stale() -> None:
         try:
             _request(port, token, "POST", "/shutdown", {}, timeout=1)
         except OSError:
-            try:
-                os.kill(pid, 15)
-            except ProcessLookupError:
-                pass
+            _terminate(pid)
         for _ in range(20):
             if not _pid_alive(pid):
                 break
@@ -125,7 +120,15 @@ def _cleanup_stale() -> None:
     shutil.rmtree(SESSION_ROOT, ignore_errors=True)
 
 
-def ensure(chrome: str) -> tuple[dict, bool]:
+def _detached() -> dict:
+    """Popen options that keep the worker alive after the calling `rhr` exits."""
+    if sys.platform == "win32":
+        flags = subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS
+        return {"creationflags": flags}
+    return {"start_new_session": True}
+
+
+def ensure() -> tuple[dict, bool]:
     current = status()
     if current.get("running"):
         state = _read_state()
@@ -139,24 +142,24 @@ def ensure(chrome: str) -> tuple[dict, bool]:
     token = secrets.token_hex(24)
     TOKEN_FILE.write_text(token)
     os.chmod(TOKEN_FILE, 0o600)
-    host_python = _host_python()
     log = LOG_FILE.open("ab", buffering=0)
     process = subprocess.Popen(
         [
-            host_python,
-            str(REPO / "src/rhr/browser_daemon.py"),
-            "--chrome",
-            chrome,
+            sys.executable,
+            "-m",
+            "rhr.browser_daemon",
             "--port-file",
             str(PORT_FILE),
             "--token",
             token,
         ],
-        cwd=REPO,
+        cwd=SESSION_ROOT,
+        env=dict(os.environ, PYTHONPATH=os.pathsep.join(filter(None, [str(IMPORT_ROOT), os.environ.get("PYTHONPATH")]))),
+        stdin=subprocess.DEVNULL,
         stdout=log,
         stderr=log,
-        start_new_session=True,
         close_fds=True,
+        **_detached(),
     )
     PID_FILE.write_text(str(process.pid))
 
@@ -185,7 +188,6 @@ def ensure(chrome: str) -> tuple[dict, bool]:
 
 
 def render(
-    chrome: str,
     *,
     url: str,
     out: Path,
@@ -194,7 +196,7 @@ def render(
     transparent: bool,
 ) -> bool:
     """Render via the shared worker. Returns whether the worker was newly started."""
-    state, started = ensure(chrome)
+    state, started = ensure()
     code, payload = _request(
         int(state["port"]),
         str(state["token"]),
@@ -225,10 +227,7 @@ def stop() -> bool:
     try:
         _request(port, token, "POST", "/shutdown", {}, timeout=2)
     except OSError:
-        try:
-            os.kill(pid, 15)
-        except ProcessLookupError:
-            pass
+        _terminate(pid)
     for _ in range(40):
         if not _pid_alive(pid):
             break

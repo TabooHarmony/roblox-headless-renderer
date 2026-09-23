@@ -1,0 +1,311 @@
+# Studio-measured UI fixes: UISizeConstraint, SortOrder.Name, AutomaticSize text measured with the real font at Roblox's TextSize scale, fonts kept as authored
+#
+# Apply from src/rhr/vendor/pinevex:  git apply -p1 < patches/0017-studio-measured-layout.patch
+--- a/src/ui_engine/hit_test.py
++++ b/src/ui_engine/hit_test.py
+@@ -5,7 +5,7 @@ overlapping nodes instead of drawing.  Returns results topmost-first so the
+ caller can identify occluders and hide them by mutating the original dicts.
+ """
+ 
+-from .layout import Rect, resolve_rect, BASE_WIDTH, BASE_HEIGHT
++from .layout import Rect, resolve_rect, BASE_WIDTH, BASE_HEIGHT, layout_order_key
+ 
+ 
+ # ---------------------------------------------------------------------------
+@@ -284,7 +284,7 @@ def _hit_node(node: dict, rect: Rect, query: Rect, clip_stack: list[Rect],
+ 
+         list_layout = node.get("list")
+         grid_layout = node.get("grid")
+-        children_ordered = sorted(children, key=lambda c: c.get("layoutOrder", 0))
++        children_ordered = sorted(children, key=layout_order_key(node))
+         size_ref_for_layout = content_rect if node.get("padding") else child_parent
+ 
+         if list_layout:
+@@ -600,7 +600,7 @@ def _collect_global_entries(node: dict, rect: Rect, clip_stack: list[Rect],
+ 
+         list_layout = node.get("list")
+         grid_layout = node.get("grid")
+-        children_ordered = sorted(children, key=lambda c: c.get("layoutOrder", 0))
++        children_ordered = sorted(children, key=layout_order_key(node))
+         size_ref_for_layout = content_rect if node.get("padding") else child_parent
+ 
+         if list_layout:
+--- a/src/ui_engine/layout.py
++++ b/src/ui_engine/layout.py
+@@ -18,6 +18,56 @@ _GUI_OBJECT_DEFAULT_SIZE_TYPES = {
+ }
+ 
+ 
++_BUNDLED_FONTS_DIR = None
++
++
++def _measured_text_lines(node: dict, wrap_width: float | None = None) -> list[float] | None:
++    """Pixel widths of the text's lines, measured with the font that draws it.
++
++    AutomaticSize uses these instead of a per-character guess (Studio-measured,
++    tests/studio/ui_layouts). Lines split on explicit newlines and, when the label
++    wraps and a width is known, greedily at spaces. None when fonts are unavailable.
++    """
++    global _BUNDLED_FONTS_DIR
++    import re
++    from pathlib import Path
++
++    try:
++        import skia
++
++        from .text_fonts import _is_italic_style, _load_typeface, _resolve_font, roblox_em_scale
++        from .text_runs import _measure_mixed
++    except Exception:
++        return None
++    if _BUNDLED_FONTS_DIR is None:
++        _BUNDLED_FONTS_DIR = Path(__file__).resolve().parent / "fonts"
++    text = str(node.get("text", ""))
++    if node.get("richText"):
++        text = re.sub(r"<[^>]*>", "", text)
++    family, weight = _resolve_font(node.get("font"), node.get("fontWeight"))
++    typeface = _load_typeface(family, weight, _BUNDLED_FONTS_DIR, italic=_is_italic_style(node.get("fontStyle")))
++    font = skia.Font(typeface, float(node.get("textSize", 14.0)) * roblox_em_scale(typeface, family))
++
++    def width(value: str) -> float:
++        return _measure_mixed(value, font, None, None)
++
++    widths: list[float] = []
++    for paragraph in text.split("\n"):
++        if not (node.get("textWrapped") and wrap_width and wrap_width > 0):
++            widths.append(width(paragraph))
++            continue
++        line = ""
++        for word in paragraph.split(" "):
++            candidate = f"{line} {word}" if line else word
++            if line and width(candidate) > wrap_width:
++                widths.append(width(line))
++                line = word
++            else:
++                line = candidate
++        widths.append(width(line))
++    return widths
++
++
+ def _estimate_text_auto_width(node: dict, height_px: float) -> float:
+     """Heuristic width estimate for zero-width text nodes with AutomaticSize.X."""
+     text = str(node.get("text", ""))
+@@ -29,6 +79,11 @@ def _estimate_text_auto_width(node: dict, height_px: float) -> float:
+         # TextScaled labels typically leave small vertical padding.
+         text_size = max(1.0, height_px * 0.72)
+ 
++    if not node.get("textScaled", False):
++        measured = _measured_text_lines(node)
++        if measured is not None:
++            return max(1.0, max(measured))
++
+     units = 0.0
+     for ch in text:
+         if ch.isspace():
+@@ -60,6 +115,12 @@ def _estimate_text_auto_height(node: dict, width_px: float) -> float:
+         # Conservative fallback when only width is known.
+         text_size = max(1.0, min(text_size, width_px * 0.5))
+ 
++    if not node.get("textScaled", False):
++        measured = _measured_text_lines(node, wrap_width=width_px)
++        if measured is not None:
++            # Roblox's line box is TextSize x LineHeight (Studio: 20px text -> 20px tall).
++            return max(1.0, text_size * float(node.get("lineHeight", 1.0) or 1.0) * len(measured))
++
+     lines = text.count("\n") + 1
+     return max(1.0, text_size * 1.2 * lines)
+ 
+@@ -155,6 +216,14 @@ def resolve_rect(
+         h = (_estimate_text_auto_height(node, w)
+              + _padding(padding.get("top"), ref_h) + _padding(padding.get("bottom"), ref_h))
+ 
++    # UISizeConstraint clamps the resolved size (Studio-measured, tests/studio/ui_layouts).
++    limits = node.get("sizeLimits")
++    if limits:
++        low = limits.get("min") or [0.0, 0.0]
++        high = limits.get("max") or [float("inf"), float("inf")]
++        w = min(max(w, _num(low[0], 0.0)), _num(high[0], float("inf")))
++        h = min(max(h, _num(low[1], 0.0)), _num(high[1], float("inf")))
++
+     # Apply aspect ratio constraint (shrink to fit)
+     aspect = node.get("aspectRatio")
+     if aspect is not None and aspect > 0 and h > 0:
+@@ -189,3 +258,11 @@ def resolve_rect(
+     y = parent_rect.y + py - ay * h
+ 
+     return Rect(x=x, y=y, w=w, h=h)
++
++
++def layout_order_key(node: dict):
++    """Sort key for a layout container's children: SortOrder.Name or LayoutOrder."""
++    for layout in (node.get("list"), node.get("grid")):
++        if isinstance(layout, dict) and layout.get("sortOrder") == "Name":
++            return lambda child: str(child.get("name", ""))
++    return lambda child: child.get("layoutOrder", 0)
+--- a/src/ui_engine/renderer.py
++++ b/src/ui_engine/renderer.py
+@@ -4,7 +4,7 @@ from pathlib import Path
+ 
+ import skia
+ 
+-from .layout import Rect, resolve_rect, BASE_WIDTH, BASE_HEIGHT
++from .layout import Rect, resolve_rect, BASE_WIDTH, BASE_HEIGHT, layout_order_key
+ from .visuals import draw_background, draw_stroke, make_gradient_shader, resolve_corner
+ from .text import draw_text
+ from .assets import load_icon, draw_image
+@@ -795,7 +795,7 @@ def _render_node_at(canvas: skia.Canvas, node: dict, rect: Rect, ctx: dict,
+         )
+         list_layout = node.get("list")
+         grid_layout = node.get("grid")
+-        children_ordered = sorted(children, key=lambda c: c.get("layoutOrder", 0))
++        children_ordered = sorted(children, key=layout_order_key(node))
+         if node.get("type") == "ScrollingFrame":
+             auto_canvas = node.get("autoCanvasSize")
+             if auto_canvas:
+@@ -852,7 +852,7 @@ def _render_children_only(canvas: skia.Canvas, node: dict, rect: Rect, ctx: dict
+         max(0.0, rect.h - pad_top - pad_bottom),
+     )
+ 
+-    children_ordered = sorted(children, key=lambda c: c.get("layoutOrder", 0))
++    children_ordered = sorted(children, key=layout_order_key(node))
+     list_layout = node.get("list")
+     grid_layout = node.get("grid")
+     if list_layout:
+@@ -995,7 +995,7 @@ def render_node(canvas: skia.Canvas, node: dict, parent_rect: Rect, ctx: dict) -
+         )
+ 
+         # Sort by layoutOrder (for list/grid), then zIndex for draw order
+-        children_ordered = sorted(children, key=lambda c: c.get("layoutOrder", 0))
++        children_ordered = sorted(children, key=layout_order_key(node))
+ 
+         list_layout = node.get("list")
+         grid_layout = node.get("grid")
+@@ -1141,7 +1141,7 @@ def _collect_entries(node: dict, parent_rect: Rect, parent_ops: list,
+ 
+         list_layout = node.get("list")
+         grid_layout = node.get("grid")
+-        children_ordered = sorted(children, key=lambda c: c.get("layoutOrder", 0))
++        children_ordered = sorted(children, key=layout_order_key(node))
+         if node.get("type") == "ScrollingFrame":
+             auto_canvas = node.get("autoCanvasSize")
+             if auto_canvas:
+--- a/src/ui_engine/text_fonts.py
++++ b/src/ui_engine/text_fonts.py
+@@ -20,6 +20,33 @@ def _typeface_from_file(path: str) -> skia.Typeface | None:
+     return _FREETYPE_FONT_MGR.makeFromFile(path)
+ 
+ 
++_EM_SCALE_CACHE: dict[int, float] = {}
++
++
++def roblox_em_scale(typeface: skia.Typeface | None, family: str = "") -> float:
++    """Roblox TextSize -> font em size, for faces without a Studio advance table.
++
++    Roblox scales a face so its full line box (ascent + descent) is TextSize tall,
++    not its em: Studio's TextBounds for 41 families at TextSize 100 match
++    width x 1/(ascent+descent) within ~1.3% (tests/studio, docs/known-approximations).
++    Faces with their own Studio-measured handling keep it: pixel faces (Press
++    Start 2P) and families with an advance table (FredokaOne).
++    """
++    if typeface is None:
++        return 1.0
++    name = family or typeface.getFamilyName() or ""
++    if name in _PIXEL_FONT_FAMILIES or "fredoka" in name.replace(" ", "").lower():
++        return 1.0
++    key = typeface.uniqueID()
++    cached = _EM_SCALE_CACHE.get(key)
++    if cached is None:
++        metrics = skia.Font(typeface, 100.0).getMetrics()
++        span = (metrics.fDescent - metrics.fAscent) / 100.0
++        cached = 1.0 / span if span > 0.5 else 1.0
++        _EM_SCALE_CACHE[key] = cached
++    return cached
++
++
+ 
+ def _iter_configured_font_dirs() -> list[Path]:
+     raw = os.getenv("PINEVEX_RENDERER_ROBLOX_FONT_DIRS", "")
+@@ -483,14 +510,16 @@ def _draw_rtl_piece(canvas: skia.Canvas, text: str, style: "_RichStyle",
+ # Maps Roblox font names to (file stem, skia FontStyle weight constant)
+ # skia weight constants: 100=Thin, 300=Light, 400=Normal, 500=Medium, 700=Bold, 900=Black
+ _FONT_MAP: dict[str, tuple[str, int]] = {
+-    "GothamSSm":       ("Montserrat", 700),  # Deprecated GothamSSm maps closest to Montserrat Bold
++    # Studio measures the retired GothamSSm family exactly like Montserrat
++    # (TextService.GetTextBoundsAsync, 20px and 100px, tests/studio).
++    "GothamSSm":       ("Montserrat", 400),
+     "SourceSansPro":   ("SourceSansPro", 400),
+     "Source Sans Pro":  ("SourceSansPro", 400),
+     "LegacyArial":     ("Roboto", 400),
+     "Arial":           ("Roboto", 400),
+     "RobotoMono":      ("Inconsolata", 400),
+     "RobotoCondensed": ("Roboto", 400),
+-    "BuilderSans":     ("Montserrat", 500),
++    "BuilderSans":     ("BuilderSans", 400),
+     "FredokaOne":      ("FredokaOne", 400),
+ }
+ 
+@@ -629,6 +658,15 @@ def _font_stem_candidates(family: str, weight: int, italic: bool) -> list[str]:
+         if italic:
+             stems.append(f"{base}Italic")
+ 
++    if family == "BuilderSans":
++        if weight >= 800:
++            stems.append("BuilderSans-ExtraBold")
++        if weight >= 650:
++            stems.append("BuilderSans-Bold")
++        if weight >= 450:
++            stems.append("BuilderSans-Medium")
++        stems.append("BuilderSans-Regular")
++
+     # Prefer Roblox's split SourceSansPro files for better weight parity.
+     if family == "SourceSansPro":
+         if weight >= 650:
+--- a/vendor/product_output/pinevex_postprocess.py
++++ b/vendor/product_output/pinevex_postprocess.py
+@@ -208,7 +208,11 @@ def _canonical_font_family(value: Any) -> str:
+     canonical = _ALLOWED_POSTPROCESS_FONTS.get(raw.lower())
+     if canonical:
+         return canonical
+-    return _DEFAULT_POSTPROCESS_FONT
++    # Keep the model's own family. Coercing every other font to GothamSSm drew
++    # SourceSans/Arial/Roboto/Oswald/... text in the wrong face and at the wrong
++    # width (Studio-measured, tests/studio/ui_layouts); the renderer resolves the
++    # family itself and falls back to a bundled face when it has no file for it.
++    return raw
+ 
+ 
+ def _coerce_allowed_font(value: Any) -> str:
+--- a/web_demo/rbxm_parser_component/tree_to_pinevexobject.py
++++ b/web_demo/rbxm_parser_component/tree_to_pinevexobject.py
+@@ -290,7 +290,13 @@ def _extract_ui_modifiers(children: list[dict]) -> dict:
+             mods["aspectRatio"] = props.get("AspectRatio", 1.0)
+ 
+         elif cls == "UISizeConstraint":
+-            pass
++            limits = {}
++            for key, prop in (("min", "MinSize"), ("max", "MaxSize")):
++                value = props.get(prop)
++                if isinstance(value, dict) and "x" in value and "y" in value:
++                    limits[key] = [float(value["x"]), float(value["y"])]
++            if limits:
++                mods["sizeLimits"] = limits
+ 
+         elif cls == "UIListLayout":
+             lst = {}
+@@ -317,6 +323,8 @@ def _extract_ui_modifiers(children: list[dict]) -> dict:
+             wraps = props.get("Wraps")
+             if wraps:
+                 lst["wraps"] = True
++            if _extract_enum_value(props.get("SortOrder")) == "Name":
++                lst["sortOrder"] = "Name"
+             mods["list"] = lst
+ 
+         elif cls == "UIGridLayout":
+@@ -338,6 +346,8 @@ def _extract_ui_modifiers(children: list[dict]) -> dict:
+             h_align = _extract_enum_value(props.get("HorizontalAlignment"))
+             if h_align and h_align != "Left":
+                 grid["hAlign"] = h_align
++            if _extract_enum_value(props.get("SortOrder")) == "Name":
++                grid["sortOrder"] = "Name"
+             mods["grid"] = grid
+ 
+         elif cls == "UIPadding":

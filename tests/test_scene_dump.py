@@ -3,18 +3,19 @@
 
 from __future__ import annotations
 
+import sys
 import json
 import subprocess
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-RHR = ROOT / "bin" / "rhr"
+RHR = [sys.executable, "-m", "rhr"]
 FIXTURE = ROOT / "tests/fixtures/scene_geometry.rbxmx"
 
 
 def main() -> None:
     proc = subprocess.run(
-        [str(RHR), "scene-dump", str(FIXTURE)],
+        [*RHR, "scene-dump", str(FIXTURE)],
         cwd=ROOT,
         capture_output=True,
         text=True,
@@ -36,6 +37,12 @@ def main() -> None:
     assert data["preferredCamera"] == "Scene/SceneCamera"
     assert "scene-dump 1 parts" in proc.stderr
     print("scene dump: ok")
+
+
+def test_main():
+    from _harness import run_main
+
+    run_main(main)
 
 
 if __name__ == "__main__":

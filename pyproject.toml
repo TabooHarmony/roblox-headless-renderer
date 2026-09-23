@@ -1,0 +1,59 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "roblox-headless-renderer"
+version = "0.1.0.dev0"
+description = "Headless previews of Roblox UI and 3D builds for AI agents: PNGs plus layout JSON, no Studio needed."
+readme = "README.md"
+license = "Apache-2.0"
+requires-python = ">=3.12"
+# Exact pins where pixels depend on them: a Playwright version fixes the Chromium
+# build, and skia-python draws the 2D UI.
+dependencies = [
+    "Pillow>=12,<13",
+    "numpy>=2,<3",
+    "requests>=2.31,<3",
+    "skia-python==144.0.post2",
+    "playwright==1.58.0",
+]
+
+[project.optional-dependencies]
+mcp = ["mcp>=1.10,<2"]
+dev = ["pytest==9.1.1"]
+
+[project.scripts]
+rhr = "rhr.cli:main"
+rhr-mcp = "rhr.mcp_server:main"
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+packages = ["rhr"]
+include-package-data = false
+
+[tool.setuptools.package-data]
+# Only what rendering needs from the vendored trees, plus their licences.
+rhr = [
+    "luau/*.luau",
+    "fonts/*",
+    "scene/*",
+    "particles/*",
+    "vendor/*.md",
+    "vendor/three/*",
+    "vendor/licenses/*",
+    "vendor/pinevex/LICENSE",
+    "vendor/pinevex/THIRD_PARTY_NOTICES.md",
+    "vendor/pinevex/src/ui_engine/*.py",
+    "vendor/pinevex/src/ui_engine/data/*",
+    "vendor/pinevex/src/ui_engine/fonts/*",
+    "vendor/pinevex/vendor/product_output/*.py",
+    "vendor/pinevex/vendor/icon_library/*",
+    "vendor/pinevex/web_demo/__init__.py",
+    "vendor/pinevex/web_demo/rbxm_parser_component/*.py",
+    "vendor/pinevex/web_demo/rbxm_parser_component/rbxm_parser/*.py",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"

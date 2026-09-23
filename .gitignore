@@ -1,4 +1,4 @@
-.venv/
+.venv*/
 __pycache__/
 *.pyc
 .pytest_cache/
@@ -8,7 +8,6 @@ __pycache__/
 .coverage
 htmlcov/
 out/
-assets/cache/
 *.tmp
 *.log
 node_modules/
@@ -30,3 +29,6 @@ node_modules/
 *.pem
 *.p12
 *.pfx
+*.egg-info/
+build/
+dist/

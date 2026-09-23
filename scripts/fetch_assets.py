@@ -4,9 +4,10 @@ Uses the vendored engine's own fetcher (`ui_engine.asset_fetcher.fetch_icons`) a
 its own cache location (`ui_engine.assets._asset_cache_dir`), so the images the
 renderer looks for are the ones this writes. No new download code.
 
-    .venv/bin/python scripts/fetch_assets.py model.json
+    rhr ir model.rbxm --out model.json
+    python scripts/fetch_assets.py model.json
 
-Writes into assets/cache/icons/<asset_id>.png and prints a count. Not a test.
+Writes into <rhr cache>/cache/icons/<asset_id>.png (see rhr.paths) and prints a count. Not a test.
 """
 
 from __future__ import annotations
@@ -17,12 +18,12 @@ import sys
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
-PINEVEX = REPO / "vendor" / "pinevex"
+PINEVEX = REPO / "src" / "rhr" / "vendor" / "pinevex"
 sys.path.insert(0, str(PINEVEX / "src"))
 sys.path.insert(0, str(REPO / "src"))
 
 # Same icon root the pipeline hands the engine, so the cache this fills is the cache
-# the renderer reads (assets/cache/icons/<asset_id>.png).
+# the renderer reads (rhr.paths.ICON_CACHE).
 from rhr.pipeline import ICONS_DIR  # noqa: E402
 
 
@@ -67,8 +68,9 @@ def asset_refs(obj) -> set[str]:
 
 
 def main() -> int:
-    if len(sys.argv) != 2:
-        print("usage: fetch_assets.py <model-or-ir.json>", file=sys.stderr)
+    if len(sys.argv) < 2:
+        print("usage: python scripts/fetch_assets.py <ir.json>  (make one with `rhr ir model.rbxm --out ir.json`)",
+              file=sys.stderr)
         return 2
     src = Path(sys.argv[1])
     obj = json.loads(src.read_text())

@@ -12,6 +12,7 @@ from pathlib import Path
 from PIL import Image
 
 REPO = Path(__file__).resolve().parents[1]
+RHR = [sys.executable, "-m", "rhr"]
 PARTICLE_FIXTURE = REPO / "tests" / "fixtures" / "particle_scene.rbxmx"
 
 SCRIPT = r'''
@@ -91,7 +92,7 @@ def main() -> int:
         print("particle sim: FAIL: node is not on PATH")
         return 1
     result = subprocess.run(
-        [node, "--experimental-default-type=module", "-e", SCRIPT],
+        [node, "--input-type=module", "-e", SCRIPT],
         cwd=REPO,
         capture_output=True,
         text=True,
@@ -108,7 +109,7 @@ def main() -> int:
         second = Path(directory) / "second.png"
         atlas = Path(directory) / "atlas.png"
         command = [
-            str(REPO / "bin" / "rhr"), "particles", str(PARTICLE_FIXTURE),
+            *RHR, "particles", str(PARTICLE_FIXTURE),
             "--viewport", "300x200", "--times", "0,0.5,1", "--seed", "7", "--burst", "10",
         ]
         results = []
@@ -155,6 +156,12 @@ def main() -> int:
     print("particle capture: ok")
     print("particle sim: ok")
     return 0
+
+
+def test_main():
+    from _harness import run_main
+
+    run_main(main)
 
 
 if __name__ == "__main__":

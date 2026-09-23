@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import sys
 import json
 import subprocess
 import tempfile
@@ -11,7 +12,7 @@ from pathlib import Path
 from PIL import Image, ImageChops, ImageStat
 
 ROOT = Path(__file__).resolve().parents[1]
-RHR = ROOT / "bin" / "rhr"
+RHR = [sys.executable, "-m", "rhr"]
 
 
 def color(r: float, g: float, b: float) -> dict:
@@ -94,7 +95,7 @@ def scene(density: float | None) -> dict:
 
 def run(*args: str) -> subprocess.CompletedProcess:
     return subprocess.run(
-        [str(RHR), *args],
+        [*RHR, *args],
         cwd=ROOT,
         capture_output=True,
         text=True,
@@ -132,8 +133,11 @@ def main() -> None:
         assert fog_delta > 1.0, fog_delta
 
         with Image.open(outputs["none"]).convert("RGB") as plain, Image.open(outputs["thin"]).convert("RGB") as tinted:
-            assert plain.getpixel((5, 5)) == (32, 36, 43)
-            assert tinted.getpixel((5, 5)) != (32, 36, 43)
+            # Without an Atmosphere a place shows Roblox's default sky (blue); the
+            # Atmosphere tints that backdrop.
+            sky = plain.getpixel((5, 5))
+            assert sky[2] > sky[0] + 60, sky
+            assert tinted.getpixel((5, 5)) != sky
 
         dense_ir = tmp / "dense.json"
         proc = run("scene-dump", str(dense_ir))
@@ -148,6 +152,12 @@ def main() -> None:
         assert atmosphere["offset"] == -0.1
 
     print(f"scene atmosphere: tint delta={tint_delta:.2f}, fog delta={fog_delta:.2f}")
+
+
+def test_main():
+    from _harness import run_main
+
+    run_main(main)
 
 
 if __name__ == "__main__":

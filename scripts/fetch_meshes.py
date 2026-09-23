@@ -4,7 +4,7 @@
 Rendering never fetches mesh assets from the network. This helper discovers
 MeshPart / SpecialMesh:FileMesh IDs in a model or RHR IR, downloads public asset
 bytes when available, decompresses gzip transport, validates the Roblox mesh
-version header, and writes assets/cache/meshes/<asset_id>.mesh.
+version header, and writes <rhr cache>/cache/meshes/<asset_id>.mesh (see rhr.paths).
 """
 
 from __future__ import annotations
@@ -24,7 +24,7 @@ sys.path.insert(0, str(REPO / "src"))
 
 from rhr.ir import emit_ir  # noqa: E402
 
-DEFAULT_CACHE = REPO / "assets" / "cache" / "meshes"
+from rhr.paths import MESH_CACHE as DEFAULT_CACHE  # noqa: E402
 
 
 def asset_id(value) -> str | None:

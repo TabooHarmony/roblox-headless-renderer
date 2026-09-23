@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import sys
 import json
 import subprocess
 import tempfile
@@ -11,7 +12,7 @@ from pathlib import Path
 from PIL import Image, ImageChops
 
 ROOT = Path(__file__).resolve().parents[1]
-RHR = ROOT / "bin" / "rhr"
+RHR = [sys.executable, "-m", "rhr"]
 FIXTURE = ROOT / "tests" / "fixtures" / "trail_motion.rbxmx"
 
 
@@ -44,7 +45,7 @@ def red_bbox(path: Path) -> tuple[int, int, int, int] | None:
 def render(source: Path, output: Path) -> None:
     proc = subprocess.run(
         [
-            str(RHR), "scene", str(source), "--viewport", "320x240",
+            *RHR, "scene", str(source), "--viewport", "320x240",
             "--camera", "0,0,-20", "--look-at", "0,0,0", "--fov", "45",
             "--out", str(output),
         ],
@@ -61,7 +62,7 @@ def main() -> None:
         tmp = Path(directory)
         emitted = tmp / "trail-emitted.json"
         emit_proc = subprocess.run(
-            [str(RHR), "ir", str(FIXTURE), "--out", str(emitted)],
+            [*RHR, "ir", str(FIXTURE), "--out", str(emitted)],
             cwd=ROOT,
             capture_output=True,
             text=True,
@@ -92,7 +93,7 @@ def main() -> None:
         assert bbox[3] - bbox[1] > 4, bbox
 
         dump_proc = subprocess.run(
-            [str(RHR), "scene-dump", str(source)],
+            [*RHR, "scene-dump", str(source)],
             cwd=ROOT,
             capture_output=True,
             text=True,
@@ -153,6 +154,12 @@ def main() -> None:
         f"scene trail: bbox={bbox}, short_bbox={short_bbox}, "
         f"face-mode changed={changed}, fade-tip/tail={tip_red}/{tail_red}"
     )
+
+
+def test_main():
+    from _harness import run_main
+
+    run_main(main)
 
 
 if __name__ == "__main__":

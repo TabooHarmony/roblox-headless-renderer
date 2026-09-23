@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import sys
 import json
 import subprocess
 import tempfile
@@ -11,7 +12,7 @@ from pathlib import Path
 from PIL import Image
 
 ROOT = Path(__file__).resolve().parents[1]
-RHR = ROOT / "bin" / "rhr"
+RHR = [sys.executable, "-m", "rhr"]
 ASSETS = ROOT / "tests/fixtures/assets"
 
 
@@ -58,7 +59,7 @@ def write_ir(path: Path, texture_id: str) -> None:
 
 
 def run(*args: str) -> subprocess.CompletedProcess:
-    return subprocess.run([str(RHR), *args], cwd=ROOT, capture_output=True, text=True, timeout=120)
+    return subprocess.run([*RHR, *args], cwd=ROOT, capture_output=True, text=True, timeout=120)
 
 
 def color_counts(path: Path) -> tuple[int, int]:
@@ -87,7 +88,7 @@ def main() -> None:
             "--out", str(out),
         )
         assert proc.returncode == 0, proc.stderr
-        assert "missing-assets=" not in proc.stderr, proc.stderr
+        assert "missing-assets=0" in proc.stderr, proc.stderr
         red, blue = color_counts(out)
         assert red > 1000 and blue > 1000, (red, blue)
 
@@ -119,6 +120,12 @@ def main() -> None:
         assert "missing-assets=1" in proc.stderr, proc.stderr
 
     print(f"scene decal: red={red} blue={blue}, missing asset reported")
+
+
+def test_main():
+    from _harness import run_main
+
+    run_main(main)
 
 
 if __name__ == "__main__":

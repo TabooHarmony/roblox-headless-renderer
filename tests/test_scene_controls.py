@@ -12,13 +12,13 @@ from PIL import Image
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
-RHR = ROOT / "bin" / "rhr"
+RHR = [sys.executable, "-m", "rhr"]
 SCENE = ROOT / "tests/fixtures/scene_geometry.rbxmx"
 CAMERAS = ROOT / "tests/fixtures/scene_two_cameras.rbxmx"
 
 
 def run(*args: str) -> subprocess.CompletedProcess:
-    return subprocess.run([str(RHR), *args], cwd=ROOT, capture_output=True, text=True, timeout=120)
+    return subprocess.run([*RHR, *args], cwd=ROOT, capture_output=True, text=True, timeout=120)
 
 
 def red_pixels(path: Path) -> list[tuple[int, int]]:
@@ -99,6 +99,12 @@ def main() -> None:
             raise AssertionError("missing ViewportFrame path rendered successfully")
 
     print("scene controls: ok")
+
+
+def test_main():
+    from _harness import run_main
+
+    run_main(main)
 
 
 if __name__ == "__main__":

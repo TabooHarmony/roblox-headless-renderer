@@ -3,15 +3,14 @@
 
 These are Roblox's own Studio content models on this machine, not vendored into
 this repo (they are Roblox's, and we do not redistribute them). Point the check at
-another copy with `RHR_STUDIO_MODELS=/path/to/studiocontent-models`; with no models
-present it prints a skip line instead of failing, so the repo stays testable
-without a Studio install.
+a copy with `RHR_STUDIO_MODELS=/path/to/studiocontent-models`; without it the check
+is skipped, so the repo stays testable without a Studio install.
 
 What it proves: the lune IR pass and the adapter survive real content (Content
 properties, UDim, instances with hundreds of children) and the renderer paints
 something. It does not prove layout correctness; the fixtures do that.
 
-    .venv/bin/python tests/test_studio_smoke.py
+    python tests/test_studio_smoke.py
 """
 
 from __future__ import annotations
@@ -25,7 +24,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "src"))
 sys.path.insert(0, str(REPO / "tests"))
 
-MODELS_DIR = Path(os.environ["RHR_STUDIO_MODELS"]) if "RHR_STUDIO_MODELS" in os.environ else None
+MODELS_DIR = Path(os.environ["RHR_STUDIO_MODELS"]) if os.environ.get("RHR_STUDIO_MODELS") else None
 MODELS = [
     ("RigBuilderGUI", "RigBuilder"),
     ("AnimationEditorGUI", "AnimationEditor"),
@@ -40,11 +39,11 @@ def main() -> int:
     from rhr.pipeline import render_ir
     from test_fixtures import emit_ir
 
-    if MODELS_DIR is None:
-        print("skip  studio smoke: set RHR_STUDIO_MODELS to a local Studio model directory")
-        return 0
     status = 0
     checked = 0
+    if MODELS_DIR is None:
+        print("skip  studio smoke: RHR_STUDIO_MODELS is not set")
+        return 0
     for name, folder in MODELS:
         model = MODELS_DIR / folder / f"{name}.rbxm"
         if not model.exists():
@@ -73,6 +72,16 @@ def main() -> int:
     if checked == 0:
         print(f"skip  studio smoke: no models under {MODELS_DIR}")
     return status
+
+
+def test_main():
+    import pytest
+
+    from _harness import run_main
+
+    if MODELS_DIR is None or not MODELS_DIR.is_dir():
+        pytest.skip("set RHR_STUDIO_MODELS to a studiocontent-models directory")
+    run_main(main)
 
 
 if __name__ == "__main__":

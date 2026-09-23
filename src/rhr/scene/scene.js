@@ -1,4 +1,4 @@
-import * as THREE from '../../../vendor/three/three.module.js';
+import * as THREE from '../vendor/three/three.module.js';
 
 const params = new URLSearchParams(location.search);
 const viewportMode = params.get('mode') === 'viewport';
@@ -21,8 +21,6 @@ const anchorByNode = new Map();
 const sceneTextureCache = new Map();
 const sceneMeshGeometryCache = new Map();
 const meshGeometryJobs = [];
-const modelGroupByNode = new Map();
-const resolvedGeometryVerticesByNode = new Map();
 const sceneAssetManifest = fetch('/__rhr_assets__.json')
   .then(response => response.ok ? response.json() : {})
   .catch(() => ({}));
@@ -35,39 +33,57 @@ function walk(node, visit) {
   for (const child of Object.values(node.children || {})) walk(child, visit);
 }
 
+// Paths come from the IR (unique: same-named siblings are all indexed, `Card[1]`,
+// `Card[2]`); hand-written IR without them gets the same rule here.
+function ensurePaths(nodes, parentPath = '') {
+  const segment = node => node.name || node.className;
+  const counts = new Map();
+  for (const node of nodes) counts.set(segment(node), (counts.get(segment(node)) || 0) + 1);
+  const seen = new Map();
+  for (const node of nodes) {
+    if (!node.path) {
+      const name = segment(node);
+      let part = name;
+      if (counts.get(name) > 1) {
+        seen.set(name, (seen.get(name) || 0) + 1);
+        part = `${name}[${seen.get(name)}]`;
+      }
+      node.path = parentPath ? `${parentPath}/${part}` : part;
+    }
+    ensurePaths(Object.values(node.children || {}), node.path);
+  }
+}
+
 function buildNodeIndex(roots) {
   const byPath = new Map();
+  const byId = new Map();
   const byReference = new Map();
-  const firstByName = new Map();
+  const ambiguousReferences = new Set();
   const byClass = new Map();
   const parentByNode = new Map();
   const rootByNode = new Map();
 
-  function descend(node, parent, slashPath, referencePath, root) {
-    byPath.set(slashPath, node);
-    byReference.set(referencePath, node);
-    if (!firstByName.has(node.name)) firstByName.set(node.name, node);
+  ensurePaths(roots);
+  function descend(node, parent, referencePath, root) {
+    byPath.set(node.path, node);
+    if (node.id !== undefined) byId.set(node.id, node);
+    // GetFullName() strings are only a fallback for IR without ids; a dotted name
+    // shared by two instances resolves to nothing rather than to either one.
+    if (byReference.has(referencePath)) ambiguousReferences.add(referencePath);
+    else byReference.set(referencePath, node);
     if (!byClass.has(node.className)) byClass.set(node.className, []);
     byClass.get(node.className).push(node);
     if (parent) parentByNode.set(node, parent);
     rootByNode.set(node, root);
     for (const child of Object.values(node.children || {})) {
-      const childName = child.name || child.className;
-      descend(
-        child,
-        node,
-        `${slashPath}/${childName}`,
-        `${referencePath}.${childName}`,
-        root,
-      );
+      descend(child, node, `${referencePath}.${child.name || child.className}`, root);
     }
   }
 
   for (const root of roots) {
-    const rootName = root.name || root.className;
-    descend(root, null, rootName, rootName, root);
+    descend(root, null, root.name || root.className, root);
   }
-  return {byPath, byReference, firstByName, byClass, parentByNode, rootByNode};
+  return {byPath, byId, byReference, ambiguousReferences, byClass, parentByNode, rootByNode};
 }
 
 function nodesOfClass(index, className) {
@@ -83,188 +99,24 @@ function cframeMatrix(cf) {
   );
 }
 
+// Roblox Color3 components are sRGB. THREE.Color(r, g, b) takes working-space
+// (linear) values, which washed every authored colour out; convert explicitly.
 function colorValue(value, fallback = 0xffffff) {
   if (!value) return new THREE.Color(fallback);
-  return new THREE.Color(value.R ?? 1, value.G ?? 1, value.B ?? 1);
+  return new THREE.Color().setRGB(Number(value.R ?? 1), Number(value.G ?? 1), Number(value.B ?? 1), THREE.SRGBColorSpace);
 }
 
 function dimensions(value) {
   return [Number(value?.X ?? 1), Number(value?.Y ?? 1), Number(value?.Z ?? 1)];
 }
 
-const MODEL_GEOMETRY_CLASSES = new Set([
-  'Part', 'WedgePart', 'CornerWedgePart', 'MeshPart', 'UnionOperation',
-]);
-
-function primaryPartPivot(node) {
-  const reference = String(node.props?.PrimaryPart || '');
-  const wanted = reference.split('.').filter(Boolean).at(-1);
-  if (!wanted) return null;
-  let pivot = null;
-  walk(node, child => {
-    if (pivot || child.name !== wanted || !MODEL_GEOMETRY_CLASSES.has(child.className)) return;
-    const cframe = child.props?.CFrame;
-    if (!cframe) return;
-    const offset = child.props?.PivotOffset;
-    if (!offset) {
-      pivot = cframe;
-      return;
-    }
-    const worldPivot = cframeMatrix(cframe).multiply(cframeMatrix(offset));
-    pivot = {
-      X: worldPivot.elements[12],
-      Y: worldPivot.elements[13],
-      Z: worldPivot.elements[14],
-    };
-  });
-  return pivot;
-}
-
-function wedgeLocalVertices(node) {
-  const shape = node.props?.Shape?.name || node.props?.shape;
-  const isWedge = node.className === 'WedgePart' || shape === 'Wedge';
-  const isCorner = node.className === 'CornerWedgePart' || shape === 'CornerWedge';
-  if (!isWedge && !isCorner) return null;
-  const [width, height, depth] = dimensions(node.props?.Size);
-  const half = [width / 2, height / 2, depth / 2];
-  const vertices = [];
-  for (const x of [-half[0], half[0]]) {
-    for (const y of [-half[1], half[1]]) {
-      for (const z of [-half[2], half[2]]) {
-        const localY = isWedge && x > 0
-          ? -half[1]
-          : isCorner && y > 0 && (x > 0 || z > 0)
-            ? -half[1]
-            : y;
-        vertices.push(new THREE.Vector3(x, localY, z));
-      }
-    }
-  }
-  return vertices;
-}
-
-function analyticShapeExtent(node, cf) {
-  const shape = node.props?.Shape?.name || node.props?.shape;
-  const isBall = shape === 'Ball' || shape === '2';
-  const isCylinder = shape === 'Cylinder' || shape === '3';
-  if (!isBall && !isCylinder) return null;
-  const [sizeX, sizeY, sizeZ] = dimensions(node.props?.Size);
-  const halfX = sizeX / 2;
-  const halfY = sizeY / 2;
-  const halfZ = sizeZ / 2;
-  const extent = [];
-  for (const row of [0, 1, 2]) {
-    const r0 = Number(cf[`R${row}0`] ?? (row === 0 ? 1 : 0));
-    const r1 = Number(cf[`R${row}1`] ?? (row === 1 ? 1 : 0));
-    const r2 = Number(cf[`R${row}2`] ?? (row === 2 ? 1 : 0));
-    extent.push(isBall
-      ? Math.hypot(r0 * halfX, r1 * halfY, r2 * halfZ)
-      : Math.abs(r0) * halfX + Math.hypot(r1 * halfY, r2 * halfZ));
-  }
-  return new THREE.Vector3(...extent);
-}
-
-function geometryLocalVertices(geometry) {
-  const position = geometry?.attributes?.position;
-  if (!position) return null;
-  const vertices = [];
-  for (let index = 0; index < position.count; index += 1) {
-    vertices.push(new THREE.Vector3(position.getX(index), position.getY(index), position.getZ(index)));
-  }
-  return vertices;
-}
-
-function pivotVector(pivot) {
-  if (!pivot) return null;
-  return pivot.isVector3
-    ? pivot.clone()
-    : new THREE.Vector3(Number(pivot.X ?? 0), Number(pivot.Y ?? 0), Number(pivot.Z ?? 0));
-}
-
-function defaultModelPivot(node, geometryVertices = resolvedGeometryVerticesByNode) {
-  const min = new THREE.Vector3(Infinity, Infinity, Infinity);
-  const max = new THREE.Vector3(-Infinity, -Infinity, -Infinity);
-  let count = 0;
-
-  // A parent Model's default bounds include child Models at their existing
-  // scale. Keep the affine transform separate so the current model's own
-  // scale is excluded while nested scales are included.
-  function visit(current, accumulatedScale, accumulatedOffset) {
-    for (const child of Object.values(current.children || {})) {
-      if (child.className === 'Model') {
-        const scale = Number(child.props?.Scale ?? 1);
-        const pivot = pivotVector(
-          primaryPartPivot(child) || child.props?.WorldPivot || defaultModelPivot(child, geometryVertices),
-        );
-        const childOffset = accumulatedOffset.clone();
-        if (pivot) childOffset.addScaledVector(pivot, accumulatedScale * (1 - scale));
-        visit(child, accumulatedScale * scale, childOffset);
-        continue;
-      }
-      if (MODEL_GEOMETRY_CLASSES.has(child.className)) {
-        const cf = child.props?.CFrame;
-        if (!cf) continue;
-        const shapeExtent = analyticShapeExtent(child, cf);
-        if (shapeExtent) {
-          const position = new THREE.Vector3(
-            Number(cf.X ?? 0),
-            Number(cf.Y ?? 0),
-            Number(cf.Z ?? 0),
-          ).multiplyScalar(accumulatedScale).add(accumulatedOffset);
-          const extent = shapeExtent.multiplyScalar(Math.abs(accumulatedScale));
-          min.min(position.clone().sub(extent));
-          max.max(position.clone().add(extent));
-          count += 1;
-          continue;
-        }
-        const localVertices = geometryVertices.get(child) || wedgeLocalVertices(child);
-        if (localVertices) {
-          const matrix = cframeMatrix(cf);
-          for (const local of localVertices) {
-            const position = local.applyMatrix4(matrix)
-              .multiplyScalar(accumulatedScale)
-              .add(accumulatedOffset);
-            min.min(position);
-            max.max(position);
-          }
-          count += 1;
-          continue;
-        }
-        const [sizeX, sizeY, sizeZ] = dimensions(child.props?.Size);
-        const position = new THREE.Vector3(
-          Number(cf.X ?? 0),
-          Number(cf.Y ?? 0),
-          Number(cf.Z ?? 0),
-        ).multiplyScalar(accumulatedScale).add(accumulatedOffset);
-        const extent = new THREE.Vector3(
-          Math.abs(Number(cf.R00 ?? 1)) * sizeX / 2
-            + Math.abs(Number(cf.R01 ?? 0)) * sizeY / 2
-            + Math.abs(Number(cf.R02 ?? 0)) * sizeZ / 2,
-          Math.abs(Number(cf.R10 ?? 0)) * sizeX / 2
-            + Math.abs(Number(cf.R11 ?? 1)) * sizeY / 2
-            + Math.abs(Number(cf.R12 ?? 0)) * sizeZ / 2,
-          Math.abs(Number(cf.R20 ?? 0)) * sizeX / 2
-            + Math.abs(Number(cf.R21 ?? 0)) * sizeY / 2
-            + Math.abs(Number(cf.R22 ?? 1)) * sizeZ / 2,
-        ).multiplyScalar(Math.abs(accumulatedScale));
-        min.min(position.clone().sub(extent));
-        max.max(position.clone().add(extent));
-        count += 1;
-        continue;
-      }
-      visit(child, accumulatedScale, accumulatedOffset);
-    }
-  }
-
-  visit(node, 1, new THREE.Vector3());
-  return count ? min.add(max).multiplyScalar(0.5) : null;
-}
-
+// Studio-measured (raycasts onto a WedgePart): the top face slopes along local Z,
+// low at the front (-Z) and full height at the back (+Z).
 function wedgeGeometry(width, height, depth) {
   const geometry = new THREE.BoxGeometry(width, height, depth);
   const position = geometry.attributes.position;
   for (let index = 0; index < position.count; index += 1) {
-    if (position.getX(index) > 0) position.setY(index, -height / 2);
+    if (position.getZ(index) < 0) position.setY(index, -height / 2);
   }
   position.needsUpdate = true;
   geometry.computeVertexNormals();
@@ -276,7 +128,9 @@ function cornerWedgeGeometry(width, height, depth) {
   const geometry = new THREE.BoxGeometry(width, height, depth);
   const position = geometry.attributes.position;
   for (let index = 0; index < position.count; index += 1) {
-    if (position.getY(index) > 0 && (position.getX(index) > 0 || position.getZ(index) > 0)) {
+    // Studio-measured: the peak stands over the (+X, -Z) corner; every other top
+    // vertex drops to the base.
+    if (position.getY(index) > 0 && !(position.getX(index) > 0 && position.getZ(index) < 0)) {
       position.setY(index, -height / 2);
     }
   }
@@ -560,10 +414,12 @@ const MATERIAL_TABLE = {
   SmoothPlastic: {roughness: 0.48, metalness: 0.0},
   Neon: {roughness: 0.9, metalness: 0.0, emissiveIntensity: 1.0},
   Glass: {roughness: 0.12, metalness: 0.0, opacityScale: 0.72},
-  Metal: {roughness: 0.38, metalness: 0.9},
-  CorrodedMetal: {roughness: 0.9, metalness: 0.6},
-  DiamondPlate: {roughness: 0.65, metalness: 0.72},
-  Foil: {roughness: 0.25, metalness: 0.82},
+  // No environment map to reflect, so high metalness renders near-black; Studio's
+  // metals read as their own colour with a sheen (screenshot comparison).
+  Metal: {roughness: 0.38, metalness: 0.3},
+  CorrodedMetal: {roughness: 0.9, metalness: 0.25},
+  DiamondPlate: {roughness: 0.65, metalness: 0.3},
+  Foil: {roughness: 0.25, metalness: 0.35},
   Wood: {roughness: 0.86, metalness: 0.0},
   WoodPlanks: {roughness: 0.88, metalness: 0.0},
   Concrete: {roughness: 0.96, metalness: 0.0},
@@ -627,7 +483,6 @@ function addPart(node, parent) {
       const fitted = fitMeshGeometryToPart(baseGeometry, node.props?.Size);
       mesh.geometry.dispose();
       mesh.geometry = fitted;
-      resolvedGeometryVerticesByNode.set(node, geometryLocalVertices(fitted));
       mesh.userData.rhrMeshAsset = meshAssetId(node.props.MeshId);
     });
     meshGeometryJobs.push(job);
@@ -637,7 +492,6 @@ function addPart(node, parent) {
       const transformed = transformSpecialFileMesh(baseGeometry, special);
       mesh.geometry.dispose();
       mesh.geometry = transformed;
-      resolvedGeometryVerticesByNode.set(node, geometryLocalVertices(transformed));
       mesh.userData.rhrMeshAsset = meshAssetId(special.props.MeshId);
     });
     meshGeometryJobs.push(job);
@@ -653,50 +507,12 @@ function addPart(node, parent) {
 }
 
 function addNode(node, parent) {
-  const group = node.className === 'Model' ? new THREE.Group() : parent;
-  if (group !== parent) {
-    group.name = node.name || node.className;
-    const scale = Number(node.props?.Scale ?? 1);
-    group.scale.set(scale, scale, scale);
-    const pivot = primaryPartPivot(node) || node.props?.WorldPivot || defaultModelPivot(node);
-    if (pivot) {
-      const pivotX = pivot.isVector3 ? pivot.x : Number(pivot.X ?? 0);
-      const pivotY = pivot.isVector3 ? pivot.y : Number(pivot.Y ?? 0);
-      const pivotZ = pivot.isVector3 ? pivot.z : Number(pivot.Z ?? 0);
-      // Parts carry world CFrames. Offset the group so its uniform scale is
-      // applied around Model.WorldPivot instead of the scene origin.
-      group.position.set(
-        pivotX * (1 - scale),
-        pivotY * (1 - scale),
-        pivotZ * (1 - scale),
-      );
-    }
-    modelGroupByNode.set(node, group);
-    parent.add(group);
-  }
+  // Model.Scale is not applied: a saved model's parts already carry their scaled
+  // CFrames and Sizes (Roblox's ScaleTo rewrites them; Scale only records the factor).
   if (['Part', 'WedgePart', 'CornerWedgePart', 'MeshPart', 'UnionOperation'].includes(node.className)) {
-    addPart(node, group);
+    addPart(node, parent);
   }
-  for (const child of Object.values(node.children || {})) addNode(child, group);
-}
-
-function refreshModelPivots() {
-  for (const [node, group] of modelGroupByNode) {
-    const scale = Number(node.props?.Scale ?? 1);
-    const pivot = primaryPartPivot(node) || node.props?.WorldPivot || defaultModelPivot(node);
-    if (!pivot) {
-      group.position.set(0, 0, 0);
-      continue;
-    }
-    const pivotX = pivot.isVector3 ? pivot.x : Number(pivot.X ?? 0);
-    const pivotY = pivot.isVector3 ? pivot.y : Number(pivot.Y ?? 0);
-    const pivotZ = pivot.isVector3 ? pivot.z : Number(pivot.Z ?? 0);
-    group.position.set(
-      pivotX * (1 - scale),
-      pivotY * (1 - scale),
-      pivotZ * (1 - scale),
-    );
-  }
+  for (const child of Object.values(node.children || {})) addNode(child, parent);
 }
 
 async function loadSceneTexture(uri) {
@@ -742,7 +558,8 @@ function surfaceImagePlane(parentNode, face) {
     faceWidth = sx; faceHeight = sz;
     geometry = new THREE.PlaneGeometry(faceWidth, faceHeight);
     plane.position.y = sy / 2 + epsilon;
-    plane.rotation.x = -Math.PI / 2;
+    // Studio: a Top decal's image top edge is at +Z and its left at +X (measured).
+    plane.rotation.set(-Math.PI / 2, 0, Math.PI);
   } else if (face === 'Bottom') {
     faceWidth = sx; faceHeight = sz;
     geometry = new THREE.PlaneGeometry(faceWidth, faceHeight);
@@ -958,8 +775,8 @@ function beamRibbonGeometry(points, tangents, widths, camera, faceCamera, normal
 async function addBeams(index, camera) {
   for (const node of nodesOfClass(index, 'Beam')) {
     if (node.props?.Enabled === false) continue;
-    const a0 = findNodeByReference(index, node.props?.Attachment0);
-    const a1 = findNodeByReference(index, node.props?.Attachment1);
+    const a0 = findNodeByReference(index, node, 'Attachment0');
+    const a1 = findNodeByReference(index, node, 'Attachment1');
     const anchor0 = anchorByNode.get(a0);
     const anchor1 = anchorByNode.get(a1);
     if (!anchor0 || !anchor1) continue;
@@ -1105,8 +922,8 @@ function trailRibbonGeometry(positions0, positions1, ages, widthScale, colorSequ
 async function addTrails(index, camera) {
   for (const node of nodesOfClass(index, 'Trail')) {
     if (node.props?.Enabled === false) continue;
-    const a0 = findNodeByReference(index, node.props?.Attachment0);
-    const a1 = findNodeByReference(index, node.props?.Attachment1);
+    const a0 = findNodeByReference(index, node, 'Attachment0');
+    const a1 = findNodeByReference(index, node, 'Attachment1');
     const anchor0 = anchorByNode.get(a0);
     const anchor1 = anchorByNode.get(a1);
     if (!anchor0 || !anchor1) continue;
@@ -1380,6 +1197,59 @@ function configureAtmosphere(index) {
   }
 }
 
+// Lighting.ClockTime, or its saved form TimeOfDay ("hh:mm:ss"); null when absent.
+function clockTime(props) {
+  const direct = Number(props.ClockTime);
+  if (props.ClockTime !== undefined && Number.isFinite(direct)) return direct;
+  const match = /^(-?\d+):(\d+):(\d+)/.exec(String(props.TimeOfDay ?? ''));
+  if (!match) return null;
+  return Number(match[1]) + Number(match[2]) / 60 + Number(match[3]) / 3600;
+}
+
+let sunLight = null;
+let sunDirection = null;
+
+// The shadow map covers what the camera looks at, not the scene's whole bounds: a
+// 512-stud Baseplate made one 1024px map blur every shadow into a smudge.
+function fitSunShadow(camera, focus) {
+  if (!sunLight || !sunLight.castShadow) return;
+  const forward = camera.getWorldDirection(new THREE.Vector3());
+  const distance = focus ? camera.position.distanceTo(focus) : 30;
+  const target = focus ? focus.clone() : camera.position.clone().addScaledVector(forward, distance);
+  const radius = THREE.MathUtils.clamp(distance * 1.1, 8, 256);
+  sunLight.target.position.copy(target);
+  sunLight.position.copy(target).addScaledVector(sunDirection, radius * 2);
+  const shadowCamera = sunLight.shadow.camera;
+  shadowCamera.left = -radius;
+  shadowCamera.right = radius;
+  shadowCamera.top = radius;
+  shadowCamera.bottom = -radius;
+  shadowCamera.near = 0.1;
+  shadowCamera.far = radius * 4;
+  shadowCamera.updateProjectionMatrix();
+  sunLight.shadow.mapSize.set(2048, 2048);
+  sunLight.shadow.map?.dispose();
+  sunLight.shadow.map = null;
+}
+
+// Roblox draws its default sky when a place has no Sky object. Approximated with a
+// vertical gradient sampled from Studio's default sky (zenith blue to pale horizon).
+function defaultSkyTexture() {
+  const canvas = document.createElement('canvas');
+  canvas.width = 2;
+  canvas.height = 256;
+  const context = canvas.getContext('2d');
+  const gradient = context.createLinearGradient(0, 0, 0, canvas.height);
+  gradient.addColorStop(0, '#5eb4dc');
+  gradient.addColorStop(0.7, '#a6d6e6');
+  gradient.addColorStop(1, '#c4e2ea');
+  context.fillStyle = gradient;
+  context.fillRect(0, 0, canvas.width, canvas.height);
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  return texture;
+}
+
 function configureSceneLights(index) {
   const lighting = findFirstClass(index, 'Lighting');
   const props = lighting?.props || {};
@@ -1391,20 +1261,32 @@ function configureSceneLights(index) {
   const center = bounds ? bounds.getCenter(new THREE.Vector3()) : new THREE.Vector3();
   const span = bounds ? Math.max(...bounds.getSize(new THREE.Vector3()).toArray(), 1) : 12;
 
-  scene.add(new THREE.HemisphereLight(ambient, outdoor, hasLighting ? 1.4 : 2.0));
+  // Balance calibrated by eye against Studio screenshots of the same scene and camera
+  // (default Lighting): faces away from the sun stay clearly lit by the sky and
+  // ambient, as in Roblox, rather than falling to near-black. Ambient/OutdoorAmbient
+  // light everything regardless of Brightness; the sky light scales with Brightness
+  // like the sun, so Brightness 0 leaves only the ambient.
+  scene.add(new THREE.AmbientLight(ambient.clone().add(outdoor).multiplyScalar(0.5), hasLighting ? 2.0 : 1.6));
+  scene.add(new THREE.HemisphereLight(0xbcd7ff, outdoor, (hasLighting ? 0.6 : 0.7) * brightness));
 
-  const key = new THREE.DirectionalLight(0xffffff, 2.5 * brightness);
+  const key = new THREE.DirectionalLight(0xfff6e8, 1.25 * brightness);
   let direction;
-  if (hasLighting && Number.isFinite(Number(props.ClockTime))) {
-    const clock = Number(props.ClockTime);
-    const latitude = THREE.MathUtils.degToRad(Number(props.GeographicLatitude ?? 41.7));
-    const hourAngle = ((clock - 12) / 12) * Math.PI;
-    const horizontal = Math.cos(latitude);
+  const clock = clockTime(props);
+  if (hasLighting && clock !== null) {
+    // Roblox's sun (Lighting:GetSunDirection, sampled in Studio at 6/9/12/14/18h):
+    // rises at +X, sets at -X, tilted toward +Z by sin(latitude - 23.5 degrees).
+    const tilt = THREE.MathUtils.degToRad(Number(props.GeographicLatitude ?? 41.7333) - 23.5);
+    const arc = ((clock - 6) / 12) * Math.PI;
     direction = new THREE.Vector3(
-      Math.sin(hourAngle) * horizontal,
-      Math.max(0.12, Math.cos(hourAngle) * horizontal),
-      Math.cos(hourAngle) * Math.sin(latitude),
-    ).normalize();
+      Math.cos(arc) * Math.cos(tilt),
+      Math.sin(arc) * Math.cos(tilt),
+      Math.sin(tilt),
+    );
+    // Below the horizon the moon lights the scene from the opposite side; at the
+    // horizon itself (6:00, 18:00) the sun still grazes from its own side.
+    if (direction.y < 0) direction.negate();
+    direction.y = Math.max(direction.y, 0.05);
+    direction.normalize();
   } else {
     direction = new THREE.Vector3(6, 10, 8).normalize();
   }
@@ -1430,12 +1312,9 @@ function configureSceneLights(index) {
     key.shadow.camera.updateProjectionMatrix();
   }
   scene.add(key);
+  sunLight = key;
+  sunDirection = direction.clone();
 
-  const fill = new THREE.DirectionalLight(0x88aaff, 0.7 * brightness);
-  fill.position.copy(center).add(new THREE.Vector3(-8, 3, 4));
-  fill.target.position.copy(center);
-  scene.add(fill.target);
-  scene.add(fill);
 }
 
 function configureViewportLights(node) {
@@ -1448,13 +1327,15 @@ function configureViewportLights(node) {
   scene.add(light);
 }
 
-function findNodeByReference(index, reference) {
-  const key = String(reference || '');
-  if (!key) return null;
-  const exact = index.byReference.get(key);
-  if (exact) return exact;
-  const wanted = key.split('.').filter(Boolean).at(-1);
-  return wanted ? (index.firstByName.get(wanted) || null) : null;
+// Resolve a reference property (Attachment0, Adornee, PrimaryPart) of `node`: by the
+// target's id when the IR has one, else by an unambiguous full name, else null.
+// Never by "first instance anywhere with that name".
+function findNodeByReference(index, node, property) {
+  const id = node?.refs?.[property];
+  if (id !== undefined && id !== null) return index.byId.get(id) || null;
+  const key = String(node?.props?.[property] || '');
+  if (!key || index.ambiguousReferences.has(key)) return null;
+  return index.byReference.get(key) || null;
 }
 
 function findBillboards(index) {
@@ -1464,52 +1345,38 @@ function findBillboards(index) {
   }));
 }
 
-function rgb(value, fallback = [255, 255, 255]) {
-  if (!value) return fallback;
-  return [value.R ?? 1, value.G ?? 1, value.B ?? 1].map(channel => Math.round(channel * 255));
+// In-world UI is drawn by the same 2D engine as ScreenGuis: the page asks the local
+// server to render the GUI subtree at its canvas size and places the PNG. A failed
+// render fails the page (data-rhr-error) instead of leaving the GUI out.
+async function renderGuiImage(node, canvasWidth, canvasHeight) {
+  const response = await fetch('/__rhr_gui__.png', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({
+      path: node.path,
+      width: Math.max(1, Math.round(canvasWidth)),
+      height: Math.max(1, Math.round(canvasHeight)),
+    }),
+  });
+  if (!response.ok) throw new Error(`in-world GUI ${node.path}: ${await response.text()}`);
+  const image = document.createElement('img');
+  image.src = URL.createObjectURL(await response.blob());
+  await image.decode();
+  image.style.position = 'absolute';
+  image.style.inset = '0';
+  image.style.width = '100%';
+  image.style.height = '100%';
+  return image;
 }
 
-function cssColor(value, fallback) {
-  return `rgb(${rgb(value, fallback).join(',')})`;
+function hasGuiContent(node) {
+  return Object.values(node.children || {}).some(child => GUI_OBJECT_CLASSES.has(child.className));
 }
 
-function makeGuiElement(node, offsetScaleX = 1, offsetScaleY = 1) {
-  const element = document.createElement('div');
-  const props = node.props || {};
-  const position = props.Position || {};
-  const size = props.Size || {};
-  const anchor = props.AnchorPoint || {};
-  element.style.position = 'absolute';
-  element.style.inset = 'auto';
-  element.style.left = `calc(${Number(position.XS || 0) * 100}% + ${Number(position.XO || 0) * offsetScaleX}px)`;
-  element.style.top = `calc(${Number(position.YS || 0) * 100}% + ${Number(position.YO || 0) * offsetScaleY}px)`;
-  element.style.width = `calc(${Number(size.XS || 0) * 100}% + ${Number(size.XO || 0) * offsetScaleX}px)`;
-  element.style.height = `calc(${Number(size.YS || 0) * 100}% + ${Number(size.YO || 0) * offsetScaleY}px)`;
-  element.style.transform = `translate(${-Number(anchor.X || 0) * 100}%, ${-Number(anchor.Y || 0) * 100}%) rotate(${Number(props.Rotation || 0)}deg)`;
-  element.style.boxSizing = 'border-box';
-  if (props.Visible === false) element.style.display = 'none';
-  const transparency = Number(props.BackgroundTransparency ?? 0);
-  if (props.BackgroundColor3) {
-    const [red, green, blue] = rgb(props.BackgroundColor3, [255, 255, 255]);
-    element.style.backgroundColor = `rgba(${red},${green},${blue},${Math.max(0, 1 - transparency)})`;
-  }
-  if (node.className === 'TextLabel' || node.className === 'TextButton' || node.className === 'TextBox') {
-    element.textContent = props.Text || '';
-    element.style.color = cssColor(props.TextColor3, [0, 0, 0]);
-    element.style.display = 'flex';
-    element.style.alignItems = 'center';
-    element.style.justifyContent = 'center';
-    element.style.fontFamily = 'Arial, sans-serif';
-    element.style.fontSize = props.TextScaled ? '20px' : `${Number(props.TextSize ?? 14) * offsetScaleY}px`;
-    element.style.whiteSpace = 'pre-wrap';
-  }
-  for (const child of Object.values(node.children || {})) {
-    if (['Frame', 'CanvasGroup', 'TextLabel', 'TextButton', 'TextBox'].includes(child.className)) {
-      element.appendChild(makeGuiElement(child, offsetScaleX, offsetScaleY));
-    }
-  }
-  return element;
-}
+const GUI_OBJECT_CLASSES = new Set([
+  'Frame', 'CanvasGroup', 'ScrollingFrame', 'TextLabel', 'TextButton', 'TextBox',
+  'ImageLabel', 'ImageButton', 'ViewportFrame', 'VideoFrame',
+]);
 
 function parentWorldPosition(parent, billboard, camera) {
   const cf = parent?.props?.CFrame;
@@ -1566,12 +1433,12 @@ function isOccluded(anchor, point, camera) {
   });
 }
 
-function addBillboards(index, camera) {
+async function addBillboards(index, camera) {
   const overlay = document.querySelector('#rhr-overlay');
   if (!overlay) return;
   for (const {node, parent} of findBillboards(index)) {
     if (node.props?.Enabled === false) continue;
-    const anchor = node.props?.Adornee ? findNodeByReference(index, node.props.Adornee) : parent;
+    const anchor = node.props?.Adornee ? findNodeByReference(index, node, 'Adornee') : parent;
     const world = parentWorldPosition(anchor, node, camera);
     if (!world) continue;
     const cameraPoint = camera.worldToLocal(world.clone());
@@ -1586,21 +1453,22 @@ function addBillboards(index, camera) {
     const widthOffset = Number(size?.XO ?? 0);
     const heightOffset = Number(size?.YO ?? 0);
     const scale = height / (2 * Math.tan((camera.fov * Math.PI) / 360) * depth);
-    const widthPx = widthStuds * scale + widthOffset;
-    const heightPx = heightStuds * scale + heightOffset;
+    // Whole pixels: the GUI image is rendered at exactly this size and placed on a
+    // pixel boundary, so it is never resampled (a resampled image blurs text).
+    const widthPx = Math.max(1, Math.round(widthStuds * scale + widthOffset));
+    const heightPx = Math.max(1, Math.round(heightStuds * scale + heightOffset));
     const root = document.createElement('div');
     const sizeOffset = node.props?.SizeOffset || {};
     const sizeOffsetX = Number(sizeOffset.X || 0);
     const sizeOffsetY = Number(sizeOffset.Y || 0);
     root.style.position = 'absolute';
-    root.style.left = `${(projected.x * 0.5 + 0.5) * width - widthPx / 2 + sizeOffsetX * widthPx}px`;
-    root.style.top = `${(-projected.y * 0.5 + 0.5) * height - heightPx / 2 - sizeOffsetY * heightPx}px`;
+    root.style.left = `${Math.round((projected.x * 0.5 + 0.5) * width - widthPx / 2 + sizeOffsetX * widthPx)}px`;
+    root.style.top = `${Math.round((-projected.y * 0.5 + 0.5) * height - heightPx / 2 - sizeOffsetY * heightPx)}px`;
     root.style.width = `${widthPx}px`;
     root.style.height = `${heightPx}px`;
     root.style.zIndex = overlayZIndex(Boolean(node.props?.AlwaysOnTop), depth);
     root.style.pointerEvents = 'none';
-    const child = Object.values(node.children || {}).find(item => ['Frame', 'CanvasGroup', 'TextLabel', 'TextButton', 'TextBox'].includes(item.className));
-    if (child) root.appendChild(makeGuiElement(child));
+    if (hasGuiContent(node)) root.appendChild(await renderGuiImage(node, widthPx, heightPx));
     overlay.appendChild(root);
   }
 }
@@ -1629,12 +1497,14 @@ function surfaceCorners(part, surface) {
   const sy = Number(dimensions.Y || 1) / 2;
   const sz = Number(dimensions.Z || 1) / 2;
   const face = surface.props?.Face?.name || 'Front';
+  // Corner order is the GUI's top-left, top-right, bottom-right, bottom-left, as
+  // measured in Studio with an asymmetric SurfaceGui on each face of a part.
   if (face === 'Right') return [[sx, sy, sz], [sx, sy, -sz], [sx, -sy, -sz], [sx, -sy, sz]];
   if (face === 'Left') return [[-sx, sy, -sz], [-sx, sy, sz], [-sx, -sy, sz], [-sx, -sy, -sz]];
-  if (face === 'Top') return [[sx, sy, sz], [-sx, sy, sz], [-sx, sy, -sz], [sx, sy, -sz]];
-  if (face === 'Bottom') return [[sx, -sy, -sz], [-sx, -sy, -sz], [-sx, -sy, sz], [sx, -sy, sz]];
+  if (face === 'Top') return [[-sx, sy, sz], [-sx, sy, -sz], [sx, sy, -sz], [sx, sy, sz]];
+  if (face === 'Bottom') return [[sx, -sy, sz], [sx, -sy, -sz], [-sx, -sy, -sz], [-sx, -sy, sz]];
   if (face === 'Back') return [[-sx, sy, sz], [sx, sy, sz], [sx, -sy, sz], [-sx, -sy, sz]];
-  return [[-sx, sy, -sz], [sx, sy, -sz], [sx, -sy, -sz], [-sx, -sy, -sz]];
+  return [[sx, sy, -sz], [-sx, sy, -sz], [-sx, -sy, -sz], [sx, -sy, -sz]];
 }
 
 function surfaceHomography(points, width, height) {
@@ -1671,15 +1541,21 @@ function surfaceHomography(points, width, height) {
   return `matrix3d(${a / width},${d / width},0,${g / width},${b / height},${e / height},0,${h / height},0,0,1,0,${c},${f},0,1)`;
 }
 
-function addSurfaceGuis(index, camera) {
+async function addSurfaceGuis(index, camera) {
   const overlay = document.querySelector('#rhr-overlay');
   if (!overlay) return;
   for (const {node, parent} of findSurfaceGuis(index)) {
     if (node.props?.Enabled === false) continue;
-    const anchor = node.props?.Adornee ? findNodeByReference(index, node.props.Adornee) : parent;
+    const anchor = node.props?.Adornee ? findNodeByReference(index, node, 'Adornee') : parent;
     const localCorners = surfaceCorners(anchor, node);
     if (!localCorners) continue;
     const worldPoints = localCorners.map(corner => localToWorld(anchor, new THREE.Vector3(...corner)));
+    // A SurfaceGui is one-sided: from behind its face Studio shows the bare part.
+    const faceCenter = worldPoints.reduce((sum, point) => sum.add(point), new THREE.Vector3()).multiplyScalar(1 / worldPoints.length);
+    // Outward normal: (bottom-left - top-left) x (top-right - top-left).
+    const faceNormal = new THREE.Vector3().subVectors(worldPoints[3], worldPoints[0])
+      .cross(new THREE.Vector3().subVectors(worldPoints[1], worldPoints[0]));
+    if (faceNormal.dot(new THREE.Vector3().subVectors(camera.position, faceCenter)) <= 0) continue;
     const points = worldPoints.map(world => world?.clone().project(camera));
     if (points.some(point => !point || point.z < -1 || point.z > 1)) continue;
     const depths = worldPoints.map(world => -camera.worldToLocal(world.clone()).z);
@@ -1701,8 +1577,6 @@ function addSurfaceGuis(index, camera) {
     const pixelsPerStud = Number(node.props?.PixelsPerStud || 50);
     const virtualWidth = sizingMode === 'FixedSize' ? Number(canvasSize.X || 1) : faceWidth * pixelsPerStud;
     const virtualHeight = sizingMode === 'FixedSize' ? Number(canvasSize.Y || 1) : faceHeight * pixelsPerStud;
-    const offsetScaleX = (right - left) / virtualWidth;
-    const offsetScaleY = (bottom - top) / virtualHeight;
     const root = document.createElement('div');
     root.style.position = 'absolute';
     root.style.left = `${left}px`;
@@ -1711,8 +1585,7 @@ function addSurfaceGuis(index, camera) {
     root.style.height = `${bottom - top}px`;
     root.style.clipPath = `polygon(${screen.map(point => `${(point.x - left) / (right - left) * 100}% ${(point.y - top) / (bottom - top) * 100}%`).join(',')})`;
     root.style.zIndex = overlayZIndex(Boolean(node.props?.AlwaysOnTop), depth, node.props?.ZOffset);
-    const child = Object.values(node.children || {}).find(item => ['Frame', 'CanvasGroup', 'TextLabel', 'TextButton', 'TextBox'].includes(item.className));
-    if (child) {
+    if (hasGuiContent(node)) {
       const canvasElement = document.createElement('div');
       canvasElement.style.position = 'absolute';
       canvasElement.style.inset = '0';
@@ -1722,7 +1595,7 @@ function addSurfaceGuis(index, camera) {
         right - left,
         bottom - top,
       );
-      canvasElement.appendChild(makeGuiElement(child, offsetScaleX, offsetScaleY));
+      canvasElement.appendChild(await renderGuiImage(node, virtualWidth, virtualHeight));
       root.appendChild(canvasElement);
     }
     overlay.appendChild(root);
@@ -1779,7 +1652,6 @@ async function main() {
     configureViewportLights(viewport);
     for (const child of Object.values(viewport.children || {})) addNode(child, scene);
     await Promise.all(meshGeometryJobs);
-    refreshModelPivots();
     const cameraNode = findCamera(buildNodeIndex([viewport]));
     camera = new THREE.PerspectiveCamera();
     // Games assign CurrentCamera (a Camera instance) at runtime; the saved place
@@ -1791,12 +1663,12 @@ async function main() {
     const cameraNode = findCamera(index);
     for (const root of roots) addNode(root, scene);
     await Promise.all(meshGeometryJobs);
-    refreshModelPivots();
     await addSurfaceImages(index);
     addAttachmentAnchors(index);
     addLocalLights(index);
     await configureSky(index);
     configureAtmosphere(index);
+    if (!scene.background && findFirstClass(index, 'Lighting')) scene.background = defaultSkyTexture();
     configureSceneLights(index);
     camera = new THREE.PerspectiveCamera();
     configureCamera(camera, cameraNode);
@@ -1813,6 +1685,7 @@ async function main() {
     if (lookAtOverride) camera.lookAt(lookAtOverride);
     else if (cameraOverride && framedCenter) camera.lookAt(framedCenter);
     camera.updateMatrixWorld(true);
+    fitSunShadow(camera, lookAtOverride || framedCenter || null);
     await addBeams(index, camera);
     await addTrails(index, camera);
     await reportCamera(camera);
@@ -1822,8 +1695,8 @@ async function main() {
   renderer.render(scene, camera);
   await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
   if (!viewportMode) {
-    addBillboards(index, camera);
-    addSurfaceGuis(index, camera);
+    await addBillboards(index, camera);
+    await addSurfaceGuis(index, camera);
   }
   document.documentElement.dataset.rhrReady = 'true';
 }

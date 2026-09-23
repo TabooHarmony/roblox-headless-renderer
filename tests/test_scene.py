@@ -12,6 +12,7 @@ from typing import cast
 from PIL import Image
 
 REPO = Path(__file__).resolve().parents[1]
+RHR = [sys.executable, "-m", "rhr"]
 FIXTURE = REPO / "tests" / "fixtures" / "scene_geometry.rbxmx"
 
 
@@ -20,7 +21,7 @@ def main() -> int:
         out = Path(directory) / "scene.png"
         result = subprocess.run(
             [
-                str(REPO / "bin" / "rhr"),
+                *RHR,
                 "scene",
                 str(FIXTURE),
                 "--viewport",
@@ -50,7 +51,7 @@ def main() -> int:
         out = Path(directory) / "wedge.png"
         result = subprocess.run(
             [
-                str(REPO / "bin" / "rhr"), "scene",
+                *RHR, "scene",
                 str(REPO / "tests" / "fixtures" / "scene_wedge.rbxmx"),
                 "--viewport", "400x300", "--out", str(out),
             ], cwd=REPO, capture_output=True, text=True, timeout=60
@@ -83,6 +84,12 @@ def main() -> int:
         print(f"wedge: green_pixels={len(green)} top_edge_range={max(tops) - min(tops)}")
     print("scene: ok")
     return 0
+
+
+def test_main():
+    from _harness import run_main
+
+    run_main(main)
 
 
 if __name__ == "__main__":

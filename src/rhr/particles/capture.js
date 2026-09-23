@@ -1,4 +1,4 @@
-import * as THREE from '../../../vendor/three/three.module.js';
+import * as THREE from '../vendor/three/three.module.js';
 import {applyLocalTransparency, simulateEmitter} from './sim.js';
 
 const params = new URLSearchParams(location.search);
@@ -78,7 +78,8 @@ function cframeMatrix(cf) {
   );
 }
 function colorValue(value) {
-  return new THREE.Color(Number(value?.R ?? 1), Number(value?.G ?? 1), Number(value?.B ?? 1));
+  // Roblox Color3 is sRGB (see scene.js colorValue).
+  return new THREE.Color().setRGB(Number(value?.R ?? 1), Number(value?.G ?? 1), Number(value?.B ?? 1), THREE.SRGBColorSpace);
 }
 function dimensions(value) {
   return [Number(value?.X ?? 1), Number(value?.Y ?? 1), Number(value?.Z ?? 1)];

@@ -1,0 +1,6 @@
+# Roblox toolchain for this repository. With Rokit installed, `rokit install`
+# fetches these and puts them on PATH (https://github.com/rojo-rbx/rokit).
+
+[tools]
+lune = "lune-org/lune@0.10.5"
+rojo = "rojo-rbx/rojo@7.7.0"
