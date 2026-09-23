@@ -39,7 +39,8 @@ async def main():
                 },
             )
             if result.isError:
-                raise SystemExit("preview tool returned an MCP error")
+                detail = " ".join(getattr(block, "text", "") for block in result.content)
+                raise SystemExit(f"preview tool returned an MCP error: {detail}")
             types = [block.type for block in result.content]
             if types != ["text", "image"]:
                 raise SystemExit(f"unexpected preview content: {types}")
