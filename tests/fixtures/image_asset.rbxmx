@@ -1,0 +1,25 @@
+<roblox version="4">
+  <Item class="ScreenGui" referent="RBX0">
+    <Properties>
+      <string name="Name">ImageAsset</string>
+    </Properties>
+    <Item class="Frame" referent="RBX1">
+      <Properties>
+        <string name="Name">Pane</string>
+        <UDim2 name="Size"><XS>0</XS><XO>400</XO><YS>0</YS><YO>300</YO></UDim2>
+        <Color3 name="BackgroundColor3"><R>0</R><G>0</G><B>0</B></Color3>
+        <token name="BorderSizePixel">0</token>
+      </Properties>
+      <Item class="ImageLabel" referent="RBX2">
+        <Properties>
+          <string name="Name">Avatar</string>
+          <UDim2 name="Size"><XS>0</XS><XO>32</XO><YS>0</YS><YO>32</YO></UDim2>
+          <UDim2 name="Position"><XS>0</XS><XO>8</XO><YS>0</YS><YO>8</YO></UDim2>
+          <Color3 name="BackgroundColor3"><R>1</R><G>1</G><B>1</B></Color3>
+          <token name="BorderSizePixel">0</token>
+          <Content name="ImageContent"><uri>rbxassetid://900000001</uri></Content>
+        </Properties>
+      </Item>
+    </Item>
+  </Item>
+</roblox>

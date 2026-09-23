@@ -1,0 +1,32 @@
+<roblox version="4">
+  <Item class="ScreenGui" referent="RBX0">
+    <Properties><string name="Name">DuplicateZIndex</string></Properties>
+    <Item class="Frame" referent="RBX1">
+      <Properties>
+        <string name="Name">Root</string>
+        <UDim2 name="Size"><XS>0</XS><XO>400</XO><YS>0</YS><YO>300</YO></UDim2>
+        <token name="BorderSizePixel">0</token>
+      </Properties>
+      <Item class="Frame" referent="RBX2">
+        <Properties>
+          <string name="Name">Card</string>
+          <UDim2 name="Position"><XS>0</XS><XO>40</XO><YS>0</YS><YO>40</YO></UDim2>
+          <UDim2 name="Size"><XS>0</XS><XO>160</XO><YS>0</YS><YO>120</YO></UDim2>
+          <Color3 name="BackgroundColor3"><R>1</R><G>0</G><B>0</B></Color3>
+          <int name="ZIndex">2</int>
+          <token name="BorderSizePixel">0</token>
+        </Properties>
+      </Item>
+      <Item class="Frame" referent="RBX3">
+        <Properties>
+          <string name="Name">Shade</string>
+          <UDim2 name="Position"><XS>0</XS><XO>120</XO><YS>0</YS><YO>100</YO></UDim2>
+          <UDim2 name="Size"><XS>0</XS><XO>160</XO><YS>0</YS><YO>120</YO></UDim2>
+          <Color3 name="BackgroundColor3"><R>0</R><G>0</G><B>1</B></Color3>
+          <int name="ZIndex">2</int>
+          <token name="BorderSizePixel">0</token>
+        </Properties>
+      </Item>
+    </Item>
+  </Item>
+</roblox>

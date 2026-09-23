@@ -1,0 +1,9 @@
+#!/bin/sh
+# Thin wrapper so `bin/rhr ...` works from anywhere without installing anything:
+# the venv's python, src/ on the path, repo root as the working directory stays
+# yours. `python -m rhr.cli` from src/ does the same thing.
+set -e
+repo=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+PYTHON="$repo/.venv/bin/python"
+[ -x "$PYTHON" ] || PYTHON=$(command -v python3)
+exec env PYTHONPATH="$repo/src${PYTHONPATH:+:$PYTHONPATH}" "$PYTHON" -m rhr.cli "$@"

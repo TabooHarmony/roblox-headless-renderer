@@ -1,0 +1,30 @@
+<roblox version="4">
+  <Item class="ScreenGui" referent="RBX0">
+    <Properties>
+      <string name="Name">Behind</string>
+      <int name="DisplayOrder">0</int>
+    </Properties>
+    <Item class="Frame" referent="RBX1">
+      <Properties>
+        <string name="Name">BehindCard</string>
+        <UDim2 name="Size"><XS>0</XS><XO>100</XO><YS>0</YS><YO>100</YO></UDim2>
+        <Color3 name="BackgroundColor3"><R>0</R><G>0</G><B>1</B></Color3>
+        <token name="BorderSizePixel">0</token>
+      </Properties>
+    </Item>
+  </Item>
+  <Item class="ScreenGui" referent="RBX2">
+    <Properties>
+      <string name="Name">Front</string>
+      <int name="DisplayOrder">5</int>
+    </Properties>
+    <Item class="Frame" referent="RBX3">
+      <Properties>
+        <string name="Name">FrontCard</string>
+        <UDim2 name="Size"><XS>0</XS><XO>100</XO><YS>0</YS><YO>100</YO></UDim2>
+        <Color3 name="BackgroundColor3"><R>1</R><G>0</G><B>0</B></Color3>
+        <token name="BorderSizePixel">0</token>
+      </Properties>
+    </Item>
+  </Item>
+</roblox>

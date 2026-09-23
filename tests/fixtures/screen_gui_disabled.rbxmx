@@ -1,0 +1,35 @@
+<roblox version="4">
+  <Item class="ScreenGui" referent="RBX0">
+    <Properties>
+      <string name="Name">Ghost</string>
+      <int name="DisplayOrder">9</int>
+      <bool name="Enabled">false</bool>
+      <token name="ScreenInsets">0</token>
+    </Properties>
+      <Item class="Frame" referent="RBX1">
+        <Properties>
+          <string name="Name">GhostPane</string>
+          <UDim2 name="Position"><XS>0</XS><XO>0</XO><YS>0</YS><YO>0</YO></UDim2>
+          <UDim2 name="Size"><XS>0</XS><XO>200</XO><YS>0</YS><YO>200</YO></UDim2>
+          <Color3 name="BackgroundColor3"><R>1</R><G>0</G><B>0</B></Color3>
+          <token name="BorderSizePixel">0</token>
+        </Properties>
+      </Item>
+  </Item>
+  <Item class="ScreenGui" referent="RBX2">
+    <Properties>
+      <string name="Name">Real</string>
+      <int name="DisplayOrder">1</int>
+      <token name="ScreenInsets">0</token>
+    </Properties>
+      <Item class="Frame" referent="RBX3">
+        <Properties>
+          <string name="Name">RealPane</string>
+          <UDim2 name="Position"><XS>0</XS><XO>0</XO><YS>0</YS><YO>0</YO></UDim2>
+          <UDim2 name="Size"><XS>0</XS><XO>100</XO><YS>0</YS><YO>100</YO></UDim2>
+          <Color3 name="BackgroundColor3"><R>0</R><G>1</G><B>0</B></Color3>
+          <token name="BorderSizePixel">0</token>
+        </Properties>
+      </Item>
+  </Item>
+</roblox>

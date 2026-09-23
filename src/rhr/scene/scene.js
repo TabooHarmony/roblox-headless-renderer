@@ -1,0 +1,1836 @@
+import * as THREE from '../../../vendor/three/three.module.js';
+
+const params = new URLSearchParams(location.search);
+const viewportMode = params.get('mode') === 'viewport';
+const canvas = document.querySelector('#rhr-scene');
+if (viewportMode) document.body.style.background = 'transparent';
+const width = Math.max(1, window.innerWidth);
+const height = Math.max(1, window.innerHeight);
+const renderer = new THREE.WebGLRenderer({canvas, antialias: true, alpha: viewportMode});
+renderer.setPixelRatio(1);
+renderer.setSize(width, height, false);
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+const shadowsRequested = !viewportMode && params.get('shadows') === '1';
+renderer.shadowMap.enabled = shadowsRequested;
+renderer.shadowMap.type = THREE.PCFShadowMap;
+renderer.setClearColor(viewportMode ? 0x000000 : 0x20242b, viewportMode ? 0 : 1);
+
+const scene = new THREE.Scene();
+const meshByNode = new Map();
+const anchorByNode = new Map();
+const sceneTextureCache = new Map();
+const sceneMeshGeometryCache = new Map();
+const meshGeometryJobs = [];
+const modelGroupByNode = new Map();
+const resolvedGeometryVerticesByNode = new Map();
+const sceneAssetManifest = fetch('/__rhr_assets__.json')
+  .then(response => response.ok ? response.json() : {})
+  .catch(() => ({}));
+const sceneMeshManifest = fetch('/__rhr_meshes__.json')
+  .then(response => response.ok ? response.json() : {})
+  .catch(() => ({}));
+
+function walk(node, visit) {
+  visit(node);
+  for (const child of Object.values(node.children || {})) walk(child, visit);
+}
+
+function buildNodeIndex(roots) {
+  const byPath = new Map();
+  const byReference = new Map();
+  const firstByName = new Map();
+  const byClass = new Map();
+  const parentByNode = new Map();
+  const rootByNode = new Map();
+
+  function descend(node, parent, slashPath, referencePath, root) {
+    byPath.set(slashPath, node);
+    byReference.set(referencePath, node);
+    if (!firstByName.has(node.name)) firstByName.set(node.name, node);
+    if (!byClass.has(node.className)) byClass.set(node.className, []);
+    byClass.get(node.className).push(node);
+    if (parent) parentByNode.set(node, parent);
+    rootByNode.set(node, root);
+    for (const child of Object.values(node.children || {})) {
+      const childName = child.name || child.className;
+      descend(
+        child,
+        node,
+        `${slashPath}/${childName}`,
+        `${referencePath}.${childName}`,
+        root,
+      );
+    }
+  }
+
+  for (const root of roots) {
+    const rootName = root.name || root.className;
+    descend(root, null, rootName, rootName, root);
+  }
+  return {byPath, byReference, firstByName, byClass, parentByNode, rootByNode};
+}
+
+function nodesOfClass(index, className) {
+  return index.byClass.get(className) || [];
+}
+
+function cframeMatrix(cf) {
+  return new THREE.Matrix4().set(
+    cf.R00, cf.R01, cf.R02, cf.X,
+    cf.R10, cf.R11, cf.R12, cf.Y,
+    cf.R20, cf.R21, cf.R22, cf.Z,
+    0, 0, 0, 1,
+  );
+}
+
+function colorValue(value, fallback = 0xffffff) {
+  if (!value) return new THREE.Color(fallback);
+  return new THREE.Color(value.R ?? 1, value.G ?? 1, value.B ?? 1);
+}
+
+function dimensions(value) {
+  return [Number(value?.X ?? 1), Number(value?.Y ?? 1), Number(value?.Z ?? 1)];
+}
+
+const MODEL_GEOMETRY_CLASSES = new Set([
+  'Part', 'WedgePart', 'CornerWedgePart', 'MeshPart', 'UnionOperation',
+]);
+
+function primaryPartPivot(node) {
+  const reference = String(node.props?.PrimaryPart || '');
+  const wanted = reference.split('.').filter(Boolean).at(-1);
+  if (!wanted) return null;
+  let pivot = null;
+  walk(node, child => {
+    if (pivot || child.name !== wanted || !MODEL_GEOMETRY_CLASSES.has(child.className)) return;
+    const cframe = child.props?.CFrame;
+    if (!cframe) return;
+    const offset = child.props?.PivotOffset;
+    if (!offset) {
+      pivot = cframe;
+      return;
+    }
+    const worldPivot = cframeMatrix(cframe).multiply(cframeMatrix(offset));
+    pivot = {
+      X: worldPivot.elements[12],
+      Y: worldPivot.elements[13],
+      Z: worldPivot.elements[14],
+    };
+  });
+  return pivot;
+}
+
+function wedgeLocalVertices(node) {
+  const shape = node.props?.Shape?.name || node.props?.shape;
+  const isWedge = node.className === 'WedgePart' || shape === 'Wedge';
+  const isCorner = node.className === 'CornerWedgePart' || shape === 'CornerWedge';
+  if (!isWedge && !isCorner) return null;
+  const [width, height, depth] = dimensions(node.props?.Size);
+  const half = [width / 2, height / 2, depth / 2];
+  const vertices = [];
+  for (const x of [-half[0], half[0]]) {
+    for (const y of [-half[1], half[1]]) {
+      for (const z of [-half[2], half[2]]) {
+        const localY = isWedge && x > 0
+          ? -half[1]
+          : isCorner && y > 0 && (x > 0 || z > 0)
+            ? -half[1]
+            : y;
+        vertices.push(new THREE.Vector3(x, localY, z));
+      }
+    }
+  }
+  return vertices;
+}
+
+function analyticShapeExtent(node, cf) {
+  const shape = node.props?.Shape?.name || node.props?.shape;
+  const isBall = shape === 'Ball' || shape === '2';
+  const isCylinder = shape === 'Cylinder' || shape === '3';
+  if (!isBall && !isCylinder) return null;
+  const [sizeX, sizeY, sizeZ] = dimensions(node.props?.Size);
+  const halfX = sizeX / 2;
+  const halfY = sizeY / 2;
+  const halfZ = sizeZ / 2;
+  const extent = [];
+  for (const row of [0, 1, 2]) {
+    const r0 = Number(cf[`R${row}0`] ?? (row === 0 ? 1 : 0));
+    const r1 = Number(cf[`R${row}1`] ?? (row === 1 ? 1 : 0));
+    const r2 = Number(cf[`R${row}2`] ?? (row === 2 ? 1 : 0));
+    extent.push(isBall
+      ? Math.hypot(r0 * halfX, r1 * halfY, r2 * halfZ)
+      : Math.abs(r0) * halfX + Math.hypot(r1 * halfY, r2 * halfZ));
+  }
+  return new THREE.Vector3(...extent);
+}
+
+function geometryLocalVertices(geometry) {
+  const position = geometry?.attributes?.position;
+  if (!position) return null;
+  const vertices = [];
+  for (let index = 0; index < position.count; index += 1) {
+    vertices.push(new THREE.Vector3(position.getX(index), position.getY(index), position.getZ(index)));
+  }
+  return vertices;
+}
+
+function pivotVector(pivot) {
+  if (!pivot) return null;
+  return pivot.isVector3
+    ? pivot.clone()
+    : new THREE.Vector3(Number(pivot.X ?? 0), Number(pivot.Y ?? 0), Number(pivot.Z ?? 0));
+}
+
+function defaultModelPivot(node, geometryVertices = resolvedGeometryVerticesByNode) {
+  const min = new THREE.Vector3(Infinity, Infinity, Infinity);
+  const max = new THREE.Vector3(-Infinity, -Infinity, -Infinity);
+  let count = 0;
+
+  // A parent Model's default bounds include child Models at their existing
+  // scale. Keep the affine transform separate so the current model's own
+  // scale is excluded while nested scales are included.
+  function visit(current, accumulatedScale, accumulatedOffset) {
+    for (const child of Object.values(current.children || {})) {
+      if (child.className === 'Model') {
+        const scale = Number(child.props?.Scale ?? 1);
+        const pivot = pivotVector(
+          primaryPartPivot(child) || child.props?.WorldPivot || defaultModelPivot(child, geometryVertices),
+        );
+        const childOffset = accumulatedOffset.clone();
+        if (pivot) childOffset.addScaledVector(pivot, accumulatedScale * (1 - scale));
+        visit(child, accumulatedScale * scale, childOffset);
+        continue;
+      }
+      if (MODEL_GEOMETRY_CLASSES.has(child.className)) {
+        const cf = child.props?.CFrame;
+        if (!cf) continue;
+        const shapeExtent = analyticShapeExtent(child, cf);
+        if (shapeExtent) {
+          const position = new THREE.Vector3(
+            Number(cf.X ?? 0),
+            Number(cf.Y ?? 0),
+            Number(cf.Z ?? 0),
+          ).multiplyScalar(accumulatedScale).add(accumulatedOffset);
+          const extent = shapeExtent.multiplyScalar(Math.abs(accumulatedScale));
+          min.min(position.clone().sub(extent));
+          max.max(position.clone().add(extent));
+          count += 1;
+          continue;
+        }
+        const localVertices = geometryVertices.get(child) || wedgeLocalVertices(child);
+        if (localVertices) {
+          const matrix = cframeMatrix(cf);
+          for (const local of localVertices) {
+            const position = local.applyMatrix4(matrix)
+              .multiplyScalar(accumulatedScale)
+              .add(accumulatedOffset);
+            min.min(position);
+            max.max(position);
+          }
+          count += 1;
+          continue;
+        }
+        const [sizeX, sizeY, sizeZ] = dimensions(child.props?.Size);
+        const position = new THREE.Vector3(
+          Number(cf.X ?? 0),
+          Number(cf.Y ?? 0),
+          Number(cf.Z ?? 0),
+        ).multiplyScalar(accumulatedScale).add(accumulatedOffset);
+        const extent = new THREE.Vector3(
+          Math.abs(Number(cf.R00 ?? 1)) * sizeX / 2
+            + Math.abs(Number(cf.R01 ?? 0)) * sizeY / 2
+            + Math.abs(Number(cf.R02 ?? 0)) * sizeZ / 2,
+          Math.abs(Number(cf.R10 ?? 0)) * sizeX / 2
+            + Math.abs(Number(cf.R11 ?? 1)) * sizeY / 2
+            + Math.abs(Number(cf.R12 ?? 0)) * sizeZ / 2,
+          Math.abs(Number(cf.R20 ?? 0)) * sizeX / 2
+            + Math.abs(Number(cf.R21 ?? 0)) * sizeY / 2
+            + Math.abs(Number(cf.R22 ?? 1)) * sizeZ / 2,
+        ).multiplyScalar(Math.abs(accumulatedScale));
+        min.min(position.clone().sub(extent));
+        max.max(position.clone().add(extent));
+        count += 1;
+        continue;
+      }
+      visit(child, accumulatedScale, accumulatedOffset);
+    }
+  }
+
+  visit(node, 1, new THREE.Vector3());
+  return count ? min.add(max).multiplyScalar(0.5) : null;
+}
+
+function wedgeGeometry(width, height, depth) {
+  const geometry = new THREE.BoxGeometry(width, height, depth);
+  const position = geometry.attributes.position;
+  for (let index = 0; index < position.count; index += 1) {
+    if (position.getX(index) > 0) position.setY(index, -height / 2);
+  }
+  position.needsUpdate = true;
+  geometry.computeVertexNormals();
+  geometry.computeBoundingSphere();
+  return geometry;
+}
+
+function cornerWedgeGeometry(width, height, depth) {
+  const geometry = new THREE.BoxGeometry(width, height, depth);
+  const position = geometry.attributes.position;
+  for (let index = 0; index < position.count; index += 1) {
+    if (position.getY(index) > 0 && (position.getX(index) > 0 || position.getZ(index) > 0)) {
+      position.setY(index, -height / 2);
+    }
+  }
+  position.needsUpdate = true;
+  geometry.computeVertexNormals();
+  geometry.computeBoundingSphere();
+  return geometry;
+}
+
+function specialMeshChild(node) {
+  return Object.values(node.children || {}).find(child => child.className === 'SpecialMesh') || null;
+}
+
+function contentAssetId(uri) {
+  const text = String(uri || '');
+  const direct = text.match(/rbxassetid:\/\/(\d+)/i) || text.match(/[?&]id=(\d+)/i);
+  if (direct) return direct[1];
+  const matches = [...text.matchAll(/(\d+)/g)];
+  return matches.length ? matches.at(-1)[1] : null;
+}
+
+function meshAssetId(uri) {
+  return contentAssetId(uri);
+}
+
+function dataViewString(bytes, start, end) {
+  return new TextDecoder().decode(bytes.slice(start, end));
+}
+
+function meshVersionAndOffset(bytes) {
+  let end = 0;
+  while (end < bytes.length && bytes[end] !== 10) end += 1;
+  if (end >= bytes.length) throw new Error('mesh asset is missing a version line');
+  const version = dataViewString(bytes, 0, end).replace(/\r$/, '').trim();
+  return {version, offset: end + 1};
+}
+
+function geometryFromExpanded(vertices, normals, uvs) {
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
+  if (normals.length === vertices.length) {
+    geometry.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
+  }
+  if (uvs.length * 3 === vertices.length * 2) {
+    geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+  }
+  if (!geometry.attributes.normal) geometry.computeVertexNormals();
+  geometry.computeBoundingBox();
+  geometry.computeBoundingSphere();
+  return geometry;
+}
+
+function parseMeshV1(bytes, offset, version) {
+  const text = dataViewString(bytes, offset, bytes.length);
+  const lines = text.split(/\r?\n/);
+  const faceCount = Number(lines.shift()?.trim());
+  if (!Number.isFinite(faceCount) || faceCount <= 0) throw new Error('invalid v1 mesh face count');
+  const vectors = [...lines.join('').matchAll(/\[\s*([^\]]+)\]/g)].map(match =>
+    match[1].split(',').map(Number)
+  );
+  if (vectors.length < faceCount * 9) throw new Error('truncated v1 mesh vertex data');
+  const positions = [];
+  const normals = [];
+  const uvs = [];
+  for (let face = 0; face < faceCount; face += 1) {
+    for (let corner = 0; corner < 3; corner += 1) {
+      const base = face * 9 + corner * 3;
+      const p = vectors[base];
+      const n = vectors[base + 1];
+      const uv = vectors[base + 2];
+      const positionScale = version === 'version 1.00' ? 0.5 : 1;
+      positions.push(
+        Number(p[0]) * positionScale,
+        Number(p[1]) * positionScale,
+        Number(p[2]) * positionScale,
+      );
+      normals.push(Number(n[0]), Number(n[1]), Number(n[2]));
+      uvs.push(Number(uv[0]), 1 - Number(uv[1]));
+    }
+  }
+  return geometryFromExpanded(positions, normals, uvs);
+}
+
+function readBinaryVertices(view, vertexOffset, vertexSize, vertexCount) {
+  if (vertexSize < 32) throw new Error(`unsupported mesh vertex size ${vertexSize}`);
+  const positions = new Float32Array(vertexCount * 3);
+  const normals = new Float32Array(vertexCount * 3);
+  const uvs = new Float32Array(vertexCount * 2);
+  for (let i = 0; i < vertexCount; i += 1) {
+    const base = vertexOffset + i * vertexSize;
+    if (base + vertexSize > view.byteLength) throw new Error('truncated mesh vertex data');
+    positions[i * 3] = view.getFloat32(base, true);
+    positions[i * 3 + 1] = view.getFloat32(base + 4, true);
+    positions[i * 3 + 2] = view.getFloat32(base + 8, true);
+    normals[i * 3] = view.getFloat32(base + 12, true);
+    normals[i * 3 + 1] = view.getFloat32(base + 16, true);
+    normals[i * 3 + 2] = view.getFloat32(base + 20, true);
+    uvs[i * 2] = view.getFloat32(base + 24, true);
+    uvs[i * 2 + 1] = 1 - view.getFloat32(base + 28, true);
+  }
+  return {positions, normals, uvs};
+}
+
+function geometryFromBinary(bytes, headerOffset, spec) {
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const vertexOffset = headerOffset + spec.headerSize;
+  const skinningBytes = spec.skinningBytes || 0;
+  const faceOffset = vertexOffset + spec.vertexSize * spec.vertexCount + skinningBytes;
+  if (faceOffset + spec.faceCount * spec.faceSize > view.byteLength) {
+    throw new Error('truncated mesh face data');
+  }
+  const attrs = readBinaryVertices(view, vertexOffset, spec.vertexSize, spec.vertexCount);
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.BufferAttribute(attrs.positions, 3));
+  geometry.setAttribute('normal', new THREE.BufferAttribute(attrs.normals, 3));
+  geometry.setAttribute('uv', new THREE.BufferAttribute(attrs.uvs, 2));
+  const indices = new Uint32Array(spec.faceCount * 3);
+  for (let i = 0; i < spec.faceCount; i += 1) {
+    const base = faceOffset + i * spec.faceSize;
+    indices[i * 3] = view.getUint32(base, true);
+    indices[i * 3 + 1] = view.getUint32(base + 4, true);
+    indices[i * 3 + 2] = view.getUint32(base + 8, true);
+  }
+  geometry.setIndex(new THREE.BufferAttribute(indices, 1));
+  geometry.computeBoundingBox();
+  geometry.computeBoundingSphere();
+  return geometry;
+}
+
+function parseMeshV2(bytes, offset) {
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const headerSize = view.getUint16(offset, true);
+  const vertexSize = view.getUint8(offset + 2);
+  const faceSize = view.getUint8(offset + 3);
+  const vertexCount = view.getUint32(offset + 4, true);
+  const faceCount = view.getUint32(offset + 8, true);
+  return geometryFromBinary(bytes, offset, {
+    headerSize, vertexSize, faceSize, vertexCount, faceCount,
+  });
+}
+
+function parseMeshV3(bytes, offset) {
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const headerSize = view.getUint16(offset, true);
+  const vertexSize = view.getUint8(offset + 2);
+  const faceSize = view.getUint8(offset + 3);
+  if (headerSize < 16) throw new Error(`unsupported v3 mesh header size ${headerSize}`);
+  const vertexCount = view.getUint32(offset + 8, true);
+  const faceCount = view.getUint32(offset + 12, true);
+  return geometryFromBinary(bytes, offset, {
+    headerSize, vertexSize, faceSize, vertexCount, faceCount,
+  });
+}
+
+function parseMeshV4(bytes, offset) {
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const headerSize = view.getUint16(offset, true);
+  const vertexCount = view.getUint32(offset + 4, true);
+  const faceCount = view.getUint32(offset + 8, true);
+  const boneCount = view.getUint16(offset + 14, true);
+  return geometryFromBinary(bytes, offset, {
+    headerSize,
+    vertexSize: 40,
+    faceSize: 12,
+    vertexCount,
+    faceCount,
+    skinningBytes: boneCount > 0 ? vertexCount * 8 : 0,
+  });
+}
+
+function parseRobloxMesh(buffer) {
+  const bytes = new Uint8Array(buffer);
+  const {version, offset} = meshVersionAndOffset(bytes);
+  if (version === 'version 1.00' || version === 'version 1.01') return parseMeshV1(bytes, offset, version);
+  if (version.startsWith('version 2.')) return parseMeshV2(bytes, offset);
+  if (version.startsWith('version 3.')) return parseMeshV3(bytes, offset);
+  if (version.startsWith('version 4.') || version.startsWith('version 5.')) return parseMeshV4(bytes, offset);
+  throw new Error(`unsupported Roblox mesh ${version}`);
+}
+
+async function loadMeshGeometry(uri) {
+  const assetId = meshAssetId(uri);
+  if (!assetId) return null;
+  if (sceneMeshGeometryCache.has(assetId)) return sceneMeshGeometryCache.get(assetId);
+  const promise = (async () => {
+    const manifest = await sceneMeshManifest;
+    const url = manifest[assetId];
+    if (!url) return null;
+    const response = await fetch(url);
+    if (!response.ok) return null;
+    return parseRobloxMesh(await response.arrayBuffer());
+  })().catch(() => null);
+  sceneMeshGeometryCache.set(assetId, promise);
+  return promise;
+}
+
+function fitMeshGeometryToPart(baseGeometry, size) {
+  const geometry = baseGeometry.clone();
+  geometry.computeBoundingBox();
+  const box = geometry.boundingBox;
+  if (!box) return geometry;
+  const rawSize = box.getSize(new THREE.Vector3());
+  const [sx, sy, sz] = dimensions(size);
+  geometry.scale(
+    sx / Math.max(1e-9, rawSize.x),
+    sy / Math.max(1e-9, rawSize.y),
+    sz / Math.max(1e-9, rawSize.z),
+  );
+  geometry.computeBoundingBox();
+  geometry.computeBoundingSphere();
+  return geometry;
+}
+
+function transformSpecialFileMesh(baseGeometry, special) {
+  const geometry = baseGeometry.clone();
+  const scale = special.props?.Scale || {};
+  geometry.scale(
+    Number(scale.X ?? 1),
+    Number(scale.Y ?? 1),
+    Number(scale.Z ?? 1),
+  );
+  const offset = special.props?.Offset || {};
+  geometry.translate(
+    Number(offset.X ?? 0),
+    Number(offset.Y ?? 0),
+    Number(offset.Z ?? 0),
+  );
+  geometry.computeBoundingBox();
+  geometry.computeBoundingSphere();
+  return geometry;
+}
+
+function shapeGeometry(node) {
+  let [x, y, z] = dimensions(node.props?.Size);
+  const special = specialMeshChild(node);
+  const meshType = special?.props?.MeshType?.name;
+  if (special && meshType && meshType !== 'FileMesh') {
+    const scale = special.props?.Scale || {};
+    x *= Number(scale.X ?? 1);
+    y *= Number(scale.Y ?? 1);
+    z *= Number(scale.Z ?? 1);
+    let geometry;
+    if (meshType === 'Sphere' || meshType === 'Head') {
+      geometry = new THREE.SphereGeometry(0.5, 24, 16);
+      geometry.scale(x, y, z);
+    } else if (meshType === 'Cylinder') {
+      geometry = new THREE.CylinderGeometry(0.5, 0.5, 1, 24);
+      geometry.scale(x, y, z);
+    } else if (meshType === 'Wedge') {
+      geometry = wedgeGeometry(x, y, z);
+    } else {
+      geometry = new THREE.BoxGeometry(x, y, z);
+    }
+    const offset = special.props?.Offset;
+    if (offset) geometry.translate(Number(offset.X ?? 0), Number(offset.Y ?? 0), Number(offset.Z ?? 0));
+    geometry.computeBoundingSphere();
+    return geometry;
+  }
+
+  const shape = node.props?.Shape?.name || node.props?.shape;
+  if (node.className === 'CornerWedgePart' || shape === 'CornerWedge') return cornerWedgeGeometry(x, y, z);
+  if (node.className === 'WedgePart' || shape === 'Wedge') return wedgeGeometry(x, y, z);
+  if (shape === 'Ball' || shape === '2') {
+    const geometry = new THREE.SphereGeometry(0.5, 24, 16);
+    geometry.scale(x, y, z);
+    return geometry;
+  }
+  if (shape === 'Cylinder' || shape === '3') {
+    // Roblox PartType.Cylinder uses the Part X axis as its long axis. THREE's
+    // CylinderGeometry uses Y, so scale in the source axes then rotate Y -> X.
+    const geometry = new THREE.CylinderGeometry(0.5, 0.5, 1, 24);
+    geometry.scale(y, x, z);
+    geometry.rotateZ(-Math.PI / 2);
+    return geometry;
+  }
+  return new THREE.BoxGeometry(x, y, z);
+}
+
+const MATERIAL_TABLE = {
+  Plastic: {roughness: 0.72, metalness: 0.0},
+  SmoothPlastic: {roughness: 0.48, metalness: 0.0},
+  Neon: {roughness: 0.9, metalness: 0.0, emissiveIntensity: 1.0},
+  Glass: {roughness: 0.12, metalness: 0.0, opacityScale: 0.72},
+  Metal: {roughness: 0.38, metalness: 0.9},
+  CorrodedMetal: {roughness: 0.9, metalness: 0.6},
+  DiamondPlate: {roughness: 0.65, metalness: 0.72},
+  Foil: {roughness: 0.25, metalness: 0.82},
+  Wood: {roughness: 0.86, metalness: 0.0},
+  WoodPlanks: {roughness: 0.88, metalness: 0.0},
+  Concrete: {roughness: 0.96, metalness: 0.0},
+  Brick: {roughness: 0.94, metalness: 0.0},
+  Slate: {roughness: 0.82, metalness: 0.04},
+  Granite: {roughness: 0.62, metalness: 0.08},
+  Marble: {roughness: 0.32, metalness: 0.14},
+  Pebble: {roughness: 0.96, metalness: 0.0},
+  Cobblestone: {roughness: 0.98, metalness: 0.0},
+  Ice: {roughness: 0.16, metalness: 0.0, opacityScale: 0.82},
+  Fabric: {roughness: 1.0, metalness: 0.0},
+  Grass: {roughness: 1.0, metalness: 0.0},
+  LeafyGrass: {roughness: 1.0, metalness: 0.0},
+  Ground: {roughness: 1.0, metalness: 0.0},
+  Sand: {roughness: 1.0, metalness: 0.0},
+  Snow: {roughness: 0.92, metalness: 0.0},
+  Mud: {roughness: 1.0, metalness: 0.0},
+  Rock: {roughness: 0.96, metalness: 0.02},
+  Basalt: {roughness: 0.9, metalness: 0.04},
+  CrackedLava: {roughness: 0.94, metalness: 0.0, emissiveIntensity: 0.35},
+  Limestone: {roughness: 0.92, metalness: 0.0},
+  Pavement: {roughness: 0.9, metalness: 0.0},
+  Asphalt: {roughness: 0.96, metalness: 0.0},
+  Salt: {roughness: 0.82, metalness: 0.0},
+  Sandstone: {roughness: 0.94, metalness: 0.0},
+  Glacier: {roughness: 0.2, metalness: 0.0, opacityScale: 0.9},
+  ForceField: {roughness: 0.35, metalness: 0.0, opacityScale: 0.55, emissiveIntensity: 0.35},
+  Cardboard: {roughness: 0.96, metalness: 0.0},
+  Carpet: {roughness: 1.0, metalness: 0.0},
+  CeramicTiles: {roughness: 0.32, metalness: 0.02},
+  ClayRoofTiles: {roughness: 0.9, metalness: 0.0},
+  Leather: {roughness: 0.72, metalness: 0.0},
+  Plaster: {roughness: 0.96, metalness: 0.0},
+  RoofShingles: {roughness: 0.94, metalness: 0.0},
+  Rubber: {roughness: 0.92, metalness: 0.0},
+};
+
+function addPart(node, parent) {
+  const cf = node.props?.CFrame;
+  if (!cf) return;
+  const transparency = Number(node.props?.Transparency ?? 0);
+  const materialName = node.props?.Material?.name || 'Plastic';
+  const materialSpec = MATERIAL_TABLE[materialName] || MATERIAL_TABLE.Plastic;
+  const reflectance = Math.max(0, Math.min(1, Number(node.props?.Reflectance ?? 0)));
+  const color = colorValue(node.props?.Color);
+  const opacity = Math.max(0, Math.min(1, (1 - transparency) * Number(materialSpec.opacityScale ?? 1)));
+  const material = new THREE.MeshStandardMaterial({
+    color,
+    roughness: materialSpec.roughness,
+    metalness: Math.max(materialSpec.metalness, reflectance),
+    emissive: materialSpec.emissiveIntensity ? color.clone() : new THREE.Color(0x000000),
+    emissiveIntensity: Number(materialSpec.emissiveIntensity ?? 0),
+    transparent: opacity < 1,
+    opacity,
+  });
+  const mesh = new THREE.Mesh(shapeGeometry(node), material);
+  const special = specialMeshChild(node);
+  if (node.className === 'MeshPart' && node.props?.MeshId) {
+    const job = loadMeshGeometry(node.props.MeshId).then(baseGeometry => {
+      if (!baseGeometry) return;
+      const fitted = fitMeshGeometryToPart(baseGeometry, node.props?.Size);
+      mesh.geometry.dispose();
+      mesh.geometry = fitted;
+      resolvedGeometryVerticesByNode.set(node, geometryLocalVertices(fitted));
+      mesh.userData.rhrMeshAsset = meshAssetId(node.props.MeshId);
+    });
+    meshGeometryJobs.push(job);
+  } else if (special?.props?.MeshType?.name === 'FileMesh' && special.props?.MeshId) {
+    const job = loadMeshGeometry(special.props.MeshId).then(baseGeometry => {
+      if (!baseGeometry) return;
+      const transformed = transformSpecialFileMesh(baseGeometry, special);
+      mesh.geometry.dispose();
+      mesh.geometry = transformed;
+      resolvedGeometryVerticesByNode.set(node, geometryLocalVertices(transformed));
+      mesh.userData.rhrMeshAsset = meshAssetId(special.props.MeshId);
+    });
+    meshGeometryJobs.push(job);
+  }
+  mesh.castShadow = node.props?.CastShadow !== false;
+  mesh.receiveShadow = true;
+  mesh.userData.rhrNode = node;
+  meshByNode.set(node, mesh);
+  mesh.matrixAutoUpdate = false;
+  mesh.matrix.copy(cframeMatrix(cf));
+  mesh.matrixWorldNeedsUpdate = true;
+  parent.add(mesh);
+}
+
+function addNode(node, parent) {
+  const group = node.className === 'Model' ? new THREE.Group() : parent;
+  if (group !== parent) {
+    group.name = node.name || node.className;
+    const scale = Number(node.props?.Scale ?? 1);
+    group.scale.set(scale, scale, scale);
+    const pivot = primaryPartPivot(node) || node.props?.WorldPivot || defaultModelPivot(node);
+    if (pivot) {
+      const pivotX = pivot.isVector3 ? pivot.x : Number(pivot.X ?? 0);
+      const pivotY = pivot.isVector3 ? pivot.y : Number(pivot.Y ?? 0);
+      const pivotZ = pivot.isVector3 ? pivot.z : Number(pivot.Z ?? 0);
+      // Parts carry world CFrames. Offset the group so its uniform scale is
+      // applied around Model.WorldPivot instead of the scene origin.
+      group.position.set(
+        pivotX * (1 - scale),
+        pivotY * (1 - scale),
+        pivotZ * (1 - scale),
+      );
+    }
+    modelGroupByNode.set(node, group);
+    parent.add(group);
+  }
+  if (['Part', 'WedgePart', 'CornerWedgePart', 'MeshPart', 'UnionOperation'].includes(node.className)) {
+    addPart(node, group);
+  }
+  for (const child of Object.values(node.children || {})) addNode(child, group);
+}
+
+function refreshModelPivots() {
+  for (const [node, group] of modelGroupByNode) {
+    const scale = Number(node.props?.Scale ?? 1);
+    const pivot = primaryPartPivot(node) || node.props?.WorldPivot || defaultModelPivot(node);
+    if (!pivot) {
+      group.position.set(0, 0, 0);
+      continue;
+    }
+    const pivotX = pivot.isVector3 ? pivot.x : Number(pivot.X ?? 0);
+    const pivotY = pivot.isVector3 ? pivot.y : Number(pivot.Y ?? 0);
+    const pivotZ = pivot.isVector3 ? pivot.z : Number(pivot.Z ?? 0);
+    group.position.set(
+      pivotX * (1 - scale),
+      pivotY * (1 - scale),
+      pivotZ * (1 - scale),
+    );
+  }
+}
+
+async function loadSceneTexture(uri) {
+  const assetId = contentAssetId(uri);
+  if (!assetId) return null;
+  if (sceneTextureCache.has(assetId)) return sceneTextureCache.get(assetId);
+
+  const promise = (async () => {
+    const manifest = await sceneAssetManifest;
+    const url = manifest[assetId];
+    if (!url) return null;
+    const loader = new THREE.TextureLoader();
+    const texture = await new Promise(resolve => loader.load(url, resolve, undefined, () => resolve(null)));
+    if (texture) texture.colorSpace = THREE.SRGBColorSpace;
+    return texture;
+  })();
+  sceneTextureCache.set(assetId, promise);
+  return promise;
+}
+
+function surfaceImagePlane(parentNode, face) {
+  const [sx, sy, sz] = dimensions(parentNode.props?.Size);
+  const epsilon = 0.004;
+  let geometry;
+  let faceWidth;
+  let faceHeight;
+  const plane = new THREE.Group();
+  if (face === 'Back') {
+    faceWidth = sx; faceHeight = sy;
+    geometry = new THREE.PlaneGeometry(faceWidth, faceHeight);
+    plane.position.z = sz / 2 + epsilon;
+  } else if (face === 'Right') {
+    faceWidth = sz; faceHeight = sy;
+    geometry = new THREE.PlaneGeometry(faceWidth, faceHeight);
+    plane.position.x = sx / 2 + epsilon;
+    plane.rotation.y = Math.PI / 2;
+  } else if (face === 'Left') {
+    faceWidth = sz; faceHeight = sy;
+    geometry = new THREE.PlaneGeometry(faceWidth, faceHeight);
+    plane.position.x = -sx / 2 - epsilon;
+    plane.rotation.y = -Math.PI / 2;
+  } else if (face === 'Top') {
+    faceWidth = sx; faceHeight = sz;
+    geometry = new THREE.PlaneGeometry(faceWidth, faceHeight);
+    plane.position.y = sy / 2 + epsilon;
+    plane.rotation.x = -Math.PI / 2;
+  } else if (face === 'Bottom') {
+    faceWidth = sx; faceHeight = sz;
+    geometry = new THREE.PlaneGeometry(faceWidth, faceHeight);
+    plane.position.y = -sy / 2 - epsilon;
+    plane.rotation.x = Math.PI / 2;
+  } else {
+    faceWidth = sx; faceHeight = sy;
+    geometry = new THREE.PlaneGeometry(faceWidth, faceHeight);
+    plane.position.z = -sz / 2 - epsilon;
+    plane.rotation.y = Math.PI;
+  }
+  return {geometry, plane, faceWidth, faceHeight};
+}
+
+async function addSurfaceImage(node, parentNode) {
+  const parentMesh = meshByNode.get(parentNode);
+  if (!parentMesh) return;
+  const baseTexture = await loadSceneTexture(node.props?.Texture);
+  if (!baseTexture) return;
+  const face = node.props?.Face?.name || 'Front';
+  const {geometry, plane, faceWidth, faceHeight} = surfaceImagePlane(parentNode, face);
+  let texture = baseTexture;
+  if (node.className === 'Texture') {
+    texture = baseTexture.clone();
+    texture.wrapS = THREE.RepeatWrapping;
+    texture.wrapT = THREE.RepeatWrapping;
+    const studsU = Math.max(1e-6, Number(node.props?.StudsPerTileU ?? 2));
+    const studsV = Math.max(1e-6, Number(node.props?.StudsPerTileV ?? 2));
+    texture.repeat.set(faceWidth / studsU, faceHeight / studsV);
+    texture.offset.set(
+      -Number(node.props?.OffsetStudsU ?? 0) / studsU,
+      Number(node.props?.OffsetStudsV ?? 0) / studsV,
+    );
+    texture.needsUpdate = true;
+  }
+  const transparency = Math.max(0, Math.min(1, Number(node.props?.Transparency ?? 0)));
+  const material = new THREE.MeshBasicMaterial({
+    map: texture,
+    color: colorValue(node.props?.Color3, 0xffffff),
+    transparent: true,
+    opacity: 1 - transparency,
+    side: THREE.DoubleSide,
+    depthWrite: false,
+    polygonOffset: true,
+    polygonOffsetFactor: -1,
+    polygonOffsetUnits: -1,
+  });
+  const mesh = new THREE.Mesh(geometry, material);
+  mesh.userData.rhrDecoration = true;
+  plane.add(mesh);
+  parentMesh.add(plane);
+}
+
+async function addSurfaceImages(index) {
+  const jobs = [];
+  for (const className of ['Decal', 'Texture']) {
+    for (const node of nodesOfClass(index, className)) {
+      const parent = index.parentByNode.get(node);
+      if (parent) jobs.push(addSurfaceImage(node, parent));
+    }
+  }
+  await Promise.all(jobs);
+}
+
+function addAttachmentAnchors(index) {
+  for (const node of nodesOfClass(index, 'Attachment')) {
+    const parentNode = index.parentByNode.get(node);
+    if (!parentNode) continue;
+    const parentAnchor = anchorByNode.get(parentNode) || meshByNode.get(parentNode);
+    if (!parentAnchor) continue;
+    const anchor = new THREE.Object3D();
+    const cf = node.props?.CFrame;
+    if (cf) {
+      anchor.matrixAutoUpdate = false;
+      anchor.matrix.copy(cframeMatrix(cf));
+      const position = node.props?.Position;
+      if (position) {
+        // The emitter preserves both properties. In saved Roblox instances the
+        // serialized CFrame can remain identity while Position carries the
+        // authored local offset; keep CFrame's rotation and apply Position's
+        // explicit translation.
+        anchor.matrix.setPosition(
+          Number(position.X ?? 0),
+          Number(position.Y ?? 0),
+          Number(position.Z ?? 0),
+        );
+      }
+      anchor.matrixWorldNeedsUpdate = true;
+    } else {
+      const position = node.props?.Position;
+      anchor.position.set(
+        Number(position?.X ?? 0),
+        Number(position?.Y ?? 0),
+        Number(position?.Z ?? 0),
+      );
+    }
+    parentAnchor.add(anchor);
+    anchorByNode.set(node, anchor);
+  }
+}
+
+function sequenceKeypoints(value) {
+  return (value?.keypoints || [])
+    .map((point, index) => ({
+      time: Number(point.Time ?? point.time ?? 0),
+      value: point.Value ?? point.value,
+      index,
+    }))
+    .sort((a, b) => a.time - b.time || a.index - b.index);
+}
+
+function sequenceValue(value, time, fallback = 0) {
+  const points = sequenceKeypoints(value);
+  if (!points.length) return Number(value ?? fallback);
+  const t = Math.max(0, Math.min(1, Number(time)));
+  if (t <= points[0].time) return Number(points[0].value ?? fallback);
+  const last = points.at(-1);
+  if (t >= last.time) return Number(last.value ?? fallback);
+  for (let index = 1; index < points.length; index += 1) {
+    const a = points[index - 1];
+    const b = points[index];
+    if (t <= b.time) {
+      const alpha = b.time === a.time ? 1 : (t - a.time) / (b.time - a.time);
+      return Number(a.value ?? fallback) + (Number(b.value ?? fallback) - Number(a.value ?? fallback)) * alpha;
+    }
+  }
+  return Number(last.value ?? fallback);
+}
+
+function sequenceColorAt(value, time, fallback = 0xffffff) {
+  const points = sequenceKeypoints(value);
+  if (!points.length) return colorValue(value, fallback);
+  const t = Math.max(0, Math.min(1, Number(time)));
+  if (t <= points[0].time) return colorValue(points[0].value, fallback);
+  const last = points.at(-1);
+  if (t >= last.time) return colorValue(last.value, fallback);
+  for (let index = 1; index < points.length; index += 1) {
+    const a = points[index - 1];
+    const b = points[index];
+    if (t <= b.time) {
+      const alpha = b.time === a.time ? 1 : (t - a.time) / (b.time - a.time);
+      return colorValue(a.value, fallback).lerp(colorValue(b.value, fallback), alpha);
+    }
+  }
+  return colorValue(last.value, fallback);
+}
+
+function cubicPoint(p0, p1, p2, p3, t) {
+  const omt = 1 - t;
+  return p0.clone().multiplyScalar(omt * omt * omt)
+    .addScaledVector(p1, 3 * omt * omt * t)
+    .addScaledVector(p2, 3 * omt * t * t)
+    .addScaledVector(p3, t * t * t);
+}
+
+function cubicTangent(p0, p1, p2, p3, t) {
+  const omt = 1 - t;
+  return p1.clone().sub(p0).multiplyScalar(3 * omt * omt)
+    .addScaledVector(p2.clone().sub(p1), 6 * omt * t)
+    .addScaledVector(p3.clone().sub(p2), 3 * t * t);
+}
+
+function beamRibbonGeometry(points, tangents, widths, camera, faceCamera, normal, textureMode, textureLength, colorSequence, transparencySequence) {
+  const positions = [];
+  const uvs = [];
+  const colors = [];
+  const distances = [0];
+  for (let index = 1; index < points.length; index += 1) {
+    distances.push(distances[index - 1] + points[index].distanceTo(points[index - 1]));
+  }
+  const totalLength = Math.max(1e-6, distances.at(-1));
+
+  for (let index = 0; index < points.length; index += 1) {
+    const point = points[index];
+    const tangent = tangents[index].clone().normalize();
+    let side;
+    if (faceCamera) {
+      side = tangent.clone().cross(camera.position.clone().sub(point));
+    } else {
+      side = normal.clone().sub(tangent.clone().multiplyScalar(normal.dot(tangent)));
+    }
+    if (side.lengthSq() <= 1e-10) {
+      side = tangent.clone().cross(new THREE.Vector3(0, 1, 0));
+      if (side.lengthSq() <= 1e-10) side = tangent.clone().cross(new THREE.Vector3(1, 0, 0));
+    }
+    side.normalize().multiplyScalar(Math.max(0.005, widths[index] / 2));
+    const left = point.clone().sub(side);
+    const right = point.clone().add(side);
+    positions.push(left.x, left.y, left.z, right.x, right.y, right.z);
+    const u = textureMode === 'Stretch' ? distances[index] / totalLength : distances[index] / Math.max(1e-6, textureLength);
+    uvs.push(u, 0, u, 1);
+    const color = sequenceColorAt(colorSequence, index / Math.max(1, points.length - 1));
+    const alpha = 1 - Math.max(0, Math.min(1, sequenceValue(transparencySequence, index / Math.max(1, points.length - 1), 0)));
+    colors.push(color.r, color.g, color.b, alpha, color.r, color.g, color.b, alpha);
+  }
+
+  const indices = [];
+  for (let index = 0; index < points.length - 1; index += 1) {
+    const left = index * 2;
+    const next = left + 2;
+    indices.push(left, next, left + 1, left + 1, next, next + 1);
+  }
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+  geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 4));
+  geometry.setIndex(indices);
+  geometry.computeVertexNormals();
+  geometry.computeBoundingSphere();
+  return geometry;
+}
+
+async function addBeams(index, camera) {
+  for (const node of nodesOfClass(index, 'Beam')) {
+    if (node.props?.Enabled === false) continue;
+    const a0 = findNodeByReference(index, node.props?.Attachment0);
+    const a1 = findNodeByReference(index, node.props?.Attachment1);
+    const anchor0 = anchorByNode.get(a0);
+    const anchor1 = anchorByNode.get(a1);
+    if (!anchor0 || !anchor1) continue;
+    scene.updateMatrixWorld(true);
+    const p0 = anchor0.getWorldPosition(new THREE.Vector3());
+    const p3 = anchor1.getWorldPosition(new THREE.Vector3());
+    const x0 = new THREE.Vector3(1, 0, 0).applyQuaternion(anchor0.getWorldQuaternion(new THREE.Quaternion())).normalize();
+    const x1 = new THREE.Vector3(1, 0, 0).applyQuaternion(anchor1.getWorldQuaternion(new THREE.Quaternion())).normalize();
+    const curveSize0 = Number(node.props?.CurveSize0 ?? 0);
+    const curveSize1 = Number(node.props?.CurveSize1 ?? 0);
+    const p1 = p0.clone().addScaledVector(x0, curveSize0);
+    const p2 = p3.clone().addScaledVector(x1, -curveSize1);
+    const segments = Math.max(2, Math.min(64, Math.round(Number(node.props?.Segments ?? 10))));
+    const points = [];
+    const tangents = [];
+    const widths = [];
+    for (let index = 0; index <= segments; index += 1) {
+      const t = index / segments;
+      points.push(cubicPoint(p0, p1, p2, p3, t));
+      const tangent = cubicTangent(p0, p1, p2, p3, t);
+      tangents.push(tangent.lengthSq() > 1e-10 ? tangent : p3.clone().sub(p0));
+      widths.push(Math.max(0.01, Number(node.props?.Width0 ?? 0.2) * (1 - t) + Number(node.props?.Width1 ?? 0.2) * t));
+    }
+    if (points[0].distanceTo(points.at(-1)) <= 1e-6 && Math.abs(curveSize0) <= 1e-6 && Math.abs(curveSize1) <= 1e-6) continue;
+    const attachmentUp = new THREE.Vector3(0, 1, 0).applyQuaternion(anchor0.getWorldQuaternion(new THREE.Quaternion())).normalize();
+    const textureMode = node.props?.TextureMode?.name || 'Stretch';
+    const textureLength = Math.max(1e-6, Number(node.props?.TextureLength ?? 1));
+    const geometry = beamRibbonGeometry(
+      points,
+      tangents,
+      widths,
+      camera,
+      node.props?.FaceCamera === true,
+      attachmentUp,
+      textureMode,
+      textureLength,
+      node.props?.Color,
+      node.props?.Transparency,
+    );
+    const localTransparency = Math.max(0, Math.min(1, Number(node.props?.LocalTransparencyModifier ?? 0)));
+    const transparencyPoints = sequenceKeypoints(node.props?.Transparency);
+    const hasPerVertexTransparency = transparencyPoints.length
+      ? transparencyPoints.some(point => Number(point.value ?? 0) > 0)
+      : Number(node.props?.Transparency ?? 0) > 0;
+    const materialOpacity = 1 - localTransparency;
+    const brightness = Math.max(0, Number(node.props?.Brightness ?? 1));
+    const texture = node.props?.Texture ? await loadSceneTexture(node.props.Texture) : null;
+    if (texture) {
+      texture.wrapS = THREE.RepeatWrapping;
+      texture.wrapT = THREE.ClampToEdgeWrapping;
+      texture.needsUpdate = true;
+    }
+    const material = new THREE.MeshBasicMaterial({
+      map: texture,
+      color: new THREE.Color(brightness, brightness, brightness),
+      vertexColors: true,
+      transparent: materialOpacity < 1 || hasPerVertexTransparency || Boolean(texture),
+      opacity: materialOpacity,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+    });
+    const mesh = new THREE.Mesh(geometry, material);
+    mesh.userData.rhrDecoration = true;
+    scene.add(mesh);
+  }
+}
+
+function ancestorPart(index, node) {
+  let current = node;
+  while (current) {
+    if (['Part', 'WedgePart', 'CornerWedgePart', 'MeshPart', 'UnionOperation'].includes(current.className)) return current;
+    current = index.parentByNode.get(current) || null;
+  }
+  return null;
+}
+
+function assemblyVelocity(index, attachment) {
+  const part = ancestorPart(index, index.parentByNode.get(attachment));
+  const value = part?.props?.AssemblyLinearVelocity;
+  return new THREE.Vector3(
+    Number(value?.X ?? 0),
+    Number(value?.Y ?? 0),
+    Number(value?.Z ?? 0),
+  );
+}
+
+function trailRibbonGeometry(positions0, positions1, ages, widthScale, colorSequence, transparencySequence, textureMode, textureLength, camera, faceCamera) {
+  const positions = [];
+  const uvs = [];
+  const colors = [];
+  const centers = positions0.map((position, index) => position.clone().add(positions1[index]).multiplyScalar(0.5));
+  const distances = [0];
+  for (let index = 1; index < centers.length; index += 1) {
+    distances.push(distances[index - 1] + centers[index].distanceTo(centers[index - 1]));
+  }
+
+  for (let index = 0; index < centers.length; index += 1) {
+    const center = centers[index];
+    const span = positions1[index].clone().sub(positions0[index]);
+    const spanLength = span.length();
+    let side = spanLength > 1e-8 ? span.normalize() : new THREE.Vector3(1, 0, 0);
+    if (faceCamera && camera) {
+      const before = centers[Math.max(0, index - 1)];
+      const after = centers[Math.min(centers.length - 1, index + 1)];
+      const tangent = after.clone().sub(before);
+      if (tangent.lengthSq() > 1e-10) {
+        tangent.normalize();
+        const towardCamera = camera.position.clone().sub(center);
+        const cameraSide = tangent.clone().cross(towardCamera);
+        if (cameraSide.lengthSq() > 1e-10) side = cameraSide.normalize();
+      }
+    }
+    const scale = Math.max(0, sequenceValue(widthScale, ages[index], 1));
+    side.multiplyScalar(spanLength * scale / 2);
+    const edge0 = center.clone().sub(side);
+    const edge1 = center.clone().add(side);
+    positions.push(edge0.x, edge0.y, edge0.z, edge1.x, edge1.y, edge1.z);
+    const u = textureMode === 'Stretch'
+      ? (1 - ages[index]) * textureLength
+      : distances[index] / Math.max(1e-6, textureLength);
+    uvs.push(u, 0, u, 1);
+    const color = sequenceColorAt(colorSequence, ages[index]);
+    const alpha = 1 - Math.max(0, Math.min(1, sequenceValue(transparencySequence, ages[index], 0)));
+    colors.push(color.r, color.g, color.b, alpha, color.r, color.g, color.b, alpha);
+  }
+
+  const indices = [];
+  for (let index = 0; index < centers.length - 1; index += 1) {
+    const left = index * 2;
+    const next = left + 2;
+    indices.push(left, next, left + 1, left + 1, next, next + 1);
+  }
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+  geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 4));
+  geometry.setIndex(indices);
+  geometry.computeVertexNormals();
+  geometry.computeBoundingSphere();
+  return geometry;
+}
+
+async function addTrails(index, camera) {
+  for (const node of nodesOfClass(index, 'Trail')) {
+    if (node.props?.Enabled === false) continue;
+    const a0 = findNodeByReference(index, node.props?.Attachment0);
+    const a1 = findNodeByReference(index, node.props?.Attachment1);
+    const anchor0 = anchorByNode.get(a0);
+    const anchor1 = anchorByNode.get(a1);
+    if (!anchor0 || !anchor1) continue;
+    scene.updateMatrixWorld(true);
+    const current0 = anchor0.getWorldPosition(new THREE.Vector3());
+    const current1 = anchor1.getWorldPosition(new THREE.Vector3());
+    const velocity0 = assemblyVelocity(index, a0);
+    const velocity1 = assemblyVelocity(index, a1);
+    const speed = Math.max(velocity0.length(), velocity1.length());
+    if (speed <= 1e-6) continue;
+    const lifetime = Math.max(0.01, Math.min(20, Number(node.props?.Lifetime ?? 2)));
+    const maxLength = Math.max(0, Number(node.props?.MaxLength ?? 0));
+    const effectiveLifetime = maxLength > 0 ? Math.min(lifetime, maxLength / speed) : lifetime;
+    const minLength = Math.max(0, Number(node.props?.MinLength ?? 0));
+    if (speed * effectiveLifetime + 1e-6 < minLength) continue;
+    const samples = Math.max(2, Math.min(64, Math.ceil(effectiveLifetime * 30)));
+    const positions0 = [];
+    const positions1 = [];
+    const ages = [];
+    for (let index = 0; index <= samples; index += 1) {
+      const age = effectiveLifetime * (1 - index / samples);
+      positions0.push(current0.clone().addScaledVector(velocity0, -age));
+      positions1.push(current1.clone().addScaledVector(velocity1, -age));
+      ages.push(age / lifetime);
+    }
+    const geometry = trailRibbonGeometry(
+      positions0,
+      positions1,
+      ages,
+      node.props?.WidthScale,
+      node.props?.Color,
+      node.props?.Transparency,
+      node.props?.TextureMode?.name || 'Stretch',
+      Math.max(1e-6, Number(node.props?.TextureLength ?? 1)),
+      camera,
+      node.props?.FaceCamera === true,
+    );
+    const texture = node.props?.Texture ? await loadSceneTexture(node.props.Texture) : null;
+    if (texture) {
+      texture.wrapS = THREE.RepeatWrapping;
+      texture.wrapT = THREE.ClampToEdgeWrapping;
+      texture.needsUpdate = true;
+    }
+    const localTransparency = Math.max(0, Math.min(1, Number(node.props?.LocalTransparencyModifier ?? 0)));
+    const transparencyPoints = sequenceKeypoints(node.props?.Transparency);
+    const hasPerVertexTransparency = transparencyPoints.length
+      ? transparencyPoints.some(point => Number(point.value ?? 0) > 0)
+      : Number(node.props?.Transparency ?? 0) > 0;
+    const materialOpacity = 1 - localTransparency;
+    const brightness = Math.max(0, Number(node.props?.Brightness ?? 1));
+    const material = new THREE.MeshBasicMaterial({
+      map: texture,
+      color: new THREE.Color(brightness, brightness, brightness),
+      vertexColors: true,
+      transparent: materialOpacity < 1 || hasPerVertexTransparency || Boolean(texture),
+      opacity: materialOpacity,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+    });
+    const mesh = new THREE.Mesh(geometry, material);
+    mesh.userData.rhrDecoration = true;
+    scene.add(mesh);
+  }
+}
+
+function faceDirection(face) {
+  if (face === 'Back') return new THREE.Vector3(0, 0, 1);
+  if (face === 'Right') return new THREE.Vector3(1, 0, 0);
+  if (face === 'Left') return new THREE.Vector3(-1, 0, 0);
+  if (face === 'Top') return new THREE.Vector3(0, 1, 0);
+  if (face === 'Bottom') return new THREE.Vector3(0, -1, 0);
+  return new THREE.Vector3(0, 0, -1);
+}
+
+function configureLocalLightShadow(light) {
+  light.castShadow = shadowsRequested;
+  if (!light.castShadow) return;
+  light.shadow.mapSize.set(512, 512);
+  light.shadow.bias = -0.0005;
+  light.shadow.normalBias = 0.02;
+}
+
+function addLocalLight(node, parentNode) {
+  const parentMesh = anchorByNode.get(parentNode) || meshByNode.get(parentNode);
+  if (!parentMesh) return;
+  const props = node.props || {};
+  const color = colorValue(props.Color, 0xffffff);
+  const brightness = Math.max(0, Number(props.Brightness ?? 1));
+  const range = Math.max(0.01, Number(props.Range ?? 8));
+  const shadows = props.Shadows === true;
+  let light;
+
+  if (node.className === 'PointLight') {
+    light = new THREE.PointLight(color, brightness * 18, range, 2);
+    light.position.set(0, 0, 0);
+  } else {
+    const angle = Math.max(1, Math.min(179, Number(props.Angle ?? (node.className === 'SurfaceLight' ? 90 : 45))));
+    light = new THREE.SpotLight(color, brightness * 22, range, THREE.MathUtils.degToRad(angle / 2), 0.22, 2);
+    const direction = faceDirection(props.Face?.name || 'Front');
+    light.position.copy(direction).multiplyScalar(0.03);
+    light.target.position.copy(direction).multiplyScalar(Math.max(1, range * 0.5));
+    parentMesh.add(light.target);
+  }
+
+  if (shadows) configureLocalLightShadow(light);
+  light.userData.rhrDecoration = true;
+  parentMesh.add(light);
+}
+
+function addLocalLights(index) {
+  for (const className of ['PointLight', 'SpotLight', 'SurfaceLight']) {
+    for (const node of nodesOfClass(index, className)) {
+      const parent = index.parentByNode.get(node);
+      if (parent) addLocalLight(node, parent);
+    }
+  }
+}
+
+function findCamera(index) {
+  const cameras = nodesOfClass(index, 'Camera');
+  const current = cameras.find(node =>
+    node.name === 'CurrentCamera' && index.rootByNode.get(node)?.className === 'Workspace'
+  );
+  return current || cameras[0] || null;
+}
+
+function parseVectorParam(name) {
+  const raw = params.get(name);
+  if (!raw) return null;
+  const values = raw.split(',').map(Number);
+  if (values.length !== 3 || values.some(value => !Number.isFinite(value))) {
+    throw new Error(`invalid ${name} vector: ${raw}`);
+  }
+  return new THREE.Vector3(...values);
+}
+
+function focusDirection(view) {
+  if (view === 'front') return new THREE.Vector3(0, 0, 1);
+  if (view === 'back') return new THREE.Vector3(0, 0, -1);
+  if (view === 'left') return new THREE.Vector3(-1, 0, 0);
+  if (view === 'right') return new THREE.Vector3(1, 0, 0);
+  if (view === 'top') return new THREE.Vector3(0, 1, 0);
+  return new THREE.Vector3(1, 0.75, 1).normalize();
+}
+
+function frameScene(camera, index, focusPath, view = 'iso') {
+  let allowed = null;
+  if (focusPath) {
+    const target = findNodeByPath(index, focusPath);
+    if (!target) throw new Error(`focus path not found: ${focusPath}`);
+    allowed = new Set();
+    walk(target, node => allowed.add(node));
+  }
+  scene.updateMatrixWorld(true);
+  const box = new THREE.Box3();
+  let count = 0;
+  scene.traverse(object => {
+    if (!object.isMesh || !object.userData?.rhrNode) return;
+    if (allowed && !allowed.has(object.userData.rhrNode)) return;
+    box.expandByObject(object);
+    count += 1;
+  });
+  if (!count || box.isEmpty()) throw new Error(`no renderable 3D geometry${focusPath ? ` under ${focusPath}` : ''}`);
+
+  const center = box.getCenter(new THREE.Vector3());
+  const size = box.getSize(new THREE.Vector3());
+  const verticalFov = THREE.MathUtils.degToRad(camera.fov);
+  const horizontalFov = 2 * Math.atan(Math.tan(verticalFov / 2) * camera.aspect);
+  const distanceY = size.y / Math.max(1e-6, 2 * Math.tan(verticalFov / 2));
+  const distanceX = size.x / Math.max(1e-6, 2 * Math.tan(horizontalFov / 2));
+  const depthPad = Math.max(size.x, size.y, size.z) * 0.6;
+  const distance = Math.max(distanceX, distanceY, 0.5) * 1.25 + depthPad;
+  const direction = focusDirection(view);
+  if (view === 'top') camera.up.set(0, 0, -1);
+  else camera.up.set(0, 1, 0);
+  camera.position.copy(center).addScaledVector(direction, distance);
+  camera.lookAt(center);
+  camera.updateMatrixWorld(true);
+  return center;
+}
+
+function findNodeByPath(index, path) {
+  return index.byPath.get(path) || null;
+}
+
+function findFirstClass(index, className) {
+  return nodesOfClass(index, className)[0] || null;
+}
+
+function findLightingClass(index, className) {
+  const nodes = nodesOfClass(index, className);
+  return nodes.find(node => index.rootByNode.get(node)?.className === 'Lighting') || nodes[0] || null;
+}
+
+function sceneGeometryBounds() {
+  const box = new THREE.Box3();
+  let count = 0;
+  scene.traverse(object => {
+    if (!object.isMesh || !object.userData?.rhrNode) return;
+    box.expandByObject(object);
+    count += 1;
+  });
+  return count && !box.isEmpty() ? box : null;
+}
+
+async function configureSky(index) {
+  const sky = findLightingClass(index, 'Sky');
+  if (!sky) return false;
+  const props = sky.props || {};
+  const manifest = await sceneAssetManifest;
+  const faceIds = {
+    right: contentAssetId(props.SkyboxRt),
+    left: contentAssetId(props.SkyboxLf),
+    up: contentAssetId(props.SkyboxUp),
+    down: contentAssetId(props.SkyboxDn),
+    back: contentAssetId(props.SkyboxBk),
+    front: contentAssetId(props.SkyboxFt),
+  };
+  const urls = [
+    // CubeTexture samples the X faces opposite the camera direction; swap
+    // Roblox Rt/Lf here so looking +X sees SkyboxRt and -X sees SkyboxLf.
+    manifest[faceIds.left],
+    manifest[faceIds.right],
+    manifest[faceIds.up],
+    manifest[faceIds.down],
+    manifest[faceIds.back],
+    manifest[faceIds.front],
+  ];
+  if (urls.some(url => !url)) return false;
+
+  const loader = new THREE.CubeTextureLoader();
+  const cube = await new Promise(resolve => {
+    loader.load(urls, resolve, undefined, () => resolve(null));
+  });
+  if (!cube) return false;
+  cube.colorSpace = THREE.SRGBColorSpace;
+  scene.background = cube;
+
+  const orientation = props.SkyboxOrientation;
+  if (orientation && scene.backgroundRotation) {
+    scene.backgroundRotation.set(
+      THREE.MathUtils.degToRad(Number(orientation.X ?? 0)),
+      THREE.MathUtils.degToRad(Number(orientation.Y ?? 0)),
+      THREE.MathUtils.degToRad(Number(orientation.Z ?? 0)),
+    );
+  }
+  return true;
+}
+
+function configureAtmosphere(index) {
+  const atmosphere = findLightingClass(index, 'Atmosphere');
+  if (!atmosphere) return;
+  const props = atmosphere.props || {};
+  const color = colorValue(props.Color, 0xc7d4e4);
+  const decay = colorValue(props.Decay, 0x6b7480);
+  const density = Math.max(0, Number(props.Density ?? 0.35));
+  const haze = Math.max(0, Number(props.Haze ?? 0));
+  const offset = Math.max(-1, Math.min(1, Number(props.Offset ?? 0)));
+
+  // Authoring approximation, not Roblox's atmospheric scattering model.
+  // Higher Density/Haze reduce visibility; positive Offset preserves stronger
+  // distant silhouettes instead of blending everything into the background.
+  const offsetFactor = THREE.MathUtils.clamp(1 - offset * 0.45, 0.4, 1.6);
+  const fogDensity = Math.min(0.12, density * 0.045 * (1 + haze * 0.06) * offsetFactor);
+  const fogColor = color.clone().lerp(decay, Math.min(0.55, haze * 0.04));
+  scene.fog = new THREE.FogExp2(fogColor, fogDensity);
+
+  if (!scene.background) {
+    const backgroundMix = THREE.MathUtils.clamp(0.18 + haze * 0.025, 0.18, 0.5);
+    scene.background = color.clone().lerp(decay, backgroundMix);
+  }
+}
+
+function configureSceneLights(index) {
+  const lighting = findFirstClass(index, 'Lighting');
+  const props = lighting?.props || {};
+  const hasLighting = Boolean(lighting);
+  const ambient = hasLighting ? colorValue(props.Ambient, 0x808080) : new THREE.Color(0xddeeff);
+  const outdoor = hasLighting ? colorValue(props.OutdoorAmbient, 0x808080) : new THREE.Color(0x334455);
+  const brightness = Math.max(0, Number(hasLighting ? (props.Brightness ?? 1) : 1));
+  const bounds = sceneGeometryBounds();
+  const center = bounds ? bounds.getCenter(new THREE.Vector3()) : new THREE.Vector3();
+  const span = bounds ? Math.max(...bounds.getSize(new THREE.Vector3()).toArray(), 1) : 12;
+
+  scene.add(new THREE.HemisphereLight(ambient, outdoor, hasLighting ? 1.4 : 2.0));
+
+  const key = new THREE.DirectionalLight(0xffffff, 2.5 * brightness);
+  let direction;
+  if (hasLighting && Number.isFinite(Number(props.ClockTime))) {
+    const clock = Number(props.ClockTime);
+    const latitude = THREE.MathUtils.degToRad(Number(props.GeographicLatitude ?? 41.7));
+    const hourAngle = ((clock - 12) / 12) * Math.PI;
+    const horizontal = Math.cos(latitude);
+    direction = new THREE.Vector3(
+      Math.sin(hourAngle) * horizontal,
+      Math.max(0.12, Math.cos(hourAngle) * horizontal),
+      Math.cos(hourAngle) * Math.sin(latitude),
+    ).normalize();
+  } else {
+    direction = new THREE.Vector3(6, 10, 8).normalize();
+  }
+  key.position.copy(center).addScaledVector(direction, Math.max(12, span * 1.5));
+  key.target.position.copy(center);
+  scene.add(key.target);
+
+  if (shadowsRequested && props.GlobalShadows !== false) {
+    key.castShadow = true;
+    const softness = Math.max(0, Math.min(1, Number(props.ShadowSoftness ?? 0.5)));
+    renderer.shadowMap.type = softness > 0.01 ? THREE.PCFSoftShadowMap : THREE.PCFShadowMap;
+    key.shadow.radius = 1 + softness * 5;
+    key.shadow.mapSize.set(1024, 1024);
+    const radius = Math.max(4, span * 0.75);
+    key.shadow.camera.left = -radius;
+    key.shadow.camera.right = radius;
+    key.shadow.camera.top = radius;
+    key.shadow.camera.bottom = -radius;
+    key.shadow.camera.near = 0.1;
+    key.shadow.camera.far = Math.max(30, span * 4);
+    key.shadow.bias = -0.0005;
+    key.shadow.normalBias = 0.02;
+    key.shadow.camera.updateProjectionMatrix();
+  }
+  scene.add(key);
+
+  const fill = new THREE.DirectionalLight(0x88aaff, 0.7 * brightness);
+  fill.position.copy(center).add(new THREE.Vector3(-8, 3, 4));
+  fill.target.position.copy(center);
+  scene.add(fill.target);
+  scene.add(fill);
+}
+
+function configureViewportLights(node) {
+  const ambient = colorValue(node.props?.Ambient, 0xc8c8c8);
+  const lightColor = colorValue(node.props?.LightColor, 0x8c8c8c);
+  scene.add(new THREE.HemisphereLight(ambient, 0x000000, 1.0));
+  const light = new THREE.DirectionalLight(lightColor, 1.5);
+  const direction = node.props?.LightDirection;
+  light.position.set(Number(direction?.X ?? -1), Number(direction?.Y ?? -1), Number(direction?.Z ?? -1));
+  scene.add(light);
+}
+
+function findNodeByReference(index, reference) {
+  const key = String(reference || '');
+  if (!key) return null;
+  const exact = index.byReference.get(key);
+  if (exact) return exact;
+  const wanted = key.split('.').filter(Boolean).at(-1);
+  return wanted ? (index.firstByName.get(wanted) || null) : null;
+}
+
+function findBillboards(index) {
+  return nodesOfClass(index, 'BillboardGui').map(node => ({
+    node,
+    parent: index.parentByNode.get(node) || null,
+  }));
+}
+
+function rgb(value, fallback = [255, 255, 255]) {
+  if (!value) return fallback;
+  return [value.R ?? 1, value.G ?? 1, value.B ?? 1].map(channel => Math.round(channel * 255));
+}
+
+function cssColor(value, fallback) {
+  return `rgb(${rgb(value, fallback).join(',')})`;
+}
+
+function makeGuiElement(node, offsetScaleX = 1, offsetScaleY = 1) {
+  const element = document.createElement('div');
+  const props = node.props || {};
+  const position = props.Position || {};
+  const size = props.Size || {};
+  const anchor = props.AnchorPoint || {};
+  element.style.position = 'absolute';
+  element.style.inset = 'auto';
+  element.style.left = `calc(${Number(position.XS || 0) * 100}% + ${Number(position.XO || 0) * offsetScaleX}px)`;
+  element.style.top = `calc(${Number(position.YS || 0) * 100}% + ${Number(position.YO || 0) * offsetScaleY}px)`;
+  element.style.width = `calc(${Number(size.XS || 0) * 100}% + ${Number(size.XO || 0) * offsetScaleX}px)`;
+  element.style.height = `calc(${Number(size.YS || 0) * 100}% + ${Number(size.YO || 0) * offsetScaleY}px)`;
+  element.style.transform = `translate(${-Number(anchor.X || 0) * 100}%, ${-Number(anchor.Y || 0) * 100}%) rotate(${Number(props.Rotation || 0)}deg)`;
+  element.style.boxSizing = 'border-box';
+  if (props.Visible === false) element.style.display = 'none';
+  const transparency = Number(props.BackgroundTransparency ?? 0);
+  if (props.BackgroundColor3) {
+    const [red, green, blue] = rgb(props.BackgroundColor3, [255, 255, 255]);
+    element.style.backgroundColor = `rgba(${red},${green},${blue},${Math.max(0, 1 - transparency)})`;
+  }
+  if (node.className === 'TextLabel' || node.className === 'TextButton' || node.className === 'TextBox') {
+    element.textContent = props.Text || '';
+    element.style.color = cssColor(props.TextColor3, [0, 0, 0]);
+    element.style.display = 'flex';
+    element.style.alignItems = 'center';
+    element.style.justifyContent = 'center';
+    element.style.fontFamily = 'Arial, sans-serif';
+    element.style.fontSize = props.TextScaled ? '20px' : `${Number(props.TextSize ?? 14) * offsetScaleY}px`;
+    element.style.whiteSpace = 'pre-wrap';
+  }
+  for (const child of Object.values(node.children || {})) {
+    if (['Frame', 'CanvasGroup', 'TextLabel', 'TextButton', 'TextBox'].includes(child.className)) {
+      element.appendChild(makeGuiElement(child, offsetScaleX, offsetScaleY));
+    }
+  }
+  return element;
+}
+
+function parentWorldPosition(parent, billboard, camera) {
+  const cf = parent?.props?.CFrame;
+  if (!cf) return null;
+  const position = new THREE.Vector3(Number(cf.X), Number(cf.Y), Number(cf.Z));
+  const right = new THREE.Vector3(Number(cf.R00), Number(cf.R10), Number(cf.R20));
+  const up = new THREE.Vector3(Number(cf.R01), Number(cf.R11), Number(cf.R21));
+  const back = new THREE.Vector3(Number(cf.R02), Number(cf.R12), Number(cf.R22));
+  const local = billboard.props?.StudsOffset;
+  const world = billboard.props?.StudsOffsetWorldSpace;
+  if (local) position.addScaledVector(right, Number(local.X || 0)).addScaledVector(up, Number(local.Y || 0)).addScaledVector(back, Number(local.Z || 0));
+  if (world) position.add(new THREE.Vector3(Number(world.X || 0), Number(world.Y || 0), Number(world.Z || 0)));
+  const size = parent.props?.Size || {};
+  const half = new THREE.Vector3(Number(size.X || 0) / 2, Number(size.Y || 0) / 2, Number(size.Z || 0) / 2);
+  const extents = billboard.props?.ExtentsOffset;
+  if (extents && camera) {
+    const cameraRight = new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 0).normalize();
+    const cameraUp = new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 1).normalize();
+    const cameraBack = new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 2).normalize();
+    position.addScaledVector(cameraRight, Number(extents.X || 0) * half.x);
+    position.addScaledVector(cameraUp, Number(extents.Y || 0) * half.y);
+    position.addScaledVector(cameraBack, Number(extents.Z || 0) * half.z);
+  }
+  const extentsWorld = billboard.props?.ExtentsOffsetWorldSpace;
+  if (extentsWorld) {
+    position.add(new THREE.Vector3(
+      Number(extentsWorld.X || 0) * half.x,
+      Number(extentsWorld.Y || 0) * half.y,
+      Number(extentsWorld.Z || 0) * half.z,
+    ));
+  }
+  return position;
+}
+
+function overlayZIndex(alwaysOnTop, depth, zOffset = 0) {
+  const layer = Math.round(Number(zOffset || 0) * 10);
+  if (alwaysOnTop) return String(200000 + layer);
+  return String(Math.max(1, 100000 - Math.round(Math.max(0, depth) * 100) + layer));
+}
+
+function isOccluded(anchor, point, camera) {
+  if (!anchor || !point || !camera) return false;
+  const direction = point.clone().sub(camera.position);
+  const distance = direction.length();
+  if (distance <= 1e-6) return false;
+  direction.normalize();
+  const raycaster = new THREE.Raycaster(camera.position, direction, 0, distance);
+  return raycaster.intersectObjects(scene.children, true).some(hit => {
+    if (hit.object.userData?.rhrDecoration) return false;
+    const node = hit.object.userData?.rhrNode;
+    const cf = node?.props?.CFrame;
+    const sameAnchor = node === anchor || (cf && new THREE.Vector3(Number(cf.X), Number(cf.Y), Number(cf.Z)).distanceTo(point) < 1e-4);
+    return !sameAnchor && hit.distance < distance - 0.01;
+  });
+}
+
+function addBillboards(index, camera) {
+  const overlay = document.querySelector('#rhr-overlay');
+  if (!overlay) return;
+  for (const {node, parent} of findBillboards(index)) {
+    if (node.props?.Enabled === false) continue;
+    const anchor = node.props?.Adornee ? findNodeByReference(index, node.props.Adornee) : parent;
+    const world = parentWorldPosition(anchor, node, camera);
+    if (!world) continue;
+    const cameraPoint = camera.worldToLocal(world.clone());
+    const depth = -cameraPoint.z;
+    const maxDistance = Number(node.props?.MaxDistance ?? 0);
+    if (depth <= 0 || (maxDistance > 0 && depth > maxDistance)) continue;
+    if (node.props?.AlwaysOnTop !== true && isOccluded(anchor, world, camera)) continue;
+    const projected = world.clone().project(camera);
+    const size = node.props?.Size;
+    const widthStuds = Number(size?.XS ?? 0);
+    const heightStuds = Number(size?.YS ?? 0);
+    const widthOffset = Number(size?.XO ?? 0);
+    const heightOffset = Number(size?.YO ?? 0);
+    const scale = height / (2 * Math.tan((camera.fov * Math.PI) / 360) * depth);
+    const widthPx = widthStuds * scale + widthOffset;
+    const heightPx = heightStuds * scale + heightOffset;
+    const root = document.createElement('div');
+    const sizeOffset = node.props?.SizeOffset || {};
+    const sizeOffsetX = Number(sizeOffset.X || 0);
+    const sizeOffsetY = Number(sizeOffset.Y || 0);
+    root.style.position = 'absolute';
+    root.style.left = `${(projected.x * 0.5 + 0.5) * width - widthPx / 2 + sizeOffsetX * widthPx}px`;
+    root.style.top = `${(-projected.y * 0.5 + 0.5) * height - heightPx / 2 - sizeOffsetY * heightPx}px`;
+    root.style.width = `${widthPx}px`;
+    root.style.height = `${heightPx}px`;
+    root.style.zIndex = overlayZIndex(Boolean(node.props?.AlwaysOnTop), depth);
+    root.style.pointerEvents = 'none';
+    const child = Object.values(node.children || {}).find(item => ['Frame', 'CanvasGroup', 'TextLabel', 'TextButton', 'TextBox'].includes(item.className));
+    if (child) root.appendChild(makeGuiElement(child));
+    overlay.appendChild(root);
+  }
+}
+
+function findSurfaceGuis(index) {
+  return nodesOfClass(index, 'SurfaceGui').map(node => ({
+    node,
+    parent: index.parentByNode.get(node) || null,
+  }));
+}
+
+function localToWorld(part, local) {
+  const cf = part?.props?.CFrame;
+  if (!cf) return null;
+  const position = new THREE.Vector3(Number(cf.X), Number(cf.Y), Number(cf.Z));
+  const right = new THREE.Vector3(Number(cf.R00), Number(cf.R10), Number(cf.R20));
+  const up = new THREE.Vector3(Number(cf.R01), Number(cf.R11), Number(cf.R21));
+  const back = new THREE.Vector3(Number(cf.R02), Number(cf.R12), Number(cf.R22));
+  return position.addScaledVector(right, local.x).addScaledVector(up, local.y).addScaledVector(back, local.z);
+}
+
+function surfaceCorners(part, surface) {
+  const dimensions = part?.props?.Size;
+  if (!dimensions) return null;
+  const sx = Number(dimensions.X || 1) / 2;
+  const sy = Number(dimensions.Y || 1) / 2;
+  const sz = Number(dimensions.Z || 1) / 2;
+  const face = surface.props?.Face?.name || 'Front';
+  if (face === 'Right') return [[sx, sy, sz], [sx, sy, -sz], [sx, -sy, -sz], [sx, -sy, sz]];
+  if (face === 'Left') return [[-sx, sy, -sz], [-sx, sy, sz], [-sx, -sy, sz], [-sx, -sy, -sz]];
+  if (face === 'Top') return [[sx, sy, sz], [-sx, sy, sz], [-sx, sy, -sz], [sx, sy, -sz]];
+  if (face === 'Bottom') return [[sx, -sy, -sz], [-sx, -sy, -sz], [-sx, -sy, sz], [sx, -sy, sz]];
+  if (face === 'Back') return [[-sx, sy, sz], [sx, sy, sz], [sx, -sy, sz], [-sx, -sy, sz]];
+  return [[-sx, sy, -sz], [sx, sy, -sz], [sx, -sy, -sz], [-sx, -sy, -sz]];
+}
+
+function surfaceHomography(points, width, height) {
+  const [p0, p1, p2, p3] = points;
+  const dx1 = p1.x - p2.x;
+  const dx2 = p3.x - p2.x;
+  const dx3 = p0.x - p1.x + p2.x - p3.x;
+  const dy1 = p1.y - p2.y;
+  const dy2 = p3.y - p2.y;
+  const dy3 = p0.y - p1.y + p2.y - p3.y;
+  const denominator = dx1 * dy2 - dx2 * dy1;
+  let a;
+  let b;
+  let c;
+  let d;
+  let e;
+  let f;
+  let g;
+  let h;
+  if (Math.abs(denominator) < 1e-8) {
+    a = p1.x - p0.x; b = p3.x - p0.x; c = 0;
+    d = p1.y - p0.y; e = p3.y - p0.y; f = 0;
+    g = p0.x; h = p0.y;
+  } else {
+    g = (dx3 * dy2 - dx2 * dy3) / denominator;
+    h = (dx1 * dy3 - dx3 * dy1) / denominator;
+    a = p1.x - p0.x + g * p1.x;
+    b = p3.x - p0.x + h * p3.x;
+    c = p0.x;
+    d = p1.y - p0.y + g * p1.y;
+    e = p3.y - p0.y + h * p3.y;
+    f = p0.y;
+  }
+  return `matrix3d(${a / width},${d / width},0,${g / width},${b / height},${e / height},0,${h / height},0,0,1,0,${c},${f},0,1)`;
+}
+
+function addSurfaceGuis(index, camera) {
+  const overlay = document.querySelector('#rhr-overlay');
+  if (!overlay) return;
+  for (const {node, parent} of findSurfaceGuis(index)) {
+    if (node.props?.Enabled === false) continue;
+    const anchor = node.props?.Adornee ? findNodeByReference(index, node.props.Adornee) : parent;
+    const localCorners = surfaceCorners(anchor, node);
+    if (!localCorners) continue;
+    const worldPoints = localCorners.map(corner => localToWorld(anchor, new THREE.Vector3(...corner)));
+    const points = worldPoints.map(world => world?.clone().project(camera));
+    if (points.some(point => !point || point.z < -1 || point.z > 1)) continue;
+    const depths = worldPoints.map(world => -camera.worldToLocal(world.clone()).z);
+    const depth = depths.reduce((sum, value) => sum + value, 0) / depths.length;
+    const maxDistance = Number(node.props?.MaxDistance ?? 0);
+    if (depth <= 0 || (maxDistance > 0 && depth > maxDistance)) continue;
+    const center = localToWorld(anchor, new THREE.Vector3(0, 0, 0));
+    if (node.props?.AlwaysOnTop !== true && isOccluded(anchor, center, camera)) continue;
+    const screen = points.map(point => ({x: (point.x * 0.5 + 0.5) * width, y: (-point.y * 0.5 + 0.5) * height}));
+    const left = Math.min(...screen.map(point => point.x));
+    const top = Math.min(...screen.map(point => point.y));
+    const right = Math.max(...screen.map(point => point.x));
+    const bottom = Math.max(...screen.map(point => point.y));
+    if (right <= left || bottom <= top) continue;
+    const faceWidth = new THREE.Vector3(...localCorners[0]).distanceTo(new THREE.Vector3(...localCorners[1]));
+    const faceHeight = new THREE.Vector3(...localCorners[1]).distanceTo(new THREE.Vector3(...localCorners[2]));
+    const sizingMode = node.props?.SizingMode?.name;
+    const canvasSize = node.props?.CanvasSize || {};
+    const pixelsPerStud = Number(node.props?.PixelsPerStud || 50);
+    const virtualWidth = sizingMode === 'FixedSize' ? Number(canvasSize.X || 1) : faceWidth * pixelsPerStud;
+    const virtualHeight = sizingMode === 'FixedSize' ? Number(canvasSize.Y || 1) : faceHeight * pixelsPerStud;
+    const offsetScaleX = (right - left) / virtualWidth;
+    const offsetScaleY = (bottom - top) / virtualHeight;
+    const root = document.createElement('div');
+    root.style.position = 'absolute';
+    root.style.left = `${left}px`;
+    root.style.top = `${top}px`;
+    root.style.width = `${right - left}px`;
+    root.style.height = `${bottom - top}px`;
+    root.style.clipPath = `polygon(${screen.map(point => `${(point.x - left) / (right - left) * 100}% ${(point.y - top) / (bottom - top) * 100}%`).join(',')})`;
+    root.style.zIndex = overlayZIndex(Boolean(node.props?.AlwaysOnTop), depth, node.props?.ZOffset);
+    const child = Object.values(node.children || {}).find(item => ['Frame', 'CanvasGroup', 'TextLabel', 'TextButton', 'TextBox'].includes(item.className));
+    if (child) {
+      const canvasElement = document.createElement('div');
+      canvasElement.style.position = 'absolute';
+      canvasElement.style.inset = '0';
+      canvasElement.style.transformOrigin = '0 0';
+      canvasElement.style.transform = surfaceHomography(
+        screen.map(point => ({x: point.x - left, y: point.y - top})),
+        right - left,
+        bottom - top,
+      );
+      canvasElement.appendChild(makeGuiElement(child, offsetScaleX, offsetScaleY));
+      root.appendChild(canvasElement);
+    }
+    overlay.appendChild(root);
+  }
+}
+
+async function reportCamera(camera) {
+  if (params.get('reportCamera') !== '1') return;
+  try {
+    await fetch('/__rhr_camera__.json', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        position: camera.position.toArray(),
+        quaternion: camera.quaternion.toArray(),
+        fov: camera.fov,
+      }),
+    });
+  } catch (_) {
+    // Camera reporting is optional metadata for callers such as `rhr preview`.
+  }
+}
+
+function configureCamera(camera, node) {
+  const cf = node?.props?.CFrame;
+  if (cf) {
+    const matrix = cframeMatrix(cf);
+    matrix.decompose(camera.position, camera.quaternion, camera.scale);
+  } else {
+    camera.position.set(0, 5, 12);
+    camera.lookAt(0, 0, 0);
+  }
+  const requestedFov = Number(params.get('fov'));
+  camera.fov = Number.isFinite(requestedFov) && requestedFov > 1 && requestedFov < 179
+    ? requestedFov
+    : Number(node?.props?.FieldOfView ?? 70);
+  camera.aspect = width / height;
+  camera.near = 0.05;
+  camera.far = 10000;
+  camera.updateProjectionMatrix();
+  camera.updateMatrixWorld(true);
+}
+
+async function main() {
+  const response = await fetch(params.get('ir') || '/__rhr_ir__.json');
+  if (!response.ok) throw new Error(`IR request failed: ${response.status}`);
+  const ir = await response.json();
+  const roots = ir.roots || [];
+  const index = buildNodeIndex(roots);
+  let camera;
+  if (viewportMode) {
+    const viewport = findNodeByPath(index, params.get('path') || '');
+    if (!viewport) throw new Error(`ViewportFrame path not found: ${params.get('path')}`);
+    configureViewportLights(viewport);
+    for (const child of Object.values(viewport.children || {})) addNode(child, scene);
+    await Promise.all(meshGeometryJobs);
+    refreshModelPivots();
+    const cameraNode = findCamera(buildNodeIndex([viewport]));
+    camera = new THREE.PerspectiveCamera();
+    // Games assign CurrentCamera (a Camera instance) at runtime; the saved place
+    // stores the authored pose in the ViewportFrame's own CameraCFrame property
+    // instead. Prefer an explicit Camera child, then CameraCFrame, then fallback.
+    configureCamera(camera, cameraNode || (viewport.props?.CameraCFrame ? { props: { CFrame: viewport.props.CameraCFrame } } : null));
+    renderer.render(scene, camera);
+  } else {
+    const cameraNode = findCamera(index);
+    for (const root of roots) addNode(root, scene);
+    await Promise.all(meshGeometryJobs);
+    refreshModelPivots();
+    await addSurfaceImages(index);
+    addAttachmentAnchors(index);
+    addLocalLights(index);
+    await configureSky(index);
+    configureAtmosphere(index);
+    configureSceneLights(index);
+    camera = new THREE.PerspectiveCamera();
+    configureCamera(camera, cameraNode);
+
+    const focusPath = params.get('focus');
+    const requestedView = params.get('view');
+    let framedCenter = null;
+    if (focusPath || requestedView) {
+      framedCenter = frameScene(camera, index, focusPath, requestedView || 'iso');
+    }
+    const cameraOverride = parseVectorParam('camera');
+    const lookAtOverride = parseVectorParam('lookAt');
+    if (cameraOverride) camera.position.copy(cameraOverride);
+    if (lookAtOverride) camera.lookAt(lookAtOverride);
+    else if (cameraOverride && framedCenter) camera.lookAt(framedCenter);
+    camera.updateMatrixWorld(true);
+    await addBeams(index, camera);
+    await addTrails(index, camera);
+    await reportCamera(camera);
+    renderer.render(scene, camera);
+  }
+  await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+  renderer.render(scene, camera);
+  await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+  if (!viewportMode) {
+    addBillboards(index, camera);
+    addSurfaceGuis(index, camera);
+  }
+  document.documentElement.dataset.rhrReady = 'true';
+}
+
+try {
+  await main();
+} catch (error) {
+  document.documentElement.dataset.rhrError = String(error);
+  throw error;
+}

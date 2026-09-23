@@ -1,0 +1,93 @@
+<roblox version="4">
+  <Item class="Workspace" referent="RBX0">
+    <Properties>
+      <string name="Name">Workspace</string>
+      <float name="Gravity">196.2</float>
+    </Properties>
+    <Item class="Folder" referent="RBX1">
+      <Properties><string name="Name">VisualContainer</string></Properties>
+      <Item class="Part" referent="RBX2">
+        <Properties>
+          <string name="Name">Block</string>
+          <CoordinateFrame name="CFrame">
+            <X>0</X><Y>0</Y><Z>0</Z>
+            <R00>1</R00><R01>0</R01><R02>0</R02>
+            <R10>0</R10><R11>1</R11><R12>0</R12>
+            <R20>0</R20><R21>0</R21><R22>1</R22>
+          </CoordinateFrame>
+          <Vector3 name="Size"><X>5</X><Y>5</Y><Z>5</Z></Vector3>
+          <Color3 name="Color"><R>1</R><G>0.1</G><B>0.05</B></Color3>
+          <float name="Transparency">0</float>
+          <token name="Material">256</token>
+          <token name="shape">1</token>
+        </Properties>
+        <Item class="ParticleEmitter" referent="RBX3">
+          <Properties>
+            <string name="Name">Sparks</string>
+            <bool name="Enabled">true</bool>
+            <float name="Rate">5</float>
+          </Properties>
+        </Item>
+      </Item>
+      <Item class="Sound" referent="RBX4">
+        <Properties><string name="Name">RuntimeSound</string></Properties>
+      </Item>
+    </Item>
+    <Item class="IntValue" referent="RBX5">
+      <Properties>
+        <string name="Name">RuntimeValue</string>
+        <int name="Value">12</int>
+      </Properties>
+    </Item>
+    <Item class="Camera" referent="RBX6">
+      <Properties>
+        <string name="Name">CurrentCamera</string>
+        <CoordinateFrame name="CFrame">
+          <X>0</X><Y>0</Y><Z>14</Z>
+          <R00>1</R00><R01>0</R01><R02>0</R02>
+          <R10>0</R10><R11>1</R11><R12>0</R12>
+          <R20>0</R20><R21>0</R21><R22>1</R22>
+        </CoordinateFrame>
+        <float name="FieldOfView">60</float>
+      </Properties>
+    </Item>
+  </Item>
+  <Item class="ScreenGui" referent="RBX7">
+    <Properties>
+      <string name="Name">HighGui</string>
+      <bool name="Enabled">true</bool>
+      <token name="DisplayOrder">10</token>
+      <token name="ScreenInsets">0</token>
+    </Properties>
+    <Item class="Frame" referent="RBX8">
+      <Properties>
+        <string name="Name">HighPanel</string>
+        <UDim2 name="Position"><XS>0</XS><XO>10</XO><YS>0</YS><YO>10</YO></UDim2>
+        <UDim2 name="Size"><XS>0</XS><XO>80</XO><YS>0</YS><YO>60</YO></UDim2>
+        <Color3 name="BackgroundColor3"><R>0.05</R><G>1</G><B>0.1</B></Color3>
+        <float name="BackgroundTransparency">0</float>
+        <token name="BorderSizePixel">0</token>
+        <bool name="Visible">true</bool>
+      </Properties>
+    </Item>
+  </Item>
+  <Item class="ScreenGui" referent="RBX9">
+    <Properties>
+      <string name="Name">LowGui</string>
+      <bool name="Enabled">true</bool>
+      <token name="DisplayOrder">0</token>
+      <token name="ScreenInsets">0</token>
+    </Properties>
+    <Item class="Frame" referent="RBX10">
+      <Properties>
+        <string name="Name">LowPanel</string>
+        <UDim2 name="Position"><XS>0</XS><XO>10</XO><YS>0</YS><YO>10</YO></UDim2>
+        <UDim2 name="Size"><XS>0</XS><XO>80</XO><YS>0</YS><YO>60</YO></UDim2>
+        <Color3 name="BackgroundColor3"><R>0.05</R><G>0.1</G><B>1</B></Color3>
+        <float name="BackgroundTransparency">0</float>
+        <token name="BorderSizePixel">0</token>
+        <bool name="Visible">true</bool>
+      </Properties>
+    </Item>
+  </Item>
+</roblox>

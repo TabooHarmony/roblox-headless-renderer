@@ -1,0 +1,31 @@
+# AutomaticSize includes the node's own UIPadding
+#
+# Apply from vendor/pinevex:  git apply -p1 < patches/0003-autosize-padding.patch
+--- a/src/ui_engine/layout.py
++++ b/src/ui_engine/layout.py
+@@ -137,10 +137,23 @@
+         h = sy * ref_h
+ 
+     auto_size = node.get("autoSize")
++
++    def _padding(val, ref_dim: float) -> float:
++        """One UIPadding edge in pixels. Its scale reads against the size ref."""
++        if isinstance(val, dict):
++            return _num(val.get("scale"), 0.0) * ref_dim + _num(val.get("offset"), 0.0)
++        return _num(val, 0.0)
++
++    # Roblox grows an AutomaticSize node to fit its content *plus* its own
++    # UIPadding, so the estimate has to add that padding or the text clips.
+     if auto_size in ("X", "XY") and w <= 1e-3:
+-        w = _estimate_text_auto_width(node, h)
++        padding = node.get("padding") or {}
++        w = (_estimate_text_auto_width(node, h)
++             + _padding(padding.get("left"), ref_w) + _padding(padding.get("right"), ref_w))
+     if auto_size in ("Y", "XY") and h <= 1e-3:
+-        h = _estimate_text_auto_height(node, w)
++        padding = node.get("padding") or {}
++        h = (_estimate_text_auto_height(node, w)
++             + _padding(padding.get("top"), ref_h) + _padding(padding.get("bottom"), ref_h))
+ 
+     # Apply aspect ratio constraint (shrink to fit)
+     aspect = node.get("aspectRatio")

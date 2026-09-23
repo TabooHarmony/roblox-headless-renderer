@@ -1,0 +1,52 @@
+name: test
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
+
+      - name: Install Python dependencies and Chromium
+        run: |
+          python -m venv .venv
+          .venv/bin/python -m pip install --upgrade pip
+          .venv/bin/python -m pip install -r requirements-dev.txt
+          .venv/bin/python -m playwright install --with-deps chromium
+
+      - name: Install Lune
+        env:
+          LUNE_VERSION: 0.10.5
+        run: |
+          mkdir -p "$HOME/.local/bin" /tmp/lune
+          curl --fail --silent --show-error --location \
+            "https://github.com/lune-org/lune/releases/download/v${LUNE_VERSION}/lune-${LUNE_VERSION}-linux-x86_64.zip" \
+            --output /tmp/lune/lune.zip
+          unzip -q /tmp/lune/lune.zip -d /tmp/lune/unpacked
+          install -m 0755 /tmp/lune/unpacked/lune "$HOME/.local/bin/lune"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          lune --version
+
+      - name: Run repository checks
+        run: |
+          source .venv/bin/activate
+          node --check src/rhr/scene/scene.js
+          git diff --check
+          sh tests/run.sh

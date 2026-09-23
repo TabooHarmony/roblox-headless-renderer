@@ -1,0 +1,152 @@
+# TextScaled fits the full content box: outlines never shrink glyphs (Studio fixed-box probe); its plain-fit hunk also passes LineHeight to the fit (adjacent edit, one diff hunk)
+#
+# Apply from vendor/pinevex:  git apply -p1 < patches/0010-textscaled-stroke-fit.patch
+--- a/src/ui_engine/text_renderers.py
++++ b/src/ui_engine/text_renderers.py
+@@ -9,38 +55,6 @@
+     return 1.0
+ 
+ 
+-def _max_text_outline_thickness(
+-    node: dict,
+-    text_size: float,
+-    gradient: dict | None = None,
+-    *,
+-    thickness_scale: float = 1.0,
+-    gradient_scaled: bool = False,
+-) -> float:
+-    """Return max visible text-outline thickness in px for fit calculations."""
+-    max_thickness = 0.0
+-
+-    legacy = _build_legacy_text_stroke(node)
+-    if legacy is not None:
+-        max_thickness = max(max_thickness, float(legacy[0]) * thickness_scale)
+-
+-    for s in node.get("strokes", []):
+-        if s.get("applyMode") == "Border":
+-            continue
+-        thickness = float(s.get("thickness", 1))
+-        if s.get("thicknessScale"):
+-            thickness *= float(text_size)
+-        thickness *= thickness_scale
+-        if gradient_scaled and gradient:
+-            thickness *= _GRADIENT_TEXT_STROKE_SCALE
+-        transparency = float(s.get("transparency", 0))
+-        if thickness <= 0 or transparency >= 1:
+-            continue
+-        max_thickness = max(max_thickness, thickness)
+-
+-    return max_thickness
+-
+-
+ def _draw_text_plain_rtl(canvas: skia.Canvas, x: float, y: float, w: float, h: float,
+                          node: dict, fonts_dir: Path | None = None,
+                          gradient: dict | None = None) -> bool:
+@@ -79,36 +93,26 @@
+     if content_w <= 0 or content_h <= 0:
+         return True
+ 
+-    wrapped = bool(node.get("textWrapped", False))
++    # TextScaled implies TextWrapped (Roblox docs, TextLabel.TextScaled).
++    # Studio fits scaled text to the full content box: outlines never shrink
++    # the glyphs (fixed-box probe: identical TextBounds at UIStroke 0/2/5),
++    # so no outline thickness is reserved from the fit box.
++    wrapped = bool(node.get("textWrapped", False)) or bool(node.get("textScaled", False))
+     wrapped_effective = wrapped and _has_break_opportunities(text)
+     if node.get("textScaled", False):
+         min_size, max_size = _textscaled_size_limits(node)
+         text_size = max(min_size, min(text_size, max_size))
+-        for _ in range(4):
+-            stroke_pad = _max_text_outline_thickness(
+-                node,
+-                text_size,
+-                gradient,
+-                thickness_scale=stroke_thickness_scale,
+-                gradient_scaled=True,
+-            )
+-            fit_w = max(1.0, content_w - stroke_pad * 2.0)
+-            fit_h = max(1.0, content_h - stroke_pad * 2.0)
+-            next_size = _fit_paragraph_font_size(
+-                text=text,
+-                font_families=font_families,
+-                font_typefaces=font_typefaces,
+-                font_style=font_style,
+-                max_w=fit_w,
+-                max_h=fit_h,
+-                wrapped=wrapped_effective,
+-                min_size=min_size,
+-                max_size=max_size,
+-            )
+-            if abs(next_size - text_size) < 0.1:
+-                text_size = next_size
+-                break
+-            text_size = next_size
++        text_size = _fit_paragraph_font_size(
++            text=text,
++            font_families=font_families,
++            font_typefaces=font_typefaces,
++            font_style=font_style,
++            max_w=content_w,
++            max_h=content_h,
++            wrapped=wrapped_effective,
++            min_size=min_size,
++            max_size=max_size,
++        )
+ 
+     color = node.get("textColor", [0, 0, 0])
+     r, g, b = int(color[0]), int(color[1]), int(color[2])
+@@ -315,34 +319,26 @@
+     if node.get("textScaled", False):
+         min_size, max_size = _textscaled_size_limits(node)
+         text_size = max(float(min_size), min(float(text_size), float(max_size)))
+-        for _ in range(4):
+-            stroke_pad = _max_text_outline_thickness(
+-                node,
+-                text_size,
+-                gradient,
+-                thickness_scale=stroke_thickness_scale,
+-            )
+-            fit_w = max(1.0, content_w - stroke_pad * 2.0)
+-            fit_h = max(1.0, content_h - stroke_pad * 2.0)
+-            next_size = _fit_font_size(
+-                text,
+-                typeface,
+-                fit_w,
+-                fit_h,
+-                wrapped,
+-                emoji_typeface,
+-                fallback_typefaces,
+-                requested_weight=weight,
+-                italic=italic,
+-                prefer_tight_height=use_tight_height,
+-                tight_height_line_floor=symbol_floor,
+-                min_size=min_size,
+-                max_size=max_size,
+-            )
+-            if abs(next_size - text_size) < 0.1:
+-                text_size = next_size
+-                break
+-            text_size = next_size
++        # Studio fits scaled text to the full content box: outlines never
++        # shrink the glyphs (fixed-box probe: identical TextBounds at UIStroke
++        # 0/2/5), so no outline thickness is reserved from the fit box.
++        text_size = _fit_font_size(
++            text,
++            typeface,
++            content_w,
++            content_h,
++            wrapped,
++            emoji_typeface,
++            fallback_typefaces,
++            requested_weight=weight,
++            italic=italic,
++            prefer_tight_height=use_tight_height,
++            tight_height_line_floor=symbol_floor,
++            min_size=min_size,
++            max_size=max_size,
++            line_height_mult=float(node.get("lineHeight", 1.0)),
++            advance_table=load_advance_table(family, weight, "normal" if not italic else "italic"),
++        )
+ 
+     font = skia.Font(typeface, text_size)
+     _apply_font_draw_style(font, typeface, weight, italic=italic)

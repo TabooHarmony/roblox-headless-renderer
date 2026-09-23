@@ -1,0 +1,16 @@
+<roblox version="4">
+  <Item class="ScreenGui" referent="RBX0">
+    <Properties>
+      <string name="Name">UnknownValues</string>
+    </Properties>
+    <Item class="ZzzNotAClass" referent="RBX1">
+      <Properties>
+        <string name="Name">HiddenThing</string>
+        <bool name="Visible">false</bool>
+        <int name="DisplayOrder">7</int>
+        <string name="Text">cheap &amp; cheerful &lt;tag&gt; 5 &gt; 3</string>
+        <UDim2 name="Size"><XS>0</XS><XO>50</XO><YS>0</YS><YO>50</YO></UDim2>
+      </Properties>
+    </Item>
+  </Item>
+</roblox>

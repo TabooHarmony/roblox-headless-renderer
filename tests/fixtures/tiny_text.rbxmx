@@ -1,0 +1,14 @@
+<roblox version="4">
+  <Item class="ScreenGui" referent="RBX0">
+    <Properties><string name="Name">TinyText</string></Properties>
+    <Item class="TextLabel" referent="RBX1">
+      <Properties>
+        <string name="Name">Micro</string>
+        <UDim2 name="Size"><XS>0</XS><XO>200</XO><YS>0</YS><YO>40</YO></UDim2>
+        <string name="Text">barely legible</string>
+        <int name="TextSize">1</int>
+        <token name="BorderSizePixel">0</token>
+      </Properties>
+    </Item>
+  </Item>
+</roblox>

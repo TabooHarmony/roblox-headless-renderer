@@ -1,0 +1,20 @@
+# flatten_node keeps the caller's _path so a rect map can be read back
+#
+# Apply from vendor/pinevex:  git apply -p1 < patches/0004-path-passthrough.patch
+--- a/web_demo/rbxm_parser_component/tree_to_pinevexobject.py
++++ b/web_demo/rbxm_parser_component/tree_to_pinevexobject.py
+@@ -381,6 +381,14 @@
+     if name:
+         result["name"] = name
+ 
++    # Carry the caller's path label through. The renderer stores every resolved
++    # rect under `_path` when it is handed a rect_map (render_json(rect_map=...)),
++    # which is how a caller reads the layout back without re-deriving it. Absent
++    # for callers that do not label their nodes.
++    path = raw.get("_path")
++    if path:
++        result["_path"] = path
++
+     # Size
+     size = _udim2_to_full(props.get("Size"))
+     if size is not None:

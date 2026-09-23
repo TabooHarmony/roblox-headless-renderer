@@ -1,0 +1,26 @@
+<roblox version="4">
+  <Item class="ScreenGui" referent="RBX0">
+    <Properties><string name="Name">ZeroGridCell</string></Properties>
+    <Item class="Frame" referent="RBX1">
+      <Properties>
+        <string name="Name">Root</string>
+        <UDim2 name="Size"><XS>0</XS><XO>400</XO><YS>0</YS><YO>300</YO></UDim2>
+        <token name="BorderSizePixel">0</token>
+      </Properties>
+      <Item class="UIGridLayout" referent="RBX2">
+        <Properties>
+          <string name="Name">Layout</string>
+          <UDim2 name="CellSize"><XS>0</XS><XO>120</XO><YS>0</YS><YO>0</YO></UDim2>
+        </Properties>
+      </Item>
+      <Item class="Frame" referent="RBX3">
+        <Properties>
+          <string name="Name">Cell</string>
+          <UDim2 name="Size"><XS>1</XS><XO>0</XO><YS>1</YS><YO>0</YO></UDim2>
+          <Color3 name="BackgroundColor3"><R>1</R><G>0</G><B>0</B></Color3>
+          <token name="BorderSizePixel">0</token>
+        </Properties>
+      </Item>
+    </Item>
+  </Item>
+</roblox>

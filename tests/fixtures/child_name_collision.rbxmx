@@ -1,0 +1,34 @@
+<roblox version="4">
+  <Item class="ScreenGui" referent="RBX0">
+    <Properties>
+      <string name="Name">ChildNames</string>
+    </Properties>
+    <Item class="Frame" referent="RBX1">
+      <Properties>
+        <string name="Name">Card</string>
+        <UDim2 name="Size">
+          <XS>0</XS><XO>200</XO><YS>0</YS><YO>100</YO>
+        </UDim2>
+        <Color3 name="BackgroundColor3"><R>0.2</R><G>0.2</G><B>0.2</B></Color3>
+        <token name="BorderSizePixel">0</token>
+      </Properties>
+      <Item class="TextLabel" referent="RBX2">
+        <Properties>
+          <string name="Name">Text</string>
+          <string name="Text">hello</string>
+          <UDim2 name="Size"><XS>0</XS><XO>100</XO><YS>0</YS><YO>20</YO></UDim2>
+          <Color3 name="BackgroundColor3"><R>1</R><G>1</G><B>1</B></Color3>
+          <token name="BorderSizePixel">0</token>
+        </Properties>
+      </Item>
+      <Item class="Frame" referent="RBX3">
+        <Properties>
+          <string name="Name">Padding</string>
+          <UDim2 name="Size"><XS>0</XS><XO>10</XO><YS>0</YS><YO>10</YO></UDim2>
+          <Color3 name="BackgroundColor3"><R>0</R><G>1</G><B>0</B></Color3>
+          <token name="BorderSizePixel">0</token>
+        </Properties>
+      </Item>
+    </Item>
+  </Item>
+</roblox>

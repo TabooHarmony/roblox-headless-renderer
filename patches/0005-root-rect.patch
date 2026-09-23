@@ -1,0 +1,53 @@
+# render_json/collect_layout_info take the root rect, not always the canvas
+#
+# Apply from vendor/pinevex:  git apply -p1 < patches/0005-root-rect.patch
+--- a/src/ui_engine/renderer.py
++++ b/src/ui_engine/renderer.py
+@@ -1365,6 +1421,7 @@
+     debug: bool = False,
+     out: dict | None = None,
+     rect_map: dict | None = None,
++    root_rect: Rect | None = None,
+ ):
+     """Render a complete PinevexObject to a PNG file.
+ 
+@@ -1376,6 +1433,11 @@
+ 
+     If *rect_map* is provided, every node that has a ``_path`` key will have
+     its resolved ``Rect`` stored in ``rect_map[node["_path"]]``.
++
++    *root_rect* is the area the tree is laid out in, and the reference for nodes
++    that size against the viewport. Defaults to the whole canvas. Callers that
++    model a screen container pass the container's content area here (e.g. a
++    ScreenGui's safe area), so descendants move with it.
+     """
+     surface = skia.Surface(width, height)
+     canvas = surface.getCanvas()
+@@ -1387,7 +1449,7 @@
+     else:
+         canvas.clear(skia.Color(*bg_color, 255))
+ 
+-    root_rect = Rect(0, 0, width, height)
++    root_rect = root_rect if root_rect is not None else Rect(0, 0, width, height)
+     ctx = {
+         "icons_dir": icons_dir,
+         "fonts_dir": fonts_dir,
+@@ -1427,14 +1489,16 @@
+     out: dict | None = None,
+     rect_map: dict | None = None,
+     ignore_scroll_clipping: bool = False,
++    root_rect: Rect | None = None,
+ ) -> dict:
+     """Resolve layout/crop geometry without rasterizing any pixels.
+ 
+     This runs the same placement traversal used by the renderer, including
+     list/grid layout, scrolling-frame canvas handling, padding, clipping, and
+-    crop tracking, but it does not draw.
++    crop tracking, but it does not draw. *root_rect* means what it means in
++    ``render_json``: the area the tree is laid out in.
+     """
+-    root_rect = Rect(0, 0, width, height)
++    root_rect = root_rect if root_rect is not None else Rect(0, 0, width, height)
+     ctx = {
+         "_viewport_rect": root_rect,
+         "_default_size_ref": str(default_size_ref or "parent").lower(),

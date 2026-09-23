@@ -1,0 +1,15 @@
+<roblox version="4">
+  <Item class="ScreenGui" referent="RBX0">
+    <Properties>
+      <string name="Name">Ghost</string>
+      <bool name="Enabled">false</bool>
+    </Properties>
+    <Item class="Frame" referent="RBX1">
+      <Properties>
+        <string name="Name">GhostPane</string>
+        <UDim2 name="Size"><XS>0</XS><XO>200</XO><YS>0</YS><YO>200</YO></UDim2>
+        <Color3 name="BackgroundColor3"><R>1</R><G>0</G><B>0</B></Color3>
+      </Properties>
+    </Item>
+  </Item>
+</roblox>

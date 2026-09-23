@@ -1,0 +1,68 @@
+<roblox version="4">
+  <Item class="Lighting" referent="RBX0">
+    <Properties>
+      <string name="Name">Lighting</string>
+      <Color3 name="Ambient"><R>0.2</R><G>0.25</G><B>0.3</B></Color3>
+      <Color3 name="OutdoorAmbient"><R>0.05</R><G>0.06</G><B>0.08</B></Color3>
+      <float name="Brightness">1.5</float>
+      <bool name="GlobalShadows">true</bool>
+      <float name="ClockTime">6</float>
+      <float name="GeographicLatitude">35</float>
+      <float name="ShadowSoftness">0.35</float>
+    </Properties>
+  </Item>
+  <Item class="Workspace" referent="RBX1">
+    <Properties>
+      <string name="Name">Workspace</string>
+      <float name="Gravity">196.2</float>
+    </Properties>
+    <Item class="Part" referent="RBX2">
+      <Properties>
+        <string name="Name">Floor</string>
+        <CoordinateFrame name="CFrame">
+          <X>0</X><Y>-1</Y><Z>0</Z>
+          <R00>1</R00><R01>0</R01><R02>0</R02>
+          <R10>0</R10><R11>1</R11><R12>0</R12>
+          <R20>0</R20><R21>0</R21><R22>1</R22>
+        </CoordinateFrame>
+        <Vector3 name="Size"><X>14</X><Y>1</Y><Z>10</Z></Vector3>
+        <Color3 name="Color"><R>0.65</R><G>0.65</G><B>0.65</B></Color3>
+        <float name="Transparency">0</float>
+        <float name="Reflectance">0</float>
+        <bool name="CastShadow">true</bool>
+        <token name="Material">256</token>
+        <token name="shape">1</token>
+      </Properties>
+    </Item>
+    <Item class="Part" referent="RBX3">
+      <Properties>
+        <string name="Name">Block</string>
+        <CoordinateFrame name="CFrame">
+          <X>0</X><Y>2</Y><Z>0</Z>
+          <R00>1</R00><R01>0</R01><R02>0</R02>
+          <R10>0</R10><R11>1</R11><R12>0</R12>
+          <R20>0</R20><R21>0</R21><R22>1</R22>
+        </CoordinateFrame>
+        <Vector3 name="Size"><X>3</X><Y>3</Y><Z>3</Z></Vector3>
+        <Color3 name="Color"><R>0.8</R><G>0.2</G><B>0.1</B></Color3>
+        <float name="Transparency">0</float>
+        <float name="Reflectance">0</float>
+        <bool name="CastShadow">true</bool>
+        <token name="Material">256</token>
+        <token name="shape">1</token>
+      </Properties>
+    </Item>
+    <Item class="Camera" referent="RBX4">
+      <Properties>
+        <string name="Name">CurrentCamera</string>
+        <CoordinateFrame name="CFrame">
+          <X>0</X><Y>6</Y><Z>18</Z>
+          <R00>1</R00><R01>0</R01><R02>0</R02>
+          <R10>0</R10><R11>1</R11><R12>0</R12>
+          <R20>0</R20><R21>0</R21><R22>1</R22>
+        </CoordinateFrame>
+        <float name="FieldOfView">55</float>
+      </Properties>
+    </Item>
+  </Item>
+</roblox>

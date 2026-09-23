@@ -1,0 +1,43 @@
+<roblox version="4">
+  <Item class="ScreenGui" referent="RBX0">
+    <Properties>
+      <string name="Name">Under</string>
+      <int name="DisplayOrder">1</int>
+      <token name="ScreenInsets">0</token>
+    </Properties>
+      <Item class="Frame" referent="RBX1">
+        <Properties>
+          <string name="Name">RedPane</string>
+          <UDim2 name="Position"><XS>0</XS><XO>0</XO><YS>0</YS><YO>0</YO></UDim2>
+          <UDim2 name="Size"><XS>0</XS><XO>100</XO><YS>0</YS><YO>100</YO></UDim2>
+          <Color3 name="BackgroundColor3"><R>1</R><G>0</G><B>0</B></Color3>
+          <token name="BorderSizePixel">0</token>
+        </Properties>
+      </Item>
+      <Item class="Frame" referent="RBX2">
+        <Properties>
+          <string name="Name">GreenStrip</string>
+          <UDim2 name="Position"><XS>0</XS><XO>0</XO><YS>0</YS><YO>120</YO></UDim2>
+          <UDim2 name="Size"><XS>0</XS><XO>100</XO><YS>0</YS><YO>40</YO></UDim2>
+          <Color3 name="BackgroundColor3"><R>0</R><G>1</G><B>0</B></Color3>
+          <token name="BorderSizePixel">0</token>
+        </Properties>
+      </Item>
+  </Item>
+  <Item class="ScreenGui" referent="RBX3">
+    <Properties>
+      <string name="Name">Over</string>
+      <int name="DisplayOrder">5</int>
+      <token name="ScreenInsets">0</token>
+    </Properties>
+      <Item class="Frame" referent="RBX4">
+        <Properties>
+          <string name="Name">BluePane</string>
+          <UDim2 name="Position"><XS>0</XS><XO>50</XO><YS>0</YS><YO>50</YO></UDim2>
+          <UDim2 name="Size"><XS>0</XS><XO>100</XO><YS>0</YS><YO>100</YO></UDim2>
+          <Color3 name="BackgroundColor3"><R>0</R><G>0</G><B>1</B></Color3>
+          <token name="BorderSizePixel">0</token>
+        </Properties>
+      </Item>
+  </Item>
+</roblox>

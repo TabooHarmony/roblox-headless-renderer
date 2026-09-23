@@ -1,0 +1,35 @@
+<roblox version="4">
+  <Item class="ScreenGui" referent="RBX0">
+    <Properties>
+      <string name="Name">ImageOnLaterInstance</string>
+    </Properties>
+    <Item class="Frame" referent="RBX1">
+      <Properties>
+        <string name="Name">Pane</string>
+        <UDim2 name="Size"><XS>0</XS><XO>200</XO><YS>0</YS><YO>200</YO></UDim2>
+      </Properties>
+      <Item class="ImageLabel" referent="RBX2">
+        <Properties>
+          <string name="Name">Bare</string>
+          <UDim2 name="Size"><XS>0</XS><XO>32</XO><YS>0</YS><YO>32</YO></UDim2>
+        </Properties>
+      </Item>
+      <Item class="ImageLabel" referent="RBX3">
+        <Properties>
+          <string name="Name">CarriesImage</string>
+          <UDim2 name="Position"><XS>0</XS><XO>40</XO><YS>0</YS><YO>0</YO></UDim2>
+          <UDim2 name="Size"><XS>0</XS><XO>32</XO><YS>0</YS><YO>32</YO></UDim2>
+          <Content name="ImageContent"><uri>rbxassetid://900000002</uri></Content>
+        </Properties>
+      </Item>
+      <Item class="ImageButton" referent="RBX4">
+        <Properties>
+          <string name="Name">HoverOnly</string>
+          <UDim2 name="Position"><XS>0</XS><XO>80</XO><YS>0</YS><YO>0</YO></UDim2>
+          <UDim2 name="Size"><XS>0</XS><XO>32</XO><YS>0</YS><YO>32</YO></UDim2>
+          <Content name="HoverImageContent"><uri>rbxassetid://900000003</uri></Content>
+        </Properties>
+      </Item>
+    </Item>
+  </Item>
+</roblox>

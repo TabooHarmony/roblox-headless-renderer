@@ -1,0 +1,70 @@
+<roblox version="4">
+  <Item class="Workspace" referent="RBX0">
+    <Properties>
+      <string name="Name">BeamScene</string>
+    </Properties>
+    <Item class="Part" referent="RBX1">
+      <Properties>
+        <string name="Name">P0</string>
+        <CoordinateFrame name="CFrame">
+          <X>-4</X><Y>0</Y><Z>0</Z>
+          <R00>1</R00><R01>0</R01><R02>0</R02>
+          <R10>0</R10><R11>1</R11><R12>0</R12>
+          <R20>0</R20><R21>0</R21><R22>1</R22>
+        </CoordinateFrame>
+        <Vector3 name="Size"><X>0.2</X><Y>0.2</Y><Z>0.2</Z></Vector3>
+        <Color3 name="Color"><R>0.1</R><G>0.1</G><B>0.1</B></Color3>
+        <float name="Transparency">1</float>
+        <token name="Material">256</token>
+        <token name="Shape">1</token>
+      </Properties>
+      <Item class="Attachment" referent="RBX2">
+        <Properties>
+          <string name="Name">A0</string>
+          <Vector3 name="Position"><X>0</X><Y>0</Y><Z>0</Z></Vector3>
+        </Properties>
+      </Item>
+      <Item class="Beam" referent="RBX3">
+        <Properties>
+          <string name="Name">FadeBeam</string>
+          <Ref name="Attachment0">RBX2</Ref>
+          <Ref name="Attachment1">RBX5</Ref>
+          <bool name="Enabled">true</bool>
+          <bool name="FaceCamera">true</bool>
+          <float name="Width0">0.7</float>
+          <float name="Width1">0.7</float>
+          <float name="CurveSize0">0</float>
+          <float name="CurveSize1">0</float>
+          <int name="Segments">10</int>
+          <float name="Brightness">1</float>
+          <ColorSequence name="Color">0 1 0.03 0.01 0 1 1 0.03 0.01 0</ColorSequence>
+          <NumberSequence name="Transparency">0 0 0 1 0 0</NumberSequence>
+          <float name="TextureLength">1</float>
+          <token name="TextureMode">0</token>
+        </Properties>
+      </Item>
+    </Item>
+    <Item class="Part" referent="RBX4">
+      <Properties>
+        <string name="Name">P1</string>
+        <CoordinateFrame name="CFrame">
+          <X>4</X><Y>0</Y><Z>0</Z>
+          <R00>1</R00><R01>0</R01><R02>0</R02>
+          <R10>0</R10><R11>1</R11><R12>0</R12>
+          <R20>0</R20><R21>0</R21><R22>1</R22>
+        </CoordinateFrame>
+        <Vector3 name="Size"><X>0.2</X><Y>0.2</Y><Z>0.2</Z></Vector3>
+        <Color3 name="Color"><R>0.1</R><G>0.1</G><B>0.1</B></Color3>
+        <float name="Transparency">1</float>
+        <token name="Material">256</token>
+        <token name="Shape">1</token>
+      </Properties>
+      <Item class="Attachment" referent="RBX5">
+        <Properties>
+          <string name="Name">A1</string>
+          <Vector3 name="Position"><X>0</X><Y>0</Y><Z>0</Z></Vector3>
+        </Properties>
+      </Item>
+    </Item>
+  </Item>
+</roblox>

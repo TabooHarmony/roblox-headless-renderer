@@ -1,0 +1,32 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.hypothesis/
+.coverage
+htmlcov/
+out/
+assets/cache/
+*.tmp
+*.log
+node_modules/
+
+# Local editor and agent state
+.hermes/
+.cursor/
+.claude/
+.codex/
+.DS_Store
+*.swp
+*.swo
+
+# Local credentials and provider state
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+*.p12
+*.pfx

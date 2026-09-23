@@ -1,0 +1,50 @@
+# ScrollingFrame children resolve Scale against the window, not the canvas
+#
+# Apply from vendor/pinevex:  git apply -p1 < patches/0015-scroll-scale-window.patch
+--- a/src/ui_engine/renderer.py
++++ b/src/ui_engine/renderer.py
+@@ -738,8 +772,12 @@
+     # Recurse into children of this layout-placed node
+     children = node.get("children", [])
+     if children:
+-        # ScrollingFrame: children are positioned within the canvas rect
+-        child_parent = canvas_rect if force_clip else rect
++        # ScrollingFrame: children are positioned within the canvas rect. The
++        # canvas ORIGIN carries the scroll offset, but a child's Scale resolves
++        # against the ScrollingFrame's WINDOW size (Roblox: scale is relative to
++        # AbsoluteSize; CanvasSize only extends the scrollable range).
++        child_parent = (Rect(canvas_rect.x, canvas_rect.y, rect.w, rect.h)
++                        if force_clip else rect)
+         visible_child_parent = rect
+         pad_top, pad_bottom, pad_left, pad_right = _resolve_padding(
+             node.get("padding", {}), child_parent.w, child_parent.h)
+@@ -881,8 +971,12 @@
+     # 11-13. Render children with layout support
+     children = node.get("children", [])
+     if children:
+-        # ScrollingFrame: children are positioned within the canvas rect
+-        child_parent = canvas_rect if force_clip else rect
++        # ScrollingFrame: children are positioned within the canvas rect. The
++        # canvas ORIGIN carries the scroll offset, but a child's Scale resolves
++        # against the ScrollingFrame's WINDOW size (Roblox: scale is relative to
++        # AbsoluteSize; CanvasSize only extends the scrollable range).
++        child_parent = (Rect(canvas_rect.x, canvas_rect.y, rect.w, rect.h)
++                        if force_clip else rect)
+         visible_child_parent = rect
+         # Apply padding to content area
+         pad_top, pad_bottom, pad_left, pad_right = _resolve_padding(
+@@ -1015,8 +1117,12 @@
+         if not children:
+             return
+ 
+-        # ScrollingFrame: children are positioned within the canvas rect
+-        child_parent = canvas_rect if force_clip else rect
++        # ScrollingFrame: children are positioned within the canvas rect. The
++        # canvas ORIGIN carries the scroll offset, but a child's Scale resolves
++        # against the ScrollingFrame's WINDOW size (Roblox: scale is relative to
++        # AbsoluteSize; CanvasSize only extends the scrollable range).
++        child_parent = (Rect(canvas_rect.x, canvas_rect.y, rect.w, rect.h)
++                        if force_clip else rect)
+         visible_child_parent = rect
+         pad_top, pad_bottom, pad_left, pad_right = _resolve_padding(
+             node.get("padding", {}), child_parent.w, child_parent.h)

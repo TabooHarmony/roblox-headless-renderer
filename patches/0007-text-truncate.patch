@@ -1,0 +1,132 @@
+# TextTruncate (AtEnd/SplitWord) passes through and draws with an ellipsis; its unwrapped-line hunk also carries unwrapped explicit newlines and the converter carries LineHeight
+#
+# Apply from vendor/pinevex:  git apply -p1 < patches/0007-text-truncate.patch
+--- a/src/ui_engine/text_renderers.py
++++ b/src/ui_engine/text_renderers.py
+@@ -1,4 +1,50 @@
+ from .text_rich import *
++from .text_advances import (
++    load_advance_table,
++    has_full_ascii as _table_covers_text,
++    string_width as _string_width,
++    draw_line_table,
++)
++
++
++def _truncate_ellipsis(text: str, font: skia.Font, max_width: float,
++                       emoji_font=None, fallback_fonts=(), split_word: bool = False) -> str:
++    """Trim text so it plus an ellipsis fits max_width, per TextTruncate mode.
++
++    AtEnd cuts at whatever character boundary fits; SplitWord backs up to the
++    last word boundary inside that. The star points are measured with the
++    same mixed-run measurement drawing uses, so the cut is where the engine
++    itself would stop, not a char count. Exact ellipsis placement parity with
++    Studio is a ground-truth question this does not guess at.
++    """
++    if not text:
++        return text
++    ellipsis = "…"
++
++    def width(s: str) -> float:
++        return _measure_mixed(s, font, emoji_font, fallback_fonts)
++
++    if width(text + ellipsis) <= max_width:
++        return text + ellipsis
++    # Binary search the longest prefix that fits with the ellipsis appended.
++    lo, hi = 0, len(text)
++    while lo < hi:
++        mid = (lo + hi + 1) // 2
++        if width(text[:mid] + ellipsis) <= max_width:
++            lo = mid
++        else:
++            hi = mid - 1
++    cut = text[:lo]
++    if split_word and cut and not cut[-1].isspace():
++        # Back up to the last word boundary, if one leaves something.
++        stripped = cut.rstrip()
++        last_break = max(stripped.rfind(" "), stripped.rfind("\t"))
++        if last_break > 0:
++            cut = stripped[: last_break + 1]
++    trimmed = cut.rstrip() + ellipsis
++    # A single grapheme plus ellipsis can still overflow a tiny box; the
++    # ellipsis itself is then the whole output, never an empty string.
++    return trimmed if width(trimmed) <= max_width or lo == 0 else ellipsis
+ 
+ 
+ def _text_stroke_thickness_scale(font_family: str | None) -> float:
+@@ -370,10 +366,35 @@
+         paint.setColor(skia.Color(r, g, b, alpha))
+ 
+     # Build lines
+-    if wrapped:
++    # Studio model (plan 0.2a): a TextScaled label whose string fits the
++    # content width at the fitted size by the advance table stays on ONE
++    # line even though TextWrapped is implied — the skia measure would wrap
++    # it because skia advances run ~1.3x wide.
++    adv_table_early = load_advance_table(family, weight, "normal" if not italic else "italic")
++    table_single_line = (
++        adv_table_early is not None
++        and "\n" not in text
++        and _table_covers_text(adv_table_early, text)
++        and (_string_width(adv_table_early, text, float(text_size)) or 1e9) <= content_w
++    )
++    if wrapped and table_single_line:
++        lines = [text]
++    elif wrapped:
+         lines = _wrap_lines(text, font, content_w, emoji_font, fallback_fonts)
+     else:
+-        lines = [text]
++        # Explicit newlines are mandatory breaks in unwrapped text too
++        # (Studio probe: Hello\nworld at fixed TextSize draws two lines).
++        # TextTruncate (Enum.TextTruncate: AtEnd / SplitWord) then trims each
++        # unwrapped line that exceeds the content width, with an ellipsis.
++        # None (the default) never touches the string.
++        truncate = node.get("textTruncate")
++        lines = []
++        for line in text.split("\n"):
++            if (truncate in ("AtEnd", "SplitWord") and
++                    _measure_mixed(line, font, emoji_font, fallback_fonts) > content_w):
++                line = _truncate_ellipsis(line, font, content_w, emoji_font, fallback_fonts,
++                                          split_word=(truncate == "SplitWord"))
++            lines.append(line)
+ 
+     # Metrics
+     metrics = font.getMetrics()
+--- a/web_demo/rbxm_parser_component/tree_to_pinevexobject.py
++++ b/web_demo/rbxm_parser_component/tree_to_pinevexobject.py
+@@ -459,13 +494,33 @@
+         result["textSize"] = text_size
+ 
+     text_scaled = props.get("TextScaled")
+-    if text_scaled:
+-        result["textScaled"] = True
++    if text_scaled is not None:
++        # Explicit false has to survive: TextScaled decides whether the label's
++        # text is fitted to its rect or rendered at TextSize (patch 0006).
++        result["textScaled"] = bool(text_scaled)
+ 
+     text_wrapped = props.get("TextWrapped")
+     if text_wrapped:
+         result["textWrapped"] = True
+ 
++    # LineHeight (default 1.0) reaches both the plain and rich renderers, which
++    # multiply the per-line step by it. Omit the default to avoid a redundant key.
++    line_height = props.get("LineHeight")
++    if line_height is not None and line_height != 1.0:
++        result["lineHeight"] = float(line_height)
++
++    # TextTruncate (Enum.TextTruncate: None / AtEnd / SplitWord) and
++    # MaxVisibleGraphemes (typewriter window, -1 = all) reach the renderer, which
++    # draws the truncated string with an ellipsis (see text_renderers.py). A
++    # non-None mode and a non-default window pass through; the defaults add a
++    # key every label would carry.
++    truncate = _extract_enum_value(props.get("TextTruncate"))
++    if truncate and truncate != "None":
++        result["textTruncate"] = truncate
++    max_graphemes = props.get("MaxVisibleGraphemes")
++    if max_graphemes is not None and max_graphemes != -1:
++        result["maxVisibleGraphemes"] = max_graphemes
++
+     rich_text = props.get("RichText")
+     if rich_text:
+         result["richText"] = True

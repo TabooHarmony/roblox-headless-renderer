@@ -1,0 +1,35 @@
+<roblox version="4">
+  <Item class="ScreenGui" referent="RBX0">
+    <Properties>
+      <string name="Name">AutosizePadding</string>
+    </Properties>
+    <Item class="Frame" referent="RBX1">
+      <Properties>
+        <string name="Name">Card</string>
+        <UDim2 name="Size"><XS>0</XS><XO>300</XO><YS>0</YS><YO>200</YO></UDim2>
+        <Color3 name="BackgroundColor3"><R>1</R><G>1</G><B>1</B></Color3>
+        <token name="BorderSizePixel">0</token>
+      </Properties>
+      <Item class="TextLabel" referent="RBX2">
+        <Properties>
+          <string name="Name">Label</string>
+          <UDim2 name="Size"><XS>0</XS><XO>300</XO><YS>0</YS><YO>0</YO></UDim2>
+          <Color3 name="BackgroundColor3"><R>1</R><G>0.8</G><B>0</B></Color3>
+          <token name="BorderSizePixel">0</token>
+          <string name="Text">This label needs two lines of wrapped text to fit.</string>
+          <float name="TextSize">14</float>
+          <bool name="TextWrapped">true</bool>
+          <token name="AutomaticSize">2</token>
+        </Properties>
+        <Item class="UIPadding" referent="RBX3">
+          <Properties>
+            <UDim name="PaddingTop"><S>0</S><O>8</O></UDim>
+            <UDim name="PaddingBottom"><S>0</S><O>8</O></UDim>
+            <UDim name="PaddingLeft"><S>0</S><O>8</O></UDim>
+            <UDim name="PaddingRight"><S>0</S><O>8</O></UDim>
+          </Properties>
+        </Item>
+      </Item>
+    </Item>
+  </Item>
+</roblox>

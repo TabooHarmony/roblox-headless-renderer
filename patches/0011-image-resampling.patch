@@ -1,0 +1,70 @@
+# Preserve ResampleMode and smooth ordinary image draws by default
+#
+# Apply from vendor/pinevex:  git apply -p1 < patches/0011-image-resampling.patch
+--- a/src/ui_engine/assets.py
++++ b/src/ui_engine/assets.py
+@@ -169,9 +169,21 @@
+ # ---------------------------------------------------------------------------
+ 
+ 
++# Roblox's ResampleMode Default smooths scaled images; Pixelated keeps hard
++# pixel edges (docs: ImageLabel.ResampleMode). Skia's no-arg SamplingOptions()
++# is nearest-neighbour, so Default must be the explicit linear filter.
++DEFAULT_SAMPLING = skia.SamplingOptions(skia.FilterMode.kLinear, skia.MipmapMode.kNone)
++PIXELATED_SAMPLING = skia.SamplingOptions(skia.FilterMode.kNearest, skia.MipmapMode.kNone)
++
++
++def _resample_sampling(node: dict) -> skia.SamplingOptions:
++    return PIXELATED_SAMPLING if node.get("resampleMode") == "Pixelated" else DEFAULT_SAMPLING
++
++
+ def _draw_image_with_gradient(
+     canvas: skia.Canvas, image: skia.Image, src_rect: skia.Rect, dst: skia.Rect,
+     alpha: int, gradient: dict, tint: list | None, transparency: float,
++    sampling: skia.SamplingOptions | None = None,
+ ) -> None:
+     """Draw image tinted by a gradient using saveLayer + kModulate compositing."""
+     base_color = (int(tint[0]), int(tint[1]), int(tint[2])) if tint and len(tint) >= 3 else (255, 255, 255)
+@@ -189,7 +201,7 @@
+     # Draw image at full opacity (no tint color filter — gradient handles it)
+     img_paint = skia.Paint(AntiAlias=True)
+     _annotate(canvas, "Image draw (gradient)")
+-    canvas.drawImageRect(image, src_rect, dst, skia.SamplingOptions(), img_paint)
++    canvas.drawImageRect(image, src_rect, dst, sampling or DEFAULT_SAMPLING, img_paint)
+ 
+     # Draw gradient rect with kModulate blend to tint the image
+     grad_paint = skia.Paint(AntiAlias=True)
+@@ -333,14 +345,15 @@
+             if clip:
+                 canvas.save()
+                 canvas.clipRect(skia.Rect.MakeXYWH(x, y, w, h))
+-            _draw_image_with_gradient(canvas, image, src_rect, dst, alpha, gradient, tint, transparency)
++            _draw_image_with_gradient(canvas, image, src_rect, dst, alpha, gradient, tint, transparency,
++                                      sampling=_resample_sampling(node))
+             if clip:
+                 canvas.restore()
+         else:
+             if clip:
+                 canvas.save()
+                 canvas.clipRect(skia.Rect.MakeXYWH(x, y, w, h))
+-            canvas.drawImageRect(image, src_rect, dst, skia.SamplingOptions(), paint)
++            canvas.drawImageRect(image, src_rect, dst, _resample_sampling(node), paint)
+             if clip:
+                 canvas.restore()
+ 
+--- a/web_demo/rbxm_parser_component/tree_to_pinevexobject.py
++++ b/web_demo/rbxm_parser_component/tree_to_pinevexobject.py
+@@ -545,6 +600,13 @@
+     if scale_type and scale_type != "Stretch":
+         result["scaleType"] = scale_type
+ 
++    # ResampleMode: Default (0) is smooth filtering, Pixelated (1) keeps hard
++    # pixel edges. Only the non-default value survives: the engine's sampling
++    # default is smooth.
++    resample_mode = _extract_enum_value(props.get("ResampleMode"))
++    if resample_mode == "Pixelated":
++        result["resampleMode"] = "Pixelated"
++
+     # SliceCenter (for ScaleType == "Slice") — Rect2D {min:{x,y}, max:{x,y}}
+     raw_slice = props.get("SliceCenter")
+     if raw_slice is not None:

@@ -1,0 +1,40 @@
+# TextScaled comes from the model, and TextScaled implies TextWrapped
+#
+# Apply from vendor/pinevex:  git apply -p1 < patches/0006-textscaled-honesty.patch
+--- a/src/ui_engine/text_renderers.py
++++ b/src/ui_engine/text_renderers.py
+@@ -305,7 +309,7 @@
+         _get_fallback_typefaces(fonts_dir), fonts_dir
+     )
+     text_size = node.get("textSize", 14.0)
+-    wrapped = node.get("textWrapped", False)
++    wrapped = node.get("textWrapped", False) or node.get("textScaled", False)
+     use_tight_height = bool(gradient) and _should_prefer_tight_height(text)
+     symbol_floor = 0.0
+     if bool(gradient) and _is_symbol_only_text(text):
+--- a/src/ui_engine/text_rich.py
++++ b/src/ui_engine/text_rich.py
+@@ -743,7 +748,8 @@
+     if content_w <= 0 or content_h <= 0:
+         return
+ 
+-    wrapped = bool(node.get("textWrapped", False))
++    # TextScaled implies TextWrapped (Roblox docs, TextLabel.TextScaled).
++    wrapped = bool(node.get("textWrapped", False)) or bool(node.get("textScaled", False))
+     line_height_mult = float(node.get("lineHeight", 1.0))
+     emoji_typeface = _get_emoji_typeface(fonts_dir)
+     fonts = _FontResolver(fonts_dir, emoji_typeface)
+--- a/vendor/product_output/pinevex_postprocess.py
++++ b/vendor/product_output/pinevex_postprocess.py
+@@ -382,8 +386,9 @@
+             if isinstance(stroke, dict) and _is_greenish_stroke_rgb(stroke.get("color")):
+                 stroke["color"] = [0, 0, 0]
+ 
+-    if class_name == "TextLabel":
+-        node["textScaled"] = True
++    # TextScaled is no longer forced on here: the converter keeps the model's own
++    # value, and the renderer fits the font only when the label asks for it
++    # (patch 0006). Fitting every label scaled text that Roblox renders at TextSize.
+ 
+     if class_name in {"TextLabel", "TextButton", "TextBox"}:
+         node["font"] = _coerce_allowed_font(node.get("font"))

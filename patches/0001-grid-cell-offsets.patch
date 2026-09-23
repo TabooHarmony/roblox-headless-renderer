@@ -1,0 +1,155 @@
+# UIGridLayout CellSize/CellPadding offsets are kept and read
+#
+# Apply from vendor/pinevex:  git apply -p1 < patches/0001-grid-cell-offsets.patch
+--- a/src/ui_engine/renderer.py
++++ b/src/ui_engine/renderer.py
+@@ -60,6 +60,21 @@
+     return float(default)
+ 
+ 
++def _grid_axis(spec, ref_dim: float, axis: int, default: float) -> float:
++    """One axis of a UIGridLayout CellSize/CellPadding, in pixels.
++
++    The spec is [xScale, yScale], or [xScale, xOffset, yScale, yOffset] when an
++    offset is non-zero. Offsets are pixels and must not be dropped: a CellSize of
++    (0, 32, 0, 32) is the most common grid in real UI, and reading only the scale
++    slot makes it zero, which renders the grid blank.
++    """
++    if not isinstance(spec, (list, tuple)):
++        return float(default) * ref_dim
++    if len(spec) >= 4:
++        return _num(spec[axis * 2], 0.0) * ref_dim + _num(spec[axis * 2 + 1], 0.0)
++    return _seq_num(spec, axis, default) * ref_dim
++
++
+ def _sort_strokes(strokes: list[dict]) -> list[dict]:
+     """Sort strokes by BorderStrokePosition: Inner first, then Center, then Outer.
+ 
+@@ -390,10 +405,10 @@
+         cell_size = grid_layout.get("cellSize", [0.1, 0.1])
+         cell_padding = grid_layout.get("cellPadding", [0, 0])
+         direction = grid_layout.get("direction", "X")
+-        cell_w = _seq_num(cell_size, 0, 0.1) * size_ref.w
+-        cell_h = _seq_num(cell_size, 1, 0.1) * size_ref.h
+-        pad_x = _seq_num(cell_padding, 0, 0.0) * size_ref.w
+-        pad_y = _seq_num(cell_padding, 1, 0.0) * size_ref.h
++        cell_w = _grid_axis(cell_size, size_ref.w, 0, 0.1)
++        cell_h = _grid_axis(cell_size, size_ref.h, 1, 0.1)
++        pad_x = _grid_axis(cell_padding, size_ref.w, 0, 0.0)
++        pad_y = _grid_axis(cell_padding, size_ref.h, 1, 0.0)
+         if cell_w > 0 and cell_h > 0:
+             count = len(children)
+             cols = max(1, int((content_rect.w + pad_x) / (cell_w + pad_x)))
+@@ -609,10 +624,10 @@
+     direction = layout.get("direction", "X")
+ 
+     size_ref = size_ref_rect if size_ref_rect is not None else content_rect
+-    cell_w = _seq_num(cell_size, 0, 0.1) * size_ref.w
+-    cell_h = _seq_num(cell_size, 1, 0.1) * size_ref.h
+-    pad_x = _seq_num(cell_padding, 0, 0.0) * size_ref.w
+-    pad_y = _seq_num(cell_padding, 1, 0.0) * size_ref.h
++    cell_w = _grid_axis(cell_size, size_ref.w, 0, 0.1)
++    cell_h = _grid_axis(cell_size, size_ref.h, 1, 0.1)
++    pad_x = _grid_axis(cell_padding, size_ref.w, 0, 0.0)
++    pad_y = _grid_axis(cell_padding, size_ref.h, 1, 0.0)
+ 
+     if cell_w <= 0 or cell_h <= 0:
+         return
+@@ -1242,10 +1298,10 @@
+     direction = layout.get("direction", "X")
+ 
+     size_ref = size_ref_rect if size_ref_rect is not None else content_rect
+-    cell_w = _seq_num(cell_size, 0, 0.1) * size_ref.w
+-    cell_h = _seq_num(cell_size, 1, 0.1) * size_ref.h
+-    pad_x = _seq_num(cell_padding, 0, 0.0) * size_ref.w
+-    pad_y = _seq_num(cell_padding, 1, 0.0) * size_ref.h
++    cell_w = _grid_axis(cell_size, size_ref.w, 0, 0.1)
++    cell_h = _grid_axis(cell_size, size_ref.h, 1, 0.1)
++    pad_x = _grid_axis(cell_padding, size_ref.w, 0, 0.0)
++    pad_y = _grid_axis(cell_padding, size_ref.h, 1, 0.0)
+ 
+     if cell_w <= 0 or cell_h <= 0:
+         return
+--- a/src/ui_engine/hit_test.py
++++ b/src/ui_engine/hit_test.py
+@@ -27,6 +27,20 @@
+     return float(default)
+ 
+ 
++def _grid_axis(spec, ref_dim: float, axis: int, default: float) -> float:
++    """One axis of a UIGridLayout CellSize/CellPadding, in pixels.
++
++    Mirrors renderer._grid_axis. The spec is [xScale, yScale], or
++    [xScale, xOffset, yScale, yOffset] when an offset is non-zero; offsets are
++    pixels and must not be dropped, or a (0, 32, 0, 32) cell size reads as zero.
++    """
++    if not isinstance(spec, (list, tuple)):
++        return float(default) * ref_dim
++    if len(spec) >= 4:
++        return _num(spec[axis * 2], 0.0) * ref_dim + _num(spec[axis * 2 + 1], 0.0)
++    return _seq_num(spec, axis, default) * ref_dim
++
++
+ def _resolve_udim(val, parent_dim: float) -> float:
+     if isinstance(val, dict):
+         return _num(val.get("scale", 0), 0.0) * parent_dim + _num(val.get("offset", 0), 0.0)
+@@ -174,10 +188,10 @@
+         cell_size = grid_layout.get("cellSize", [0.1, 0.1])
+         cell_padding = grid_layout.get("cellPadding", [0, 0])
+         direction = grid_layout.get("direction", "X")
+-        cell_w = _seq_num(cell_size, 0, 0.1) * size_ref.w
+-        cell_h = _seq_num(cell_size, 1, 0.1) * size_ref.h
+-        pad_x = _seq_num(cell_padding, 0, 0.0) * size_ref.w
+-        pad_y = _seq_num(cell_padding, 1, 0.0) * size_ref.h
++        cell_w = _grid_axis(cell_size, size_ref.w, 0, 0.1)
++        cell_h = _grid_axis(cell_size, size_ref.h, 1, 0.1)
++        pad_x = _grid_axis(cell_padding, size_ref.w, 0, 0.0)
++        pad_y = _grid_axis(cell_padding, size_ref.h, 1, 0.0)
+         if cell_w > 0 and cell_h > 0:
+             count = len(children)
+             cols = max(1, int((content_rect.w + pad_x) / (cell_w + pad_x)))
+@@ -480,10 +494,10 @@
+     cell_padding = layout.get("cellPadding", [0, 0])
+ 
+     size_ref = size_ref_rect if size_ref_rect is not None else content_rect
+-    cell_w = _seq_num(cell_size, 0, 0.1) * size_ref.w
+-    cell_h = _seq_num(cell_size, 1, 0.1) * size_ref.h
+-    pad_x = _seq_num(cell_padding, 0, 0.0) * size_ref.w
+-    pad_y = _seq_num(cell_padding, 1, 0.0) * size_ref.h
++    cell_w = _grid_axis(cell_size, size_ref.w, 0, 0.1)
++    cell_h = _grid_axis(cell_size, size_ref.h, 1, 0.1)
++    pad_x = _grid_axis(cell_padding, size_ref.w, 0, 0.0)
++    pad_y = _grid_axis(cell_padding, size_ref.h, 1, 0.0)
+ 
+     if cell_w <= 0 or cell_h <= 0:
+         return
+@@ -755,10 +769,10 @@
+     cell_size = layout.get("cellSize", [0.1, 0.1])
+     cell_padding = layout.get("cellPadding", [0, 0])
+     size_ref = size_ref_rect if size_ref_rect is not None else content_rect
+-    cell_w = _seq_num(cell_size, 0, 0.1) * size_ref.w
+-    cell_h = _seq_num(cell_size, 1, 0.1) * size_ref.h
+-    pad_x = _seq_num(cell_padding, 0, 0.0) * size_ref.w
+-    pad_y = _seq_num(cell_padding, 1, 0.0) * size_ref.h
++    cell_w = _grid_axis(cell_size, size_ref.w, 0, 0.1)
++    cell_h = _grid_axis(cell_size, size_ref.h, 1, 0.1)
++    pad_x = _grid_axis(cell_padding, size_ref.w, 0, 0.0)
++    pad_y = _grid_axis(cell_padding, size_ref.h, 1, 0.0)
+     if cell_w <= 0 or cell_h <= 0:
+         return
+     cols = max(1, int((content_rect.w + pad_x) / (cell_w + pad_x)))
+--- a/web_demo/rbxm_parser_component/tree_to_pinevexobject.py
++++ b/web_demo/rbxm_parser_component/tree_to_pinevexobject.py
+@@ -326,10 +326,10 @@
+                 grid["direction"] = "Y"
+             else:
+                 grid["direction"] = "X"
+-            cell_size = _udim2_to_scale(props.get("CellSize"))
++            cell_size = _udim2_to_full(props.get("CellSize"))
+             if cell_size is not None:
+                 grid["cellSize"] = cell_size
+-            cell_pad = _udim2_to_scale(props.get("CellPadding"))
++            cell_pad = _udim2_to_full(props.get("CellPadding"))
+             if cell_pad is not None:
+                 grid["cellPadding"] = cell_pad
+             v_align = _extract_enum_value(props.get("VerticalAlignment"))

@@ -1,0 +1,75 @@
+<roblox version="4">
+  <Item class="Workspace" referent="RBX0">
+    <Properties>
+      <string name="Name">ParticleScene</string>
+      <float name="Gravity">196.2</float>
+    </Properties>
+    <Item class="Part" referent="RBX1">
+      <Properties>
+        <string name="Name">EmitterPart</string>
+        <CoordinateFrame name="CFrame">
+          <X>0</X><Y>0</Y><Z>0</Z>
+          <R00>1</R00><R01>0</R01><R02>0</R02>
+          <R10>0</R10><R11>1</R11><R12>0</R12>
+          <R20>0</R20><R21>0</R21><R22>1</R22>
+        </CoordinateFrame>
+        <Vector3 name="Size"><X>1</X><Y>1</Y><Z>1</Z></Vector3>
+        <Color3 name="Color"><R>0.2</R><G>0.2</G><B>0.2</B></Color3>
+        <token name="Material">256</token>
+      </Properties>
+      <Item class="Attachment" referent="RBX2">
+        <Properties>
+          <string name="Name">EmitterAttachment</string>
+          <Vector3 name="Position"><X>0</X><Y>2</Y><Z>3</Z></Vector3>
+        </Properties>
+        <Item class="ParticleEmitter" referent="RBX3">
+          <Properties>
+            <string name="Name">Sparks</string>
+            <Vector3 name="Acceleration"><X>0</X><Y>-4</Y><Z>0</Z></Vector3>
+            <float name="Brightness">1</float>
+            <float name="Drag">0.25</float>
+            <token name="EmissionDirection">4</token>
+            <bool name="Enabled">true</bool>
+            <NumberRange name="Lifetime">1 2</NumberRange>
+            <float name="LightEmission">0.5</float>
+            <float name="LightInfluence">0</float>
+            <bool name="LockedToPart">false</bool>
+            <token name="Orientation">0</token>
+            <float name="Rate">12</float>
+            <NumberRange name="Rotation">0 360</NumberRange>
+            <NumberRange name="RotSpeed">-90 90</NumberRange>
+            <token name="Shape">0</token>
+            <NumberRange name="Speed">4 8</NumberRange>
+            <Vector2 name="SpreadAngle"><X>15</X><Y>25</Y></Vector2>
+            <ColorSequence name="Color">0 1 0.4 0.05 0 1 1 0.05 0 0</ColorSequence>
+            <NumberSequence name="Size">0 0.8 0 1 0.2 0</NumberSequence>
+            <Content name="Texture"><uri>rbxassetid://1266170131</uri></Content>
+            <NumberRange name="FlipbookFramerate">4 4</NumberRange>
+            <token name="FlipbookLayout">1</token>
+            <token name="FlipbookMode">0</token>
+            <int name="FlipbookSizeX">2</int>
+            <int name="FlipbookSizeY">2</int>
+            <bool name="FlipbookStartRandom">false</bool>
+            <float name="TimeScale">1</float>
+            <NumberSequence name="Transparency">0 0 0 1 1 0</NumberSequence>
+            <float name="VelocityInheritance">0</float>
+            <bool name="WindAffectsDrag">false</bool>
+            <float name="ZOffset">0</float>
+          </Properties>
+        </Item>
+      </Item>
+    </Item>
+    <Item class="Camera" referent="RBX4">
+      <Properties>
+        <string name="Name">ParticleCamera</string>
+        <CoordinateFrame name="CFrame">
+          <X>0</X><Y>4</Y><Z>14</Z>
+          <R00>1</R00><R01>0</R01><R02>0</R02>
+          <R10>0</R10><R11>1</R11><R12>0</R12>
+          <R20>0</R20><R21>0</R21><R22>1</R22>
+        </CoordinateFrame>
+        <float name="FieldOfView">70</float>
+      </Properties>
+    </Item>
+  </Item>
+</roblox>

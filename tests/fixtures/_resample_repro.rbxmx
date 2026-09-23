@@ -1,0 +1,35 @@
+<roblox version="4">
+  <Item class="ScreenGui" referent="RBX0">
+    <Properties>
+      <string name="Name">ResampleRepro</string>
+    </Properties>
+    <Item class="Frame" referent="RBX1">
+      <Properties>
+        <string name="Name">Pane</string>
+        <UDim2 name="Size"><XS>0</XS><XO>200</XO><YS>0</YS><YO>120</YO></UDim2>
+        <Color3 name="BackgroundColor3"><R>0</R><G>0</G><B>0</B></Color3>
+        <token name="BorderSizePixel">0</token>
+      </Properties>
+      <Item class="ImageLabel" referent="RBX2">
+        <Properties>
+          <string name="Name">Smooth</string>
+          <UDim2 name="Size"><XS>0</XS><XO>16</XO><YS>0</YS><YO>96</YO></UDim2>
+          <UDim2 name="Position"><XS>0</XS><XO>16</XO><YS>0</YS><YO>12</YO></UDim2>
+          <token name="BorderSizePixel">0</token>
+          <token name="ResampleMode">0</token>
+          <Content name="ImageContent"><uri>rbxassetid://13581515352</uri></Content>
+        </Properties>
+      </Item>
+      <Item class="ImageLabel" referent="RBX3">
+        <Properties>
+          <string name="Name">Pixelated</string>
+          <UDim2 name="Size"><XS>0</XS><XO>16</XO><YS>0</YS><YO>96</YO></UDim2>
+          <UDim2 name="Position"><XS>0</XS><XO>168</XO><YS>0</YS><YO>12</YO></UDim2>
+          <token name="BorderSizePixel">0</token>
+          <token name="ResampleMode">1</token>
+          <Content name="ImageContent"><uri>rbxassetid://13581515352</uri></Content>
+        </Properties>
+      </Item>
+    </Item>
+  </Item>
+</roblox>

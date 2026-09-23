@@ -1,0 +1,16 @@
+<roblox version="4">
+  <Item class="TextLabel" referent="RBX0">
+    <Properties>
+      <string name="Name">LineHeight</string>
+      <UDim2 name="Size"><XS>0</XS><XO>240</XO><YS>0</YS><YO>200</YO></UDim2>
+      <float name="BackgroundTransparency">1</float>
+      <string name="Text">AAAA&#10;BBBB</string>
+      <float name="TextSize">20</float>
+      <bool name="TextScaled">false</bool>
+      <bool name="TextWrapped">true</bool>
+      <float name="LineHeight">1.25</float>
+      <float name="TextStrokeTransparency">1</float>
+      <Color3 name="TextColor3"><R>1</R><G>0</G><B>0</B></Color3>
+    </Properties>
+  </Item>
+</roblox>

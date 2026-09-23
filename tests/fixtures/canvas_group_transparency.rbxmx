@@ -1,0 +1,20 @@
+<roblox version="4">
+  <Item class="ScreenGui" referent="CG0">
+    <Properties><string name="Name">CanvasGroupFixture</string></Properties>
+    <Item class="CanvasGroup" referent="CG1">
+      <Properties>
+        <string name="Name">HiddenGroup</string>
+        <UDim2 name="Size"><XS>0</XS><XO>100</XO><YS>0</YS><YO>100</YO></UDim2>
+        <Color3 name="BackgroundColor3"><R>0</R><G>0</G><B>0</B></Color3>
+        <float name="BackgroundTransparency">0</float>
+        <float name="GroupTransparency">1</float>
+      </Properties>
+      <Item class="Frame" referent="CG2">
+        <Properties>
+          <string name="Name">Child</string>
+          <Color3 name="BackgroundColor3"><R>1</R><G>0</G><B>0</B></Color3>
+        </Properties>
+      </Item>
+    </Item>
+  </Item>
+</roblox>

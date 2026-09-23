@@ -1,0 +1,131 @@
+# UIGridLayout aligns the complete grid within its parent
+#
+# Apply after patches 0001-0007 from vendor/pinevex:  git apply -p1 < patches/0008-grid-alignment.patch
+--- a/src/ui_engine/renderer.py
++++ b/src/ui_engine/renderer.py
+@@ -634,6 +634,12 @@
+ 
+     cols = max(1, int((content_rect.w + pad_x) / (cell_w + pad_x)))
+     rows = max(1, int((content_rect.h + pad_y) / (cell_h + pad_y)))
++    h_align = layout.get("hAlign", "Left")
++    v_align = layout.get("vAlign", "Top")
++    grid_w = cols * cell_w + max(0, cols - 1) * pad_x
++    grid_h = rows * cell_h + max(0, rows - 1) * pad_y
++    x_offset = _main_axis_offset(h_align, content_rect.w, grid_w)
++    y_offset = _main_axis_offset(v_align, content_rect.h, grid_h)
+ 
+     def _fit_grid_child(child: dict, cell: Rect) -> Rect:
+         # UIGridLayout overrides child size to the cell, then constraints (e.g. UIAspectRatioConstraint)
+@@ -672,8 +678,8 @@
+         else:
+             col = i % cols
+             row = i // cols
+-        cx = content_rect.x + col * (cell_w + pad_x)
+-        cy = content_rect.y + row * (cell_h + pad_y)
++        cx = content_rect.x + x_offset + col * (cell_w + pad_x)
++        cy = content_rect.y + y_offset + row * (cell_h + pad_y)
+         cell = Rect(cx, cy, cell_w, cell_h)
+         placed = _fit_grid_child(child, cell)
+         _render_node_at(canvas, child, placed, ctx, parent_rect=content_rect)
+@@ -1308,6 +1314,12 @@
+ 
+     cols = max(1, int((content_rect.w + pad_x) / (cell_w + pad_x)))
+     rows = max(1, int((content_rect.h + pad_y) / (cell_h + pad_y)))
++    h_align = layout.get("hAlign", "Left")
++    v_align = layout.get("vAlign", "Top")
++    grid_w = cols * cell_w + max(0, cols - 1) * pad_x
++    grid_h = rows * cell_h + max(0, rows - 1) * pad_y
++    x_offset = _main_axis_offset(h_align, content_rect.w, grid_w)
++    y_offset = _main_axis_offset(v_align, content_rect.h, grid_h)
+ 
+     def _fit_grid_child(child: dict, cell: Rect) -> Rect:
+         w = cell.w
+@@ -1344,8 +1356,8 @@
+         else:
+             col = i % cols
+             row = i // cols
+-        cx = content_rect.x + col * (cell_w + pad_x)
+-        cy = content_rect.y + row * (cell_h + pad_y)
++        cx = content_rect.x + x_offset + col * (cell_w + pad_x)
++        cy = content_rect.y + y_offset + row * (cell_h + pad_y)
+         cell = Rect(cx, cy, cell_w, cell_h)
+         placed = _fit_grid_child(child, cell)
+         _collect_entries(child, content_rect, parent_ops, entries, ctx, override_rect=placed)
+--- a/src/ui_engine/hit_test.py
++++ b/src/ui_engine/hit_test.py
+@@ -502,7 +502,15 @@
+     if cell_w <= 0 or cell_h <= 0:
+         return
+ 
++    direction = layout.get("direction", "X")
+     cols = max(1, int((content_rect.w + pad_x) / (cell_w + pad_x)))
++    rows = max(1, int((content_rect.h + pad_y) / (cell_h + pad_y)))
++    h_align = layout.get("hAlign", "Left")
++    v_align = layout.get("vAlign", "Top")
++    grid_w = cols * cell_w + max(0, cols - 1) * pad_x
++    grid_h = rows * cell_h + max(0, rows - 1) * pad_y
++    x_offset = _main_axis_offset(h_align, content_rect.w, grid_w)
++    y_offset = _main_axis_offset(v_align, content_rect.h, grid_h)
+ 
+     def _fit_grid_child(child: dict, cell: Rect) -> Rect:
+         w = cell.w
+@@ -528,10 +536,14 @@
+     visible_children = [c for c in children if c.get("visible") is not False]
+ 
+     for i, child in enumerate(visible_children):
+-        col = i % cols
+-        row = i // cols
+-        cx = content_rect.x + col * (cell_w + pad_x)
+-        cy = content_rect.y + row * (cell_h + pad_y)
++        if direction == "Y":
++            row = i % rows
++            col = i // rows
++        else:
++            col = i % cols
++            row = i // cols
++        cx = content_rect.x + x_offset + col * (cell_w + pad_x)
++        cy = content_rect.y + y_offset + row * (cell_h + pad_y)
+         cell = Rect(cx, cy, cell_w, cell_h)
+         placed = _fit_grid_child(child, cell)
+         _hit_node_at(child, placed, query, clip_stack, hits, ctx,
+@@ -768,6 +780,7 @@
+     """Collect Global-mode entries for grid layout children."""
+     cell_size = layout.get("cellSize", [0.1, 0.1])
+     cell_padding = layout.get("cellPadding", [0, 0])
++    direction = layout.get("direction", "X")
+     size_ref = size_ref_rect if size_ref_rect is not None else content_rect
+     cell_w = _grid_axis(cell_size, size_ref.w, 0, 0.1)
+     cell_h = _grid_axis(cell_size, size_ref.h, 1, 0.1)
+@@ -776,6 +789,13 @@
+     if cell_w <= 0 or cell_h <= 0:
+         return
+     cols = max(1, int((content_rect.w + pad_x) / (cell_w + pad_x)))
++    rows = max(1, int((content_rect.h + pad_y) / (cell_h + pad_y)))
++    h_align = layout.get("hAlign", "Left")
++    v_align = layout.get("vAlign", "Top")
++    grid_w = cols * cell_w + max(0, cols - 1) * pad_x
++    grid_h = rows * cell_h + max(0, rows - 1) * pad_y
++    x_offset = _main_axis_offset(h_align, content_rect.w, grid_w)
++    y_offset = _main_axis_offset(v_align, content_rect.h, grid_h)
+ 
+     def _fit(child: dict, cell: Rect) -> Rect:
+         w, h = cell.w, cell.h
+@@ -795,10 +815,14 @@
+ 
+     visible_children = [c for c in children if c.get("visible") is not False]
+     for i, child in enumerate(visible_children):
+-        col = i % cols
+-        row = i // cols
+-        cx = content_rect.x + col * (cell_w + pad_x)
+-        cy = content_rect.y + row * (cell_h + pad_y)
++        if direction == "Y":
++            row = i % rows
++            col = i // rows
++        else:
++            col = i % cols
++            row = i // cols
++        cx = content_rect.x + x_offset + col * (cell_w + pad_x)
++        cy = content_rect.y + y_offset + row * (cell_h + pad_y)
+         placed = _fit(child, Rect(cx, cy, cell_w, cell_h))
+         _collect_global_entries(child, placed, clip_stack, entries, ctx,
+                                parent_rect=content_rect)

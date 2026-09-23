@@ -1,0 +1,35 @@
+<roblox version="4">
+  <Item class="ScreenGui" referent="RBX0">
+    <Properties><string name="Name">PanelStyles</string></Properties>
+    <Item class="Frame" referent="RBX1">
+      <Properties>
+        <string name="Name">Box</string>
+        <UDim2 name="Size"><XS>0</XS><XO>200</XO><YS>0</YS><YO>120</YO></UDim2>
+        <Color3 name="BackgroundColor3"><R>1</R><G>1</G><B>1</B></Color3>
+        <bool name="ClipsDescendants">true</bool>
+        <token name="BorderSizePixel">0</token>
+      </Properties>
+      <Item class="UIGradient" referent="RBX2">
+        <Properties>
+          <ColorSequence name="Color">0 1 1 1 0 0.5 0.5 0.5 0.5 0 1 0 0 1 0</ColorSequence>
+          <float name="Rotation">90</float>
+        </Properties>
+      </Item>
+      <Item class="UIStroke" referent="RBX3">
+        <Properties>
+          <Color3 name="Color"><R>1</R><G>0</G><B>0</B></Color3>
+          <float name="Thickness">2</float>
+        </Properties>
+      </Item>
+      <Item class="TextLabel" referent="RBX4">
+        <Properties>
+          <string name="Name">Label</string>
+          <UDim2 name="Position"><XS>0</XS><XO>10</XO><YS>0</YS><YO>10</YO></UDim2>
+          <UDim2 name="Size"><XS>0</XS><XO>80</XO><YS>0</YS><YO>30</YO></UDim2>
+          <string name="Text">Hi</string>
+          <float name="TextSize">20</float>
+        </Properties>
+      </Item>
+    </Item>
+  </Item>
+</roblox>

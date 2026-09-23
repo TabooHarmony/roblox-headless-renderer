@@ -1,0 +1,32 @@
+<roblox version="4">
+  <Item class="ScreenGui" referent="RBX0">
+    <Properties><string name="Name">InvisibleContent</string></Properties>
+    <Item class="Frame" referent="RBX1">
+      <Properties>
+        <string name="Name">Root</string>
+        <UDim2 name="Size"><XS>0</XS><XO>400</XO><YS>0</YS><YO>300</YO></UDim2>
+        <token name="BorderSizePixel">0</token>
+      </Properties>
+      <Item class="TextLabel" referent="RBX2">
+        <Properties>
+          <string name="Name">GhostText</string>
+          <UDim2 name="Position"><XS>0</XS><XO>20</XO><YS>0</YS><YO>20</YO></UDim2>
+          <UDim2 name="Size"><XS>0</XS><XO>200</XO><YS>0</YS><YO>40</YO></UDim2>
+          <string name="Text">you cannot read me</string>
+          <float name="TextTransparency">1</float>
+          <token name="BorderSizePixel">0</token>
+        </Properties>
+      </Item>
+      <Item class="Frame" referent="RBX3">
+        <Properties>
+          <string name="Name">GhostBox</string>
+          <UDim2 name="Position"><XS>0</XS><XO>20</XO><YS>0</YS><YO>80</YO></UDim2>
+          <UDim2 name="Size"><XS>0</XS><XO>200</XO><YS>0</YS><YO>40</YO></UDim2>
+          <Color3 name="BackgroundColor3"><R>1</R><G>0</G><B>0</B></Color3>
+          <float name="BackgroundTransparency">1</float>
+          <token name="BorderSizePixel">0</token>
+        </Properties>
+      </Item>
+    </Item>
+  </Item>
+</roblox>

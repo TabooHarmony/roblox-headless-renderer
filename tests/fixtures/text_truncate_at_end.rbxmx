@@ -1,0 +1,15 @@
+<roblox version="4">
+  <Item class="ScreenGui" referent="RBX0">
+    <Properties><string name="Name">TruncateAtEnd</string></Properties>
+    <Item class="TextLabel" referent="RBX1">
+      <Properties>
+        <string name="Name">Label</string>
+        <UDim2 name="Size"><XS>0</XS><XO>120</XO><YS>0</YS><YO>30</YO></UDim2>
+        <string name="Text">ExtraordinarilyUnbreakableWord</string>
+        <int name="TextSize">14</int>
+        <token name="TextTruncate">1</token>
+        <token name="BorderSizePixel">0</token>
+      </Properties>
+    </Item>
+  </Item>
+</roblox>

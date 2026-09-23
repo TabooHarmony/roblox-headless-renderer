@@ -1,0 +1,15 @@
+<roblox version="4">
+  <Item class="ScreenGui" referent="RBX0">
+    <Properties><string name="Name">MaxVisibleGraphemes</string></Properties>
+    <Item class="TextLabel" referent="RBX1">
+      <Properties>
+        <string name="Name">Typewriter</string>
+        <UDim2 name="Size"><XS>0</XS><XO>200</XO><YS>0</YS><YO>30</YO></UDim2>
+        <string name="Text">Hello, typed world</string>
+        <int name="TextSize">14</int>
+        <int name="MaxVisibleGraphemes">6</int>
+        <token name="BorderSizePixel">0</token>
+      </Properties>
+    </Item>
+  </Item>
+</roblox>

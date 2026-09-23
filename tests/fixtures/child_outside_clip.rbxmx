@@ -1,0 +1,23 @@
+<roblox version="4">
+  <Item class="ScreenGui" referent="RBX0">
+    <Properties><string name="Name">ChildOutsideClip</string></Properties>
+    <Item class="ScrollingFrame" referent="RBX1">
+      <Properties>
+        <string name="Name">Clip</string>
+        <UDim2 name="Size"><XS>0</XS><XO>100</XO><YS>0</YS><YO>100</YO></UDim2>
+        <bool name="ClipsDescendants">true</bool>
+        <token name="BorderSizePixel">0</token>
+        <UDim2 name="CanvasSize"><XS>0</XS><XO>0</XO><YS>0</YS><YO>0</YO></UDim2>
+      </Properties>
+      <Item class="Frame" referent="RBX2">
+        <Properties>
+          <string name="Name">FarAway</string>
+          <UDim2 name="Position"><XS>0</XS><XO>400</XO><YS>0</YS><YO>400</YO></UDim2>
+          <UDim2 name="Size"><XS>0</XS><XO>50</XO><YS>0</YS><YO>50</YO></UDim2>
+          <Color3 name="BackgroundColor3"><R>1</R><G>0</G><B>0</B></Color3>
+          <token name="BorderSizePixel">0</token>
+        </Properties>
+      </Item>
+    </Item>
+  </Item>
+</roblox>

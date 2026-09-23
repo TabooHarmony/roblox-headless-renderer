@@ -1,0 +1,55 @@
+<roblox version="4">
+  <Item class="ScreenGui" referent="RBX0">
+    <Properties>
+      <string name="Name">HitMap</string>
+      <token name="ScreenInsets">0</token>
+    </Properties>
+    <Item class="Frame" referent="RBX1">
+      <Properties>
+        <string name="Name">Root</string>
+        <UDim2 name="Size"><XS>0</XS><XO>400</XO><YS>0</YS><YO>200</YO></UDim2>
+        <token name="BorderSizePixel">0</token>
+      </Properties>
+      <Item class="TextButton" referent="RBX2">
+        <Properties>
+          <string name="Name">VisibleBottom</string>
+          <bool name="Active">true</bool>
+          <bool name="Selectable">true</bool>
+          <bool name="Visible">true</bool>
+          <UDim2 name="Position"><XS>0</XS><XO>20</XO><YS>0</YS><YO>20</YO></UDim2>
+          <UDim2 name="Size"><XS>0</XS><XO>160</XO><YS>0</YS><YO>80</YO></UDim2>
+          <Color3 name="BackgroundColor3"><R>1</R><G>0</G><B>0</B></Color3>
+          <token name="BorderSizePixel">0</token>
+          <string name="Text">bottom</string>
+        </Properties>
+      </Item>
+      <Item class="TextButton" referent="RBX3">
+        <Properties>
+          <string name="Name">InvisibleTop</string>
+          <bool name="Active">true</bool>
+          <bool name="Selectable">false</bool>
+          <bool name="Visible">false</bool>
+          <UDim2 name="Position"><XS>0</XS><XO>20</XO><YS>0</YS><YO>20</YO></UDim2>
+          <UDim2 name="Size"><XS>0</XS><XO>160</XO><YS>0</YS><YO>80</YO></UDim2>
+          <Color3 name="BackgroundColor3"><R>0</R><G>0</G><B>1</B></Color3>
+          <token name="BorderSizePixel">0</token>
+          <string name="Text">top</string>
+        </Properties>
+      </Item>
+      <Item class="TextBox" referent="RBX4">
+        <Properties>
+          <string name="Name">Input</string>
+          <bool name="Active">true</bool>
+          <bool name="Selectable">true</bool>
+          <bool name="TextEditable">true</bool>
+          <bool name="ClearTextOnFocus">false</bool>
+          <UDim2 name="Position"><XS>0</XS><XO>220</XO><YS>0</YS><YO>20</YO></UDim2>
+          <UDim2 name="Size"><XS>0</XS><XO>150</XO><YS>0</YS><YO>40</YO></UDim2>
+          <Color3 name="BackgroundColor3"><R>0.8</R><G>0.8</G><B>0.8</B></Color3>
+          <token name="BorderSizePixel">0</token>
+          <string name="Text">type</string>
+        </Properties>
+      </Item>
+    </Item>
+  </Item>
+</roblox>

@@ -1,0 +1,20 @@
+<roblox version="4">
+  <Item class="ScreenGui" referent="RBX0">
+    <Properties><string name="Name">GradT</string></Properties>
+    <Item class="Frame" referent="RBX1">
+      <Properties>
+        <string name="Name">Box</string>
+        <UDim2 name="Size"><XS>0</XS><XO>100</XO><YS>0</YS><YO>80</YO></UDim2>
+        <Color3 name="BackgroundColor3"><R>1</R><G>0.5</G><B>0</B></Color3>
+        <token name="BorderSizePixel">0</token>
+      </Properties>
+      <Item class="UIGradient" referent="RBX2">
+        <Properties>
+          <ColorSequence name="Color">0 1 1 0 0 1 0 0 0 0</ColorSequence>
+          <NumberSequence name="Transparency">0 0.5 0 1 0.5 0</NumberSequence>
+          <float name="Rotation">0</float>
+        </Properties>
+      </Item>
+    </Item>
+  </Item>
+</roblox>

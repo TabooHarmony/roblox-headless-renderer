@@ -1,0 +1,23 @@
+<roblox version="4">
+  <Item class="ScreenGui" referent="RBX0">
+    <Properties><string name="Name">TextOverflow</string></Properties>
+    <Item class="Frame" referent="RBX1">
+      <Properties>
+        <string name="Name">Root</string>
+        <UDim2 name="Size"><XS>0</XS><XO>400</XO><YS>0</YS><YO>300</YO></UDim2>
+        <token name="BorderSizePixel">0</token>
+      </Properties>
+      <Item class="TextLabel" referent="RBX2">
+        <Properties>
+          <string name="Name">TooWide</string>
+          <UDim2 name="Position"><XS>0</XS><XO>20</XO><YS>0</YS><YO>20</YO></UDim2>
+          <UDim2 name="Size"><XS>0</XS><XO>80</XO><YS>0</YS><YO>40</YO></UDim2>
+          <string name="Text">This label's text is far wider than its 80px box</string>
+          <int name="TextSize">14</int>
+          <bool name="TextWrapped">false</bool>
+          <token name="BorderSizePixel">0</token>
+        </Properties>
+      </Item>
+    </Item>
+  </Item>
+</roblox>

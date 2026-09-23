@@ -1,0 +1,21 @@
+# Rich literal newlines reuse mandatory br line breaks
+#
+# Apply from vendor/pinevex:  git apply -p1 < patches/0013-rich-newlines.patch
+--- a/src/ui_engine/text_rich.py
++++ b/src/ui_engine/text_rich.py
+@@ -241,8 +241,13 @@
+             return
+         s = html.unescape("".join(buf))
+         buf.clear()
+-        if s:
+-            out.append(_RichRun(s, current, hard_break=False))
++        # Literal newlines use the same mandatory breaks as <br/>.
++        # Split after entity decoding and keep empty/edge paragraphs.
++        for index, paragraph in enumerate(s.split("\n")):
++            if index:
++                out.append(_RichRun("", current, hard_break=True))
++            if paragraph:
++                out.append(_RichRun(paragraph, current, hard_break=False))
+ 
+     i = 0
+     n = len(text)

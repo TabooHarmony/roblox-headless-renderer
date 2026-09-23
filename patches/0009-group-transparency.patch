@@ -1,0 +1,101 @@
+# CanvasGroup GroupTransparency and GroupColor3 apply to the whole group
+#
+# Apply from vendor/pinevex:  git apply -p1 < patches/0009-group-transparency.patch
+--- a/src/ui_engine/renderer.py
++++ b/src/ui_engine/renderer.py
+@@ -680,6 +701,19 @@
+     name = node.get("_debug_path") or node.get("name") or node.get("type", "?")
+ 
+     canvas.save()
++    group_layer = False
++    if node.get("type") == "CanvasGroup":
++        group_transparency = max(0.0, min(1.0, _num(node.get("groupTransparency", 0), 0.0)))
++        group_color = node.get("groupColor", [255, 255, 255])
++        if group_transparency > 0 or group_color != [255, 255, 255]:
++            group_paint = skia.Paint()
++            group_paint.setAlpha(round(255 * (1.0 - group_transparency)))
++            # Tint the flattened group on restore, not each overlapping child.
++            if group_color != [255, 255, 255]:
++                group_paint.setColorFilter(skia.ColorFilters.Blend(
++                    skia.Color(*group_color, 255), skia.BlendMode.kModulate))
++            canvas.saveLayer(skia.Rect.MakeXYWH(rect.x, rect.y, rect.w, rect.h), group_paint)
++            group_layer = True
+ 
+     rotation = node.get("rotation")
+     if rotation:
+@@ -785,6 +823,9 @@
+         _draw_canvas_group_gradient(canvas, rect, gradient)
+         canvas.restore()
+ 
++    if group_layer:
++        canvas.restore()
++
+     if ctx.get("debug"):
+         _annotate(canvas, f"Debug outline: {name}")
+         _draw_debug_outline(canvas, rect.x, rect.y, rect.w, rect.h)
+@@ -818,6 +895,19 @@
+ 
+     # 4. Save canvas state
+     canvas.save()
++    group_layer = False
++    if node.get("type") == "CanvasGroup":
++        group_transparency = max(0.0, min(1.0, _num(node.get("groupTransparency", 0), 0.0)))
++        group_color = node.get("groupColor", [255, 255, 255])
++        if group_transparency > 0 or group_color != [255, 255, 255]:
++            group_paint = skia.Paint()
++            group_paint.setAlpha(round(255 * (1.0 - group_transparency)))
++            # Tint the flattened group on restore, not each overlapping child.
++            if group_color != [255, 255, 255]:
++                group_paint.setColorFilter(skia.ColorFilters.Blend(
++                    skia.Color(*group_color, 255), skia.BlendMode.kModulate))
++            canvas.saveLayer(skia.Rect.MakeXYWH(rect.x, rect.y, rect.w, rect.h), group_paint)
++            group_layer = True
+ 
+     # 5. Apply rotation around rect center
+     rotation = node.get("rotation")
+@@ -934,6 +1028,9 @@
+         _draw_canvas_group_gradient(canvas, rect, gradient)
+         canvas.restore()
+ 
++    if group_layer:
++        canvas.restore()
++
+     # 14. Debug outline
+     if ctx.get("debug"):
+         _annotate(canvas, f"Debug outline: {name}")
+--- a/web_demo/rbxm_parser_component/tree_to_pinevexobject.py
++++ b/web_demo/rbxm_parser_component/tree_to_pinevexobject.py
+@@ -409,6 +417,33 @@
+         if bg_trans is not None and bg_trans != 0:
+             result["bgTransparency"] = bg_trans
+ 
++        # Legacy GuiObject border: the outer BorderSizePixel pixels of the rect
++        # render in BorderColor3 and the background is inset inside them
++        # (measured, ScrollGui pair: BorderSizePixel 5 -> a 5px slate band
++        # above the frame edge, background starting at rect_top + 5). Roblox
++        # hides the border when the background is fully transparent.
++        try:
++            border_px = int(props.get("BorderSizePixel") or 0)
++        except (TypeError, ValueError):
++            border_px = 0
++        # Measured rule: Roblox only draws the legacy border on a fully opaque
++        # background (ScrollGui bg_transparency 0 -> 5px band; the Winner
++        # TextLabel at 0.5 -> no border at all in Studio).
++        if border_px > 0 and float(bg_trans or 0) <= 0:
++            border_color = _color3_to_rgb(props.get("BorderColor3"))
++            if border_color is not None:
++                result["legacyBorder"] = {"size": border_px, "color": border_color}
++
++    if result["type"] == "CanvasGroup":
++        group_trans = props.get("GroupTransparency")
++        if group_trans is not None and group_trans != 0:
++            result["groupTransparency"] = group_trans
++        # GroupColor3 tints every child's rendered output; the default white is
++        # the identity, so it is omitted to keep existing renders byte-identical.
++        group_color = _color3_to_rgb(props.get("GroupColor3"))
++        if group_color is not None and group_color != [255, 255, 255]:
++            result["groupColor"] = group_color
++
+     # Rotation
+     rotation = props.get("Rotation")
+     if rotation is not None and rotation != 0:

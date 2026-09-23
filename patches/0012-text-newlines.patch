@@ -1,0 +1,54 @@
+# Preserve explicit line breaks; the plain fit applies the LineHeight step
+#
+# Apply from vendor/pinevex:  git apply -p1 < patches/0012-text-newlines.patch
+--- a/src/ui_engine/text_fit.py
++++ b/src/ui_engine/text_fit.py
+@@ -29,19 +30,23 @@
+     """Word-wrap text into lines that fit within max_width."""
+     if max_width <= 0:
+         return [text]
+-    words = text.split()
+-    if not words:
+-        return [""]
+     lines: list[str] = []
+-    current = words[0]
+-    for word in words[1:]:
+-        candidate = current + " " + word
+-        if _measure_mixed(candidate, font, emoji_font, fallback_fonts) <= max_width:
+-            current = candidate
+-        else:
+-            lines.append(current)
+-            current = word
+-    lines.append(current)
++    # Explicit newlines are mandatory breaks, including empty paragraphs.
++    # Keep the existing word wrapping within each paragraph.
++    for paragraph in text.split("\n"):
++        words = paragraph.split()
++        if not words:
++            lines.append("")
++            continue
++        current = words[0]
++        for word in words[1:]:
++            candidate = current + " " + word
++            if _measure_mixed(candidate, font, emoji_font, fallback_fonts) <= max_width:
++                current = candidate
++            else:
++                lines.append(current)
++                current = word
++        lines.append(current)
+     return lines
+ 
+ 
+@@ -78,7 +111,11 @@
+                 if tight_height_line_floor > 0:
+                     total_h = max(total_h, line_h * tight_height_line_floor)
+             else:
+-                total_h = line_h * len(lines)
++                # Match drawing: LineHeight scales the step between baselines,
++                # not the first line. Studio shrinks height-limited scaled text
++                # when this multiplier grows.
++                step = line_h * line_height_mult + max(0.0, metrics.fLeading)
++                total_h = line_h + step * (len(lines) - 1)
+             max_line_w = max((_measure_mixed(ln, font, ef, fallback_fonts) for ln in lines), default=0)
+             fits = max_line_w <= max_w and total_h <= max_h
+         else:
