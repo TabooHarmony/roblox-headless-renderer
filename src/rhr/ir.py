@@ -113,7 +113,9 @@ def cached_ir(source_path, *, profile: str = "full") -> Path:
     target = folder / f"{source_path.stem}{suffix}"
     report = target.with_name(target.name + ".report.txt")
     if target.is_file() and report.is_file():
-        text = report.read_text(encoding="utf-8")
+        # Replay the reader's report (what it could not read), minus its "wrote" line.
+        lines = report.read_text(encoding="utf-8").splitlines()
+        text = "\n".join(line for line in lines if not line.startswith("wrote "))
         if text.strip():
             print(text.strip(), file=sys.stderr)
         print(f"ir     reused {target} (file unchanged)", file=sys.stderr)

@@ -55,8 +55,10 @@ Known differences:
 - `MaxVisibleGraphemes` is not drawn (it is a typewriter effect over time);
   `rhr check` reports it instead.
 - Right-to-left text with a non-default `LineHeight` keeps the default spacing.
-- A character the chosen font does not have (for example `✕` in a Gotham-style
-  bold) is drawn as an empty box. Roblox falls back to another font for it.
+- A symbol no bundled font has (`✕`, `✓`, `★`, `▶` and their neighbours) is drawn
+  from the operating system's fonts, as Roblox does, so its exact shape depends on
+  the machine. On a machine without such a font it draws as an empty box. Set
+  `RHR_SYSTEM_FONT_FALLBACK=0` to never use system fonts.
 - Fonts: RHR uses the fonts of a local Roblox or Studio install when there is one
   (stderr says which), then bundled open-licence copies of the builds Roblox ships
   (Source Sans Pro, Roboto, and others), then look-alikes. Builder Sans and other

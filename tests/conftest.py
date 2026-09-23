@@ -17,6 +17,7 @@ import pytest
 # Hermetic fonts: tests use RHR's bundled faces only, never a Roblox install that
 # happens to be on the machine, so results match CI. Subprocesses inherit this.
 os.environ["RHR_ROBLOX_FONTS"] = "0"
+os.environ["RHR_SYSTEM_FONT_FALLBACK"] = "0"
 os.environ.pop("PINEVEX_RENDERER_ROBLOX_FONT_DIRS", None)
 
 BROWSER = {

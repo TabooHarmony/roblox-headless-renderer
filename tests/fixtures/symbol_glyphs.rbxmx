@@ -1,0 +1,17 @@
+<roblox version="4">
+  <Item class="ScreenGui" referent="RBX0">
+    <Properties><string name="Name">Symbols</string></Properties>
+    <Item class="TextLabel" referent="RBX1">
+      <Properties>
+        <string name="Name">Glyphs</string>
+        <UDim2 name="Size"><XS>0</XS><XO>300</XO><YS>0</YS><YO>60</YO></UDim2>
+        <Color3 name="BackgroundColor3"><R>1</R><G>1</G><B>1</B></Color3>
+        <token name="BorderSizePixel">0</token>
+        <string name="Text">X ✕ ★ ♥ → ✓</string>
+        <Font name="FontFace"><Family><url>rbxasset://fonts/families/GothamSSm.json</url></Family><Weight>700</Weight><Style>Normal</Style></Font>
+        <float name="TextSize">36</float>
+        <Color3 name="TextColor3"><R>0</R><G>0</G><B>0</B></Color3>
+      </Properties>
+    </Item>
+  </Item>
+</roblox>

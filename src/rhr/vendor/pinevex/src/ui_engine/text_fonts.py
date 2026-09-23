@@ -236,7 +236,40 @@ def _get_fallback_typefaces(fonts_dir: Path | None) -> list[skia.Typeface]:
     for path in _iter_roblox_font_candidates():
         add_typeface(_typeface_from_file(str(path)))
 
+    _add_system_symbol_typefaces(_fallback_typefaces)
     return _fallback_typefaces
+
+
+# One character from each symbol block game UIs use (arrows, geometric shapes,
+# miscellaneous symbols, dingbats, math). None of the bundled or Roblox-shipped
+# faces has them, so without this they draw as an empty box; Roblox gets them from
+# the operating system's font fallback, and so does this.
+_SYMBOL_PROBE_CHARS = "✕✓★♥→▶●⚡∞"
+
+
+def _add_system_symbol_typefaces(typefaces: list[skia.Typeface]) -> None:
+    """Append system faces covering symbol blocks no loaded face covers.
+
+    Only characters every loaded face lacks are affected. RHR_SYSTEM_FONT_FALLBACK=0
+    turns this off (the test suite does, so results do not depend on the host).
+    """
+    if os.environ.get("RHR_SYSTEM_FONT_FALLBACK", "1").strip().lower() in {"0", "false", "no", "off"}:
+        return
+    try:
+        system = skia.FontMgr()
+    except Exception:
+        return
+    seen = {tf.uniqueID() for tf in typefaces}
+    for ch in _SYMBOL_PROBE_CHARS:
+        if any(_typeface_has_glyph(tf, ch) for tf in typefaces):
+            continue
+        try:
+            tf = system.matchFamilyStyleCharacter("", skia.FontStyle(), [], ord(ch))
+        except Exception:
+            tf = None
+        if tf is not None and tf.uniqueID() not in seen and _typeface_has_glyph(tf, ch):
+            typefaces.append(tf)
+            seen.add(tf.uniqueID())
 
 
 def _contains_rtl(text: str) -> bool:
