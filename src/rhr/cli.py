@@ -137,6 +137,19 @@ def ir_for(source: Path, ir_out: Path | None, *, profile: str = "full") -> Path:
     return emit_ir(source, ir_out, profile=profile)
 
 
+def _stored_gui_note(ir_path) -> None:
+    """Say which ScreenGuis a place keeps outside StarterGui and so were not drawn."""
+    from rhr.adapter import ir_to_raw_nodes
+    from rhr.ir import load_ir
+    from rhr.pipeline import shown_ui_roots
+
+    _, hidden = shown_ui_roots(ir_to_raw_nodes(load_ir(ir_path)))
+    if hidden:
+        names = ", ".join(hidden[:4]) + (f", +{len(hidden) - 4} more" if len(hidden) > 4 else "")
+        print(f"note   {len(hidden)} ScreenGui(s) stored outside StarterGui not drawn "
+              f"(scripts clone them in at run time; --all-guis draws them): {names}", file=sys.stderr)
+
+
 def rect_to_dict(rect) -> dict:
     """The engine's RRect as plain JSON: ui_engine.layout.Rect(x, y, w, h)."""
     x, y = getattr(rect, "x", getattr(rect, "left", None)), getattr(rect, "y", getattr(rect, "top", None))
@@ -184,6 +197,7 @@ def _render(args) -> int:
         file=sys.stderr,
     )
     print(f"total  {int((t_render - t0) * 1000)}ms", file=sys.stderr)
+    _stored_gui_note(ir_path)
 
     if rect_map is not None:
         layout = {path: rect_to_dict(rect) for path, rect in rect_map.items()}
@@ -266,6 +280,7 @@ def _layout(args) -> int:
         return 1
     # JSON on stdout, the count on stderr, so `rhr layout model.rbxm | jq` works.
     print(f"layout {len(layout)} rects", file=sys.stderr)
+    _stored_gui_note(ir_path)
     document = stamp("layout", {"viewport": [width, height], "rects": layout})
     if args.out:
         Path(args.out).parent.mkdir(parents=True, exist_ok=True)
@@ -669,6 +684,8 @@ def build_parser() -> argparse.ArgumentParser:
         help="top bar inset in px for a CoreUISafeInsets ScreenGui (default: 58, "
              "see docs/known-approximations.md)",
     )
+    p_render.add_argument("--all-guis", action="store_true",
+                         help="in a place, also draw ScreenGuis stored outside StarterGui (templates scripts clone in)")
     p_render.set_defaults(func=_render)
 
     p_layout = sub.add_parser("layout", help="resolved rect per node, as JSON")
@@ -688,6 +705,8 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="top bar inset in px for a CoreUISafeInsets ScreenGui (default: 58)",
     )
+    p_layout.add_argument("--all-guis", action="store_true",
+                         help="in a place, also draw ScreenGuis stored outside StarterGui (templates scripts clone in)")
     p_layout.set_defaults(func=_layout)
 
     p_check = sub.add_parser("check", help="model smells that should fail a build, as JSON findings")
@@ -700,6 +719,8 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="top bar inset in px for a CoreUISafeInsets ScreenGui (default: 58)",
     )
+    p_check.add_argument("--all-guis", action="store_true",
+                         help="in a place, also draw ScreenGuis stored outside StarterGui (templates scripts clone in)")
     p_check.set_defaults(func=_check)
 
     p_browser = sub.add_parser("browser", help="manage the optional persistent Chromium render worker")
@@ -727,6 +748,8 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="top bar inset in px for a CoreUISafeInsets ScreenGui (default: 58)",
     )
+    p_hitmap.add_argument("--all-guis", action="store_true",
+                         help="in a place, also draw ScreenGuis stored outside StarterGui (templates scripts clone in)")
     p_hitmap.set_defaults(func=_hitmap)
 
     p_scene = sub.add_parser("scene", help="render 3D Parts through headless Chromium")
@@ -797,6 +820,8 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="top bar inset in px for ScreenGui composition (default: 58)",
     )
+    p_preview.add_argument("--all-guis", action="store_true",
+                         help="in a place, also draw ScreenGuis stored outside StarterGui (templates scripts clone in)")
     p_preview.set_defaults(func=_preview)
 
     p_particles = sub.add_parser("particles", help="render a deterministic particle contact sheet")
@@ -821,6 +846,10 @@ def main(argv: list[str] | None = None) -> int:
         if hasattr(stream, "reconfigure"):
             stream.reconfigure(encoding="utf-8", errors="replace")
     args = build_parser().parse_args(argv)
+    if getattr(args, "all_guis", False):
+        from rhr import pipeline
+
+        pipeline.INCLUDE_STORED_GUIS = True
     return args.func(args)
 
 

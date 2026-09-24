@@ -1,0 +1,14 @@
+<roblox version="4">
+  <Item class="ScreenGui" referent="RBX0">
+    <Properties><string name="Name">BuilderSansGui</string></Properties>
+    <Item class="TextLabel" referent="RBX1">
+      <Properties>
+        <string name="Name">Title</string>
+        <UDim2 name="Size"><XS>0</XS><XO>240</XO><YS>0</YS><YO>40</YO></UDim2>
+        <string name="Text">Builder Sans</string>
+        <Font name="FontFace"><Family><url>rbxassetid://16658221428</url></Family><Weight>700</Weight><Style>Normal</Style></Font>
+        <float name="TextSize">24</float>
+      </Properties>
+    </Item>
+  </Item>
+</roblox>

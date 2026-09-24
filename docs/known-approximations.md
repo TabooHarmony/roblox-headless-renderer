@@ -34,7 +34,10 @@ edit view has no top bar: pass `--topbar-height 0` to match it. `None` and
 note on stderr. Mobile safe areas are not modelled.
 
 **Several ScreenGuis** are drawn one per pass and stacked by `DisplayOrder`. A
-disabled or empty ScreenGui is skipped by every command. UI outside any ScreenGui
+disabled or empty ScreenGui is skipped by every command. In a place file, only
+StarterGui's ScreenGuis are on screen: ones kept in ReplicatedStorage, ServerStorage
+and the like are templates that scripts clone in at run time, so they are left out
+and named on stderr (`--all-guis` draws them). A model file draws every ScreenGui. UI outside any ScreenGui
 (Studio's own plugin models are built that way) is drawn as a bottom layer with no
 top-bar inset.
 
@@ -105,25 +108,39 @@ scaled model that ships with Studio).
   (CC0) ambientCG material turned into a greyscale detail tile that the part's Color
   tints, plus a relief map (`src/rhr/scene/materials/credits.json` lists the source
   of each). They read as brick, wood or grass, but the pattern, its scale (4-10
-  studs per tile) and its contrast are not Roblox's. MaterialVariants are not read,
-  and Plastic has no studs. Neon glows; glass-like materials are see-through. Unknown
+  studs per tile) and its contrast are not Roblox's. A part's MaterialVariant is
+  drawn with the variant's own ColorMap, tinted by the part's Color and tiled at its
+  StudsPerTile, once `rhr fetch` has cached that image (normal and roughness maps
+  are not used); otherwise the base material's look-alike stands in. Plastic has no
+  studs. Neon glows; glass-like materials are see-through. Unknown
   materials draw as Plastic and are counted as `materialFallbacks`.
   `--flat-materials` draws plain colours.
-- Lighting: Ambient, OutdoorAmbient, Brightness, ClockTime and GeographicLatitude
-  drive the sun and sky light; intensities are tuned by eye. Shadows are off unless
+- Lighting: Ambient, OutdoorAmbient, Brightness, EnvironmentDiffuseScale, ClockTime
+  and GeographicLatitude drive the sun and sky light; intensities are tuned by eye
+  against Studio screenshots. Post-processing (Bloom, ColorCorrection, SunRays,
+  DepthOfField) and Clouds are not drawn. Shadows are off unless
   you pass `--shadows` (Studio draws them by default).
 - Point, Spot and Surface lights: colour, brightness, range and angle are used;
-  intensity is not calibrated.
-- Atmosphere is simple fog; `Glare` is not drawn. A Sky needs all six faces in the
-  local image cache; the sun, moon and stars are not drawn.
+  intensity is not calibrated. At most the 16 most relevant (nearest the camera,
+  weighted by range and brightness) are drawn, because each light costs every pixel;
+  a note says how many were left out.
+- Atmosphere is simple fog, set by eye against Roblox's game template, that tints
+  the horizon of the sky; `Glare` is not drawn. In an automatic view (`--view`,
+  `--focus`), which stands far back from a whole map, the fog is capped so the build
+  stays readable. A Sky needs all six faces in the local image cache; without them
+  the default blue sky is drawn. The sun, moon and stars are not drawn.
 - Decals and Textures need their images cached. Face orientation was checked in
   Studio.
 
 **Drawn as stand-ins, and reported as such:**
 
-- MeshParts and FileMeshes use cached mesh files (`rhr fetch`); without
-  one, the part is drawn as a box and counted as a geometry fallback. Skinned meshes,
-  bones, LOD and SurfaceAppearance are not modelled.
+- MeshParts and FileMeshes use cached mesh files (`rhr fetch`). Roblox now serves
+  most mesh files only to a signed-in account (all 47 in Roblox's own game template),
+  so in practice most MeshParts are placeholders: their bounding box with an outline,
+  casting no shadow, counted as a geometry fallback. The box takes its colour from the
+  part's SurfaceAppearance ColorMap when that image is cached (images do not need
+  sign-in), so foliage is green rather than a white block. Skinned meshes, bones, LOD
+  and SurfaceAppearance's other maps are not modelled.
 - Unions (`UnionOperation`) are drawn as their bounding box.
 - Terrain is not drawn. `scene-dump` reports whether a place has any.
 

@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.3.0 (alpha)
+
+Found by running RHR on Roblox's own game template (2,800 instances, 800 MeshParts,
+Terrain, 120 lights, MaterialVariants), and fixed:
+
+### Fixed
+
+- **Every UI command crashed on a UI using Builder Sans**, Roblox's default UI font
+  (a font given by asset id needed the undeclared `zstandard` package).
+- **Place files drew ScreenGuis stored in ReplicatedStorage** on top of the real HUD
+  (templates that scripts clone in), and `check` warned about them. Only StarterGui is
+  drawn now; the rest are named in a note, and `--all-guis` draws them.
+- **3D was far too hazy and the sky grey**: Atmosphere fog is about 4x thinner for
+  light atmospheres, leaves the sky blue overhead, and is capped in automatic views.
+- **Scenes were too dark**: `EnvironmentDiffuseScale` (sky light) is applied, and the
+  material textures no longer darken parts.
+- **A place with ~100 lights took 20 s a frame**: the 16 most relevant local lights
+  are drawn and a note counts the rest (6 s for the template).
+
+### Added
+
+- **MaterialVariants** draw with their own ColorMap image (`rhr fetch` caches it),
+  tinted and tiled like Roblox's.
+- **Placeholder MeshParts** (mesh not cached, which is most of them: Roblox serves
+  meshes only to signed-in accounts) are outlined boxes coloured from their
+  SurfaceAppearance, casting no shadow, instead of white blocks.
+
 ## 0.2.0 (alpha)
 
 ### Added

@@ -14,7 +14,7 @@ line or in CI. No GPU or display is needed.
 
 <p align="center"><sub>Both images come from <code>examples/</code>, rendered by <code>rhr render</code> and <code>rhr scene --view iso --shadows</code>.</sub></p>
 
-> **Status: v0.2, an early alpha.** The UI layout numbers are solid: they match
+> **Status: v0.3, an early alpha.** The UI layout numbers are solid: they match
 > Studio within 2 px on every test place. The pictures are *previews*: close enough
 > to spot mistakes, not a copy of Studio's renderer. Anything RHR can't draw
 > faithfully, it says so in its output instead of guessing quietly. See
@@ -104,8 +104,12 @@ it once.
   `rhr fetch <file>` once to download the images and meshes a model uses into a local
   cache. Without them, images are left empty and meshes are drawn as boxes, and the
   output says so. Images come from Roblox's thumbnail service (no sign-in, up to
-  420 px); some meshes Roblox only serves to a signed-in account, and `rhr fetch`
-  lists those.
+  420 px). Roblox now serves most mesh files only to a signed-in account, so most
+  MeshParts are drawn as outlined placeholder boxes in their SurfaceAppearance's
+  colour; `rhr fetch` lists which meshes it could not get.
+- **Place files.** In a `.rbxl`, only StarterGui's ScreenGuis are drawn; templates
+  stored in ReplicatedStorage and elsewhere are named on stderr (`--all-guis` draws
+  them). MaterialVariants use their own images once `rhr fetch` has cached them.
 - **Material textures.** Roblox's own material images can't be redistributed, so
   Brick, Wood, Grass, Cobblestone and the rest use public-domain (CC0) look-alikes
   from [ambientCG](https://ambientcg.com), tinted by each part's colour. They read as

@@ -68,10 +68,10 @@ SOURCES = {
     "CrackedLava": "Lava004",
 }
 
-# The detail tile's average brightness and spread. Roblox's materials darken a
-# part's colour a little and add texture on top; every tile is brought to the same
+# The detail tile's average brightness and spread. A material adds texture to a
+# part's colour without making it much darker; every tile is brought to the same
 # spread so a faint source still reads and a harsh one does not blotch the part.
-MEAN = 0.82
+MEAN = 0.95
 SPREAD = 0.10
 
 

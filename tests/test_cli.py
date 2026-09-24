@@ -39,6 +39,16 @@ def main() -> int:
     print("cli: ir / render / layout")
     OUT.mkdir(parents=True, exist_ok=True)
 
+    # A font given by asset id (Builder Sans, Roblox's default UI font, is
+    # rbxassetid://16658221428) goes through the vendored parser's font table, which
+    # needs `zstandard`: it once crashed every UI command on a new Studio template.
+    font_fixture = FIXTURE.parent / "font_by_asset_id.rbxmx"
+    for command in ("layout", "render", "check", "hitmap"):
+        extra = ["--out", str(OUT / "font_by_asset_id.png")] if command == "render" else []
+        proc = run(command, str(font_fixture), *extra)
+        check(proc.returncode == 0, f"rhr {command} handles a font given by asset id "
+                                    f"({proc.stderr.strip()[-120:] or 'clean'})")
+
     ir_out = OUT / "grid.json"
     proc = run("ir", str(FIXTURE), "--out", str(ir_out))
     check(proc.returncode == 0, f"rhr ir exits 0 ({proc.stderr.strip()[:120] or 'clean'})")

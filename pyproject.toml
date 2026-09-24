@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "roblox-headless-renderer"
-version = "0.2.0"
+version = "0.3.0"
 description = "Headless previews of Roblox UI and 3D builds for AI agents: PNGs plus layout JSON, no Studio needed."
 readme = "README.md"
 license = "Apache-2.0"
@@ -17,6 +17,9 @@ dependencies = [
     "requests>=2.31,<3",
     "skia-python==144.0.post2",
     "playwright==1.58.0",
+    # The vendored model parser imports it; needed whenever a font is given by asset
+    # id, as Builder Sans (Roblox's default UI font) is.
+    "zstandard>=0.23,<1",
 ]
 
 [project.optional-dependencies]

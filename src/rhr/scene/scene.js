@@ -527,13 +527,51 @@ function studUVs(geometry, tileStuds) {
   return geometry;
 }
 
-function applyMaterialTexture(mesh, materialName, geometryReady = Promise.resolve()) {
+// A part's MaterialVariant (by name, from MaterialService) with its own ColorMap in
+// the local image cache (`rhr fetch`) is drawn with that image, tinted by the part's
+// Color and tiled at the variant's StudsPerTile, as in Roblox. Without the image,
+// the base material's look-alike texture stands in.
+let materialVariantsByName = null;
+let sceneIndex = null;
+
+function materialVariant(index, node, materialName) {
+  const name = node.props?.MaterialVariant;
+  if (!name) return null;
+  if (!materialVariantsByName) {
+    materialVariantsByName = new Map();
+    for (const variant of nodesOfClass(index, 'MaterialVariant')) {
+      const base = variant.props?.BaseMaterial?.name;
+      materialVariantsByName.set(`${variant.name}|${base}`, variant);
+    }
+  }
+  return materialVariantsByName.get(`${name}|${materialName}`) || null;
+}
+
+async function loadVariantTextures(variant) {
+  const map = variant?.props?.ColorMap ? await loadSceneTexture(variant.props.ColorMap) : null;
+  if (!map) return null;
+  map.wrapS = map.wrapT = THREE.RepeatWrapping;
+  map.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
+  return {map, normalMap: null};
+}
+
+function applyMaterialTexture(mesh, materialName, geometryReady = Promise.resolve(), node = null, index = null) {
   if (flatMaterials || !materialName) return;
-  if (['Plastic', 'SmoothPlastic', 'Neon', 'Glass', 'ForceField'].includes(materialName)) return;
-  const tile = MATERIAL_TILE_STUDS[materialName] || DEFAULT_TILE_STUDS;
+  const variant = node && index ? materialVariant(index, node, materialName) : null;
+  if (!variant && ['Plastic', 'SmoothPlastic', 'Neon', 'Glass', 'ForceField'].includes(materialName)) return;
+  const builtInTile = MATERIAL_TILE_STUDS[materialName] || DEFAULT_TILE_STUDS;
+  const variantTile = Number(variant?.props?.StudsPerTile) || 10;
+  const textures = (async () => {
+    const own = variant ? await loadVariantTextures(variant) : null;
+    if (own) return {...own, tile: variantTile, variant: variant.name};
+    const builtIn = await loadMaterialTextures(materialName);
+    return builtIn ? {...builtIn, tile: builtInTile} : null;
+  })();
   // After the part's own mesh load, so the UVs are computed on the final geometry.
-  const job = Promise.all([loadMaterialTextures(materialName), geometryReady]).then(([textures]) => {
+  const job = Promise.all([textures, geometryReady]).then(([textures]) => {
     if (!textures) return;
+    const tile = textures.tile;
+    if (textures.variant) mesh.userData.rhrMaterialVariant = textures.variant;
     studUVs(mesh.geometry, tile);
     mesh.material.map = textures.map;
     if (textures.normalMap) {
@@ -588,7 +626,7 @@ function addPart(node, parent) {
     meshGeometryJobs.push(job);
     geometryReady = job;
   }
-  applyMaterialTexture(mesh, materialName, geometryReady);
+  applyMaterialTexture(mesh, materialName, geometryReady, node, sceneIndex);
   mesh.castShadow = node.props?.CastShadow !== false;
   mesh.receiveShadow = true;
   mesh.userData.rhrNode = node;
@@ -597,6 +635,71 @@ function addPart(node, parent) {
   mesh.matrix.copy(cframeMatrix(cf));
   mesh.matrixWorldNeedsUpdate = true;
   parent.add(mesh);
+}
+
+// A MeshPart or FileMesh whose mesh is not in the local cache has only its bounding
+// box. It is drawn as that box with an outline, so it reads as a stand-in, and casts
+// no shadow (a box's shadow is not the object's). Its colour comes from its
+// SurfaceAppearance's ColorMap when that image is cached: a MeshPart with a
+// SurfaceAppearance is usually white, the image carries its real colour (green
+// leaves, a yellow beam), and a white box there would be the wrong colour entirely.
+// Average colour of an image. With `under` (SurfaceAppearance AlphaMode Overlay) the
+// transparent parts show that colour, as the part's Color shows through in Roblox;
+// without it (AlphaMode Transparency: cut-out leaves) only opaque pixels count.
+async function averageImageColor(texture, under = null) {
+  const image = texture?.image;
+  if (!image) return null;
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = 16;
+  const context = canvas.getContext('2d');
+  context.drawImage(image, 0, 0, 16, 16);
+  const data = context.getImageData(0, 0, 16, 16).data;
+  let r = 0, g = 0, b = 0, n = 0;
+  const base = under ? under.clone().convertLinearToSRGB() : null;
+  for (let i = 0; i < data.length; i += 4) {
+    const alpha = data[i + 3] / 255;
+    if (base) {
+      r += data[i] * alpha + base.r * 255 * (1 - alpha);
+      g += data[i + 1] * alpha + base.g * 255 * (1 - alpha);
+      b += data[i + 2] * alpha + base.b * 255 * (1 - alpha);
+      n += 1;
+    } else if (alpha >= 0.5) {  // cut-outs: only the opaque part counts
+      r += data[i]; g += data[i + 1]; b += data[i + 2]; n += 1;
+    }
+  }
+  if (!n) return null;
+  return new THREE.Color().setRGB(r / n / 255, g / n / 255, b / n / 255, THREE.SRGBColorSpace);
+}
+
+async function stylePlaceholderMeshes() {
+  const jobs = [];
+  scene.traverse(object => {
+    const node = object.userData?.rhrNode;
+    if (!object.isMesh || !node || object.userData.rhrMeshAsset) return;
+    const special = specialMeshChild(node);
+    const wantsMesh = (node.className === 'MeshPart' && node.props?.MeshId)
+      || (special?.props?.MeshType?.name === 'FileMesh' && special.props?.MeshId);
+    if (!wantsMesh) return;
+    object.castShadow = false;
+    object.userData.rhrPlaceholder = true;
+    const surface = Object.values(node.children || {}).find(child => child.className === 'SurfaceAppearance');
+    jobs.push((async () => {
+      const texture = surface?.props?.ColorMap ? await loadSceneTexture(surface.props.ColorMap) : null;
+      const overlay = (surface?.props?.AlphaMode?.name || 'Overlay') === 'Overlay';
+      const average = await averageImageColor(texture, overlay ? object.material.color : null);
+      if (average) {
+        object.material.color.copy(average.multiply(colorValue(surface.props?.Color)));
+        object.material.needsUpdate = true;
+      }
+      const edges = new THREE.LineSegments(
+        new THREE.EdgesGeometry(object.geometry),
+        new THREE.LineBasicMaterial({color: object.material.color.clone().multiplyScalar(0.45)}),
+      );
+      edges.userData.rhrPlaceholderEdges = true;
+      object.add(edges);
+    })());
+  });
+  await Promise.all(jobs);
 }
 
 function addNode(node, parent) {
@@ -1123,7 +1226,34 @@ function addLocalLight(node, parentNode) {
 
   if (shadows) configureLocalLightShadow(light);
   light.userData.rhrDecoration = true;
+  light.userData.rhrLocalLight = {range, brightness, path: node.path || node.name};
   parentMesh.add(light);
+}
+
+// WebGL evaluates every light for every pixel, and in software (SwiftShader) a place
+// with a hundred SpotLights takes tens of seconds a frame. Keep the lights that
+// matter from this camera: nearest first, weighted by range and brightness. The
+// rest are removed and counted in a note.
+const MAX_LOCAL_LIGHTS = 16;
+let localLightsDropped = 0;
+
+function pruneLocalLights(camera) {
+  const lights = [];
+  scene.updateMatrixWorld(true);
+  scene.traverse(object => { if (object.userData?.rhrLocalLight) lights.push(object); });
+  if (lights.length <= MAX_LOCAL_LIGHTS) return;
+  const position = new THREE.Vector3();
+  const score = light => {
+    const {range, brightness} = light.userData.rhrLocalLight;
+    const distance = light.getWorldPosition(position).distanceTo(camera.position);
+    return Math.max(0, distance - range) / Math.max(0.1, Math.sqrt(brightness));
+  };
+  lights.sort((a, b) => score(a) - score(b));
+  for (const light of lights.slice(MAX_LOCAL_LIGHTS)) {
+    if (light.target) light.target.removeFromParent();
+    light.removeFromParent();
+    localLightsDropped += 1;
+  }
 }
 
 function addLocalLights(index) {
@@ -1303,16 +1433,21 @@ function configureAtmosphere(index) {
   // Authoring approximation, not Roblox's atmospheric scattering model.
   // Higher Density/Haze reduce visibility; positive Offset preserves stronger
   // distant silhouettes instead of blending everything into the background.
+  // Set against a Studio screenshot of the Roblox template place (Density 0.285,
+  // Haze 2, Offset 0.65): light haze at 100 studs, buildings 300 studs out still
+  // clearly readable; it was about 4x too thick before. Density^1.5, because a
+  // dense Roblox atmosphere closes in much faster than a light one.
   const offsetFactor = THREE.MathUtils.clamp(1 - offset * 0.45, 0.4, 1.6);
-  const fogDensity = Math.min(0.12, density * 0.045 * (1 + haze * 0.06) * offsetFactor);
+  const fogDensity = Math.min(0.05, 0.021 * density ** 1.5 * (1 + haze * 0.06) * offsetFactor);
   const fogColor = color.clone().lerp(decay, Math.min(0.55, haze * 0.04));
   scene.fog = new THREE.FogExp2(fogColor, fogDensity);
 
-  if (!scene.background) {
-    const backgroundMix = THREE.MathUtils.clamp(0.18 + haze * 0.025, 0.18, 0.5);
-    scene.background = color.clone().lerp(decay, backgroundMix);
-  }
+  // No sky image: the default sky stays blue overhead, with the atmosphere colour
+  // at the horizon (applied where the default sky is built).
+  atmosphereHorizon = color.clone().lerp(decay, THREE.MathUtils.clamp(0.18 + haze * 0.025, 0.18, 0.5));
 }
+
+let atmosphereHorizon = null;
 
 // Lighting.ClockTime, or its saved form TimeOfDay ("hh:mm:ss"); null when absent.
 function clockTime(props) {
@@ -1351,15 +1486,19 @@ function fitSunShadow(camera, focus) {
 
 // Roblox draws its default sky when a place has no Sky object. Approximated with a
 // vertical gradient sampled from Studio's default sky (zenith blue to pale horizon).
-function defaultSkyTexture() {
+function defaultSkyTexture(horizon = null) {
   const canvas = document.createElement('canvas');
   canvas.width = 2;
   canvas.height = 256;
   const context = canvas.getContext('2d');
   const gradient = context.createLinearGradient(0, 0, 0, canvas.height);
+  const mix = (hex, amount) => {
+    if (!horizon) return hex;
+    return '#' + new THREE.Color(hex).lerp(horizon, amount).getHexString(THREE.SRGBColorSpace);
+  };
   gradient.addColorStop(0, '#5eb4dc');
-  gradient.addColorStop(0.7, '#a6d6e6');
-  gradient.addColorStop(1, '#c4e2ea');
+  gradient.addColorStop(0.7, mix('#a6d6e6', 0.45));
+  gradient.addColorStop(1, mix('#c4e2ea', 0.8));
   context.fillStyle = gradient;
   context.fillRect(0, 0, canvas.width, canvas.height);
   const texture = new THREE.CanvasTexture(canvas);
@@ -1384,7 +1523,11 @@ function configureSceneLights(index) {
   // light everything regardless of Brightness; the sky light scales with Brightness
   // like the sun, so Brightness 0 leaves only the ambient.
   scene.add(new THREE.AmbientLight(ambient.clone().add(outdoor).multiplyScalar(0.5), hasLighting ? 2.0 : 1.6));
-  scene.add(new THREE.HemisphereLight(0xbcd7ff, outdoor, (hasLighting ? 0.6 : 0.7) * brightness));
+  // EnvironmentDiffuseScale is Roblox's sky light (modern templates set it to 1); it
+  // lifts every surface, most visibly the faces turned away from the sun. Scale set
+  // by eye against the Roblox template place.
+  const envDiffuse = hasLighting ? Math.max(0, Math.min(1, Number(props.EnvironmentDiffuseScale ?? 0))) : 0;
+  scene.add(new THREE.HemisphereLight(0xbcd7ff, outdoor, ((hasLighting ? 0.6 : 0.7) + 0.9 * envDiffuse) * brightness));
 
   const key = new THREE.DirectionalLight(0xfff6e8, 1.25 * brightness);
   let direction;
@@ -1721,6 +1864,9 @@ async function addSurfaceGuis(index, camera) {
 
 async function reportNotes() {
   const notes = [];
+  if (localLightsDropped) {
+    notes.push(`drew the ${MAX_LOCAL_LIGHTS} most relevant local lights; ${localLightsDropped} farther ones were left out`);
+  }
   if (framingIgnored.length) {
     notes.push(`framing left out ground ${framingIgnored.join(', ')} (still drawn; --focus <path> frames it)`);
   }
@@ -1779,6 +1925,7 @@ async function main() {
   const ir = await response.json();
   const roots = ir.roots || [];
   const index = buildNodeIndex(roots);
+  sceneIndex = index;
   let camera;
   if (viewportMode) {
     const viewport = findNodeByPath(index, params.get('path') || '');
@@ -1787,6 +1934,7 @@ async function main() {
     for (const child of Object.values(viewport.children || {})) addNode(child, scene);
     await Promise.all(meshGeometryJobs);
     await Promise.all(materialTextureJobs);
+    await stylePlaceholderMeshes();
     const cameraNode = findCamera(buildNodeIndex([viewport]));
     camera = new THREE.PerspectiveCamera();
     // Games assign CurrentCamera (a Camera instance) at runtime; the saved place
@@ -1799,12 +1947,13 @@ async function main() {
     for (const root of roots) addNode(root, scene);
     await Promise.all(meshGeometryJobs);
     await Promise.all(materialTextureJobs);
+    await stylePlaceholderMeshes();
     await addSurfaceImages(index);
     addAttachmentAnchors(index);
     addLocalLights(index);
     await configureSky(index);
     configureAtmosphere(index);
-    if (!scene.background && findFirstClass(index, 'Lighting')) scene.background = defaultSkyTexture();
+    if (!scene.background && findFirstClass(index, 'Lighting')) scene.background = defaultSkyTexture(atmosphereHorizon);
     configureSceneLights(index);
     camera = new THREE.PerspectiveCamera();
     configureCamera(camera, cameraNode);
@@ -1814,6 +1963,13 @@ async function main() {
     let framedCenter = null;
     if (focusPath || requestedView) {
       framedCenter = frameScene(camera, index, focusPath, requestedView || 'iso');
+      // A framed view stands back as far as the build is big, which for a whole map
+      // is hundreds of studs of fog. It exists to show the layout, so cap the fog at
+      // about a quarter at the framed centre (exp(-(d*density)^2) = 0.75).
+      if (scene.fog?.isFogExp2) {
+        const distance = camera.position.distanceTo(framedCenter);
+        scene.fog.density = Math.min(scene.fog.density, 0.536 / Math.max(distance, 1));
+      }
     }
     const cameraOverride = parseVectorParam('camera');
     const lookAtOverride = parseVectorParam('lookAt');
@@ -1822,6 +1978,7 @@ async function main() {
     else if (cameraOverride && framedCenter) camera.lookAt(framedCenter);
     camera.updateMatrixWorld(true);
     fitSunShadow(camera, lookAtOverride || framedCenter || null);
+    pruneLocalLights(camera);
     await addBeams(index, camera);
     await addTrails(index, camera);
     await reportCamera(camera);

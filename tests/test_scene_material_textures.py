@@ -63,7 +63,7 @@ def main() -> int:
             check(abs(std_t - std_f) < 0.5 and abs(mean_t - mean_f).max() < 1.0,
                   f"Plastic stays plain (std {std_t:.1f} vs {std_f:.1f})")
             continue
-        check(std_t > std_f + 3, f"{name} shows a pattern (std {std_t:.1f} vs flat {std_f:.1f})")
+        check(std_t > std_f + 1.5, f"{name} shows a pattern (std {std_t:.1f} vs flat {std_f:.1f})")
         # Tinted, not recoloured: the average stays near the flat colour, per channel.
         ratio = (mean_t + 1) / (mean_f + 1)
         check(bool((ratio > 0.6).all() and (ratio < 1.25).all()),

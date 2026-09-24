@@ -68,7 +68,10 @@ What RHR tells you it did not do exactly:
   `experimental`.
 - Images and meshes need a local cache: run `rhr fetch <file>` once (it needs the
   network; nothing else does). Without it images are skipped and meshes are boxes, and
-  the output says so.
+  the output says so. Most meshes need a signed-in account, so expect MeshParts as
+  outlined placeholder boxes: right position and size, not the real shape.
+- In a place file, a ScreenGui outside StarterGui (a template in ReplicatedStorage)
+  is not drawn or checked; a `note` names it. Pass `--all-guis` to include it.
 - Material textures (brick, wood, grass...) are look-alikes, not Roblox's images. When
   you only care about colours, `--flat-materials` draws plain colours.
 - `docs/known-approximations.md` lists every known difference.

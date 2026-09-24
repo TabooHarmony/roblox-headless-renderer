@@ -1,0 +1,78 @@
+<roblox version="4">
+  <Item class="Workspace" referent="W">
+    <Properties><string name="Name">Workspace</string></Properties>
+    <Item class="Part" referent="P1"><Properties><string name="Name">VariantWall</string><CoordinateFrame name="CFrame"><X>-4</X><Y>0</Y><Z>0</Z><R00>1</R00><R01>0</R01><R02>0</R02><R10>0</R10><R11>1</R11><R12>0</R12><R20>0</R20><R21>0</R21><R22>1</R22></CoordinateFrame><Vector3 name="Size"><X>6</X><Y>6</Y><Z>1</Z></Vector3>
+      <Color3 name="Color"><R>1</R><G>1</G><B>1</B></Color3><token name="Material">816</token><string name="MaterialVariant">GreenBoards</string></Properties></Item>
+    <Item class="MeshPart" referent="P2"><Properties><string name="Name">Bush</string><CoordinateFrame name="CFrame"><X>4</X><Y>0</Y><Z>0</Z><R00>1</R00><R01>0</R01><R02>0</R02><R10>0</R10><R11>1</R11><R12>0</R12><R20>0</R20><R21>0</R21><R22>1</R22></CoordinateFrame><Vector3 name="Size"><X>6</X><Y>6</Y><Z>1</Z></Vector3>
+      <Color3 name="Color"><R>1</R><G>1</G><B>1</B></Color3><Content name="MeshId"><url>rbxassetid://900000199</url></Content></Properties>
+      <Item class="SurfaceAppearance" referent="S1"><Properties><string name="Name">SurfaceAppearance</string><Content name="ColorMap"><url>rbxassetid://900000102</url></Content><token name="AlphaMode">1</token></Properties></Item>
+    </Item>
+    <Item class="Part" referent="L0"><Properties><string name="Name">Lamp0</string><CoordinateFrame name="CFrame"><X>-20</X><Y>6</Y><Z>-10</Z><R00>1</R00><R01>0</R01><R02>0</R02><R10>0</R10><R11>1</R11><R12>0</R12><R20>0</R20><R21>0</R21><R22>1</R22></CoordinateFrame><Vector3 name="Size"><X>0.5</X><Y>0.5</Y><Z>0.5</Z></Vector3></Properties>
+      <Item class="PointLight" referent="LL0"><Properties><string name="Name">PointLight</string><float name="Range">6</float><float name="Brightness">1</float></Properties></Item>
+    </Item>
+    <Item class="Part" referent="L1"><Properties><string name="Name">Lamp1</string><CoordinateFrame name="CFrame"><X>-18</X><Y>6</Y><Z>-10</Z><R00>1</R00><R01>0</R01><R02>0</R02><R10>0</R10><R11>1</R11><R12>0</R12><R20>0</R20><R21>0</R21><R22>1</R22></CoordinateFrame><Vector3 name="Size"><X>0.5</X><Y>0.5</Y><Z>0.5</Z></Vector3></Properties>
+      <Item class="PointLight" referent="LL1"><Properties><string name="Name">PointLight</string><float name="Range">6</float><float name="Brightness">1</float></Properties></Item>
+    </Item>
+    <Item class="Part" referent="L2"><Properties><string name="Name">Lamp2</string><CoordinateFrame name="CFrame"><X>-16</X><Y>6</Y><Z>-10</Z><R00>1</R00><R01>0</R01><R02>0</R02><R10>0</R10><R11>1</R11><R12>0</R12><R20>0</R20><R21>0</R21><R22>1</R22></CoordinateFrame><Vector3 name="Size"><X>0.5</X><Y>0.5</Y><Z>0.5</Z></Vector3></Properties>
+      <Item class="PointLight" referent="LL2"><Properties><string name="Name">PointLight</string><float name="Range">6</float><float name="Brightness">1</float></Properties></Item>
+    </Item>
+    <Item class="Part" referent="L3"><Properties><string name="Name">Lamp3</string><CoordinateFrame name="CFrame"><X>-14</X><Y>6</Y><Z>-10</Z><R00>1</R00><R01>0</R01><R02>0</R02><R10>0</R10><R11>1</R11><R12>0</R12><R20>0</R20><R21>0</R21><R22>1</R22></CoordinateFrame><Vector3 name="Size"><X>0.5</X><Y>0.5</Y><Z>0.5</Z></Vector3></Properties>
+      <Item class="PointLight" referent="LL3"><Properties><string name="Name">PointLight</string><float name="Range">6</float><float name="Brightness">1</float></Properties></Item>
+    </Item>
+    <Item class="Part" referent="L4"><Properties><string name="Name">Lamp4</string><CoordinateFrame name="CFrame"><X>-12</X><Y>6</Y><Z>-10</Z><R00>1</R00><R01>0</R01><R02>0</R02><R10>0</R10><R11>1</R11><R12>0</R12><R20>0</R20><R21>0</R21><R22>1</R22></CoordinateFrame><Vector3 name="Size"><X>0.5</X><Y>0.5</Y><Z>0.5</Z></Vector3></Properties>
+      <Item class="PointLight" referent="LL4"><Properties><string name="Name">PointLight</string><float name="Range">6</float><float name="Brightness">1</float></Properties></Item>
+    </Item>
+    <Item class="Part" referent="L5"><Properties><string name="Name">Lamp5</string><CoordinateFrame name="CFrame"><X>-10</X><Y>6</Y><Z>-10</Z><R00>1</R00><R01>0</R01><R02>0</R02><R10>0</R10><R11>1</R11><R12>0</R12><R20>0</R20><R21>0</R21><R22>1</R22></CoordinateFrame><Vector3 name="Size"><X>0.5</X><Y>0.5</Y><Z>0.5</Z></Vector3></Properties>
+      <Item class="PointLight" referent="LL5"><Properties><string name="Name">PointLight</string><float name="Range">6</float><float name="Brightness">1</float></Properties></Item>
+    </Item>
+    <Item class="Part" referent="L6"><Properties><string name="Name">Lamp6</string><CoordinateFrame name="CFrame"><X>-8</X><Y>6</Y><Z>-10</Z><R00>1</R00><R01>0</R01><R02>0</R02><R10>0</R10><R11>1</R11><R12>0</R12><R20>0</R20><R21>0</R21><R22>1</R22></CoordinateFrame><Vector3 name="Size"><X>0.5</X><Y>0.5</Y><Z>0.5</Z></Vector3></Properties>
+      <Item class="PointLight" referent="LL6"><Properties><string name="Name">PointLight</string><float name="Range">6</float><float name="Brightness">1</float></Properties></Item>
+    </Item>
+    <Item class="Part" referent="L7"><Properties><string name="Name">Lamp7</string><CoordinateFrame name="CFrame"><X>-6</X><Y>6</Y><Z>-10</Z><R00>1</R00><R01>0</R01><R02>0</R02><R10>0</R10><R11>1</R11><R12>0</R12><R20>0</R20><R21>0</R21><R22>1</R22></CoordinateFrame><Vector3 name="Size"><X>0.5</X><Y>0.5</Y><Z>0.5</Z></Vector3></Properties>
+      <Item class="PointLight" referent="LL7"><Properties><string name="Name">PointLight</string><float name="Range">6</float><float name="Brightness">1</float></Properties></Item>
+    </Item>
+    <Item class="Part" referent="L8"><Properties><string name="Name">Lamp8</string><CoordinateFrame name="CFrame"><X>-4</X><Y>6</Y><Z>-10</Z><R00>1</R00><R01>0</R01><R02>0</R02><R10>0</R10><R11>1</R11><R12>0</R12><R20>0</R20><R21>0</R21><R22>1</R22></CoordinateFrame><Vector3 name="Size"><X>0.5</X><Y>0.5</Y><Z>0.5</Z></Vector3></Properties>
+      <Item class="PointLight" referent="LL8"><Properties><string name="Name">PointLight</string><float name="Range">6</float><float name="Brightness">1</float></Properties></Item>
+    </Item>
+    <Item class="Part" referent="L9"><Properties><string name="Name">Lamp9</string><CoordinateFrame name="CFrame"><X>-2</X><Y>6</Y><Z>-10</Z><R00>1</R00><R01>0</R01><R02>0</R02><R10>0</R10><R11>1</R11><R12>0</R12><R20>0</R20><R21>0</R21><R22>1</R22></CoordinateFrame><Vector3 name="Size"><X>0.5</X><Y>0.5</Y><Z>0.5</Z></Vector3></Properties>
+      <Item class="PointLight" referent="LL9"><Properties><string name="Name">PointLight</string><float name="Range">6</float><float name="Brightness">1</float></Properties></Item>
+    </Item>
+    <Item class="Part" referent="L10"><Properties><string name="Name">Lamp10</string><CoordinateFrame name="CFrame"><X>0</X><Y>6</Y><Z>-10</Z><R00>1</R00><R01>0</R01><R02>0</R02><R10>0</R10><R11>1</R11><R12>0</R12><R20>0</R20><R21>0</R21><R22>1</R22></CoordinateFrame><Vector3 name="Size"><X>0.5</X><Y>0.5</Y><Z>0.5</Z></Vector3></Properties>
+      <Item class="PointLight" referent="LL10"><Properties><string name="Name">PointLight</string><float name="Range">6</float><float name="Brightness">1</float></Properties></Item>
+    </Item>
+    <Item class="Part" referent="L11"><Properties><string name="Name">Lamp11</string><CoordinateFrame name="CFrame"><X>2</X><Y>6</Y><Z>-10</Z><R00>1</R00><R01>0</R01><R02>0</R02><R10>0</R10><R11>1</R11><R12>0</R12><R20>0</R20><R21>0</R21><R22>1</R22></CoordinateFrame><Vector3 name="Size"><X>0.5</X><Y>0.5</Y><Z>0.5</Z></Vector3></Properties>
+      <Item class="PointLight" referent="LL11"><Properties><string name="Name">PointLight</string><float name="Range">6</float><float name="Brightness">1</float></Properties></Item>
+    </Item>
+    <Item class="Part" referent="L12"><Properties><string name="Name">Lamp12</string><CoordinateFrame name="CFrame"><X>4</X><Y>6</Y><Z>-10</Z><R00>1</R00><R01>0</R01><R02>0</R02><R10>0</R10><R11>1</R11><R12>0</R12><R20>0</R20><R21>0</R21><R22>1</R22></CoordinateFrame><Vector3 name="Size"><X>0.5</X><Y>0.5</Y><Z>0.5</Z></Vector3></Properties>
+      <Item class="PointLight" referent="LL12"><Properties><string name="Name">PointLight</string><float name="Range">6</float><float name="Brightness">1</float></Properties></Item>
+    </Item>
+    <Item class="Part" referent="L13"><Properties><string name="Name">Lamp13</string><CoordinateFrame name="CFrame"><X>6</X><Y>6</Y><Z>-10</Z><R00>1</R00><R01>0</R01><R02>0</R02><R10>0</R10><R11>1</R11><R12>0</R12><R20>0</R20><R21>0</R21><R22>1</R22></CoordinateFrame><Vector3 name="Size"><X>0.5</X><Y>0.5</Y><Z>0.5</Z></Vector3></Properties>
+      <Item class="PointLight" referent="LL13"><Properties><string name="Name">PointLight</string><float name="Range">6</float><float name="Brightness">1</float></Properties></Item>
+    </Item>
+    <Item class="Part" referent="L14"><Properties><string name="Name">Lamp14</string><CoordinateFrame name="CFrame"><X>8</X><Y>6</Y><Z>-10</Z><R00>1</R00><R01>0</R01><R02>0</R02><R10>0</R10><R11>1</R11><R12>0</R12><R20>0</R20><R21>0</R21><R22>1</R22></CoordinateFrame><Vector3 name="Size"><X>0.5</X><Y>0.5</Y><Z>0.5</Z></Vector3></Properties>
+      <Item class="PointLight" referent="LL14"><Properties><string name="Name">PointLight</string><float name="Range">6</float><float name="Brightness">1</float></Properties></Item>
+    </Item>
+    <Item class="Part" referent="L15"><Properties><string name="Name">Lamp15</string><CoordinateFrame name="CFrame"><X>10</X><Y>6</Y><Z>-10</Z><R00>1</R00><R01>0</R01><R02>0</R02><R10>0</R10><R11>1</R11><R12>0</R12><R20>0</R20><R21>0</R21><R22>1</R22></CoordinateFrame><Vector3 name="Size"><X>0.5</X><Y>0.5</Y><Z>0.5</Z></Vector3></Properties>
+      <Item class="PointLight" referent="LL15"><Properties><string name="Name">PointLight</string><float name="Range">6</float><float name="Brightness">1</float></Properties></Item>
+    </Item>
+    <Item class="Part" referent="L16"><Properties><string name="Name">Lamp16</string><CoordinateFrame name="CFrame"><X>12</X><Y>6</Y><Z>-10</Z><R00>1</R00><R01>0</R01><R02>0</R02><R10>0</R10><R11>1</R11><R12>0</R12><R20>0</R20><R21>0</R21><R22>1</R22></CoordinateFrame><Vector3 name="Size"><X>0.5</X><Y>0.5</Y><Z>0.5</Z></Vector3></Properties>
+      <Item class="PointLight" referent="LL16"><Properties><string name="Name">PointLight</string><float name="Range">6</float><float name="Brightness">1</float></Properties></Item>
+    </Item>
+    <Item class="Part" referent="L17"><Properties><string name="Name">Lamp17</string><CoordinateFrame name="CFrame"><X>14</X><Y>6</Y><Z>-10</Z><R00>1</R00><R01>0</R01><R02>0</R02><R10>0</R10><R11>1</R11><R12>0</R12><R20>0</R20><R21>0</R21><R22>1</R22></CoordinateFrame><Vector3 name="Size"><X>0.5</X><Y>0.5</Y><Z>0.5</Z></Vector3></Properties>
+      <Item class="PointLight" referent="LL17"><Properties><string name="Name">PointLight</string><float name="Range">6</float><float name="Brightness">1</float></Properties></Item>
+    </Item>
+    <Item class="Part" referent="L18"><Properties><string name="Name">Lamp18</string><CoordinateFrame name="CFrame"><X>16</X><Y>6</Y><Z>-10</Z><R00>1</R00><R01>0</R01><R02>0</R02><R10>0</R10><R11>1</R11><R12>0</R12><R20>0</R20><R21>0</R21><R22>1</R22></CoordinateFrame><Vector3 name="Size"><X>0.5</X><Y>0.5</Y><Z>0.5</Z></Vector3></Properties>
+      <Item class="PointLight" referent="LL18"><Properties><string name="Name">PointLight</string><float name="Range">6</float><float name="Brightness">1</float></Properties></Item>
+    </Item>
+    <Item class="Part" referent="L19"><Properties><string name="Name">Lamp19</string><CoordinateFrame name="CFrame"><X>18</X><Y>6</Y><Z>-10</Z><R00>1</R00><R01>0</R01><R02>0</R02><R10>0</R10><R11>1</R11><R12>0</R12><R20>0</R20><R21>0</R21><R22>1</R22></CoordinateFrame><Vector3 name="Size"><X>0.5</X><Y>0.5</Y><Z>0.5</Z></Vector3></Properties>
+      <Item class="PointLight" referent="LL19"><Properties><string name="Name">PointLight</string><float name="Range">6</float><float name="Brightness">1</float></Properties></Item>
+    </Item>
+    <Item class="Camera" referent="C"><Properties><string name="Name">Camera</string><CoordinateFrame name="CFrame"><X>0</X><Y>0</Y><Z>14</Z><R00>1</R00><R01>0</R01><R02>0</R02><R10>0</R10><R11>1</R11><R12>0</R12><R20>0</R20><R21>0</R21><R22>1</R22></CoordinateFrame><float name="FieldOfView">60</float></Properties></Item>
+  </Item>
+  <Item class="MaterialService" referent="M">
+    <Properties><string name="Name">MaterialService</string></Properties>
+    <Item class="MaterialVariant" referent="MV"><Properties><string name="Name">GreenBoards</string><token name="BaseMaterial">816</token>
+      <Content name="ColorMap"><url>rbxassetid://900000101</url></Content><float name="StudsPerTile">4</float></Properties></Item>
+  </Item>
+  <Item class="Lighting" referent="LT"><Properties><string name="Name">Lighting</string></Properties></Item>
+</roblox>

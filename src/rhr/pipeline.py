@@ -171,6 +171,33 @@ def _strip_screens(nodes: list[dict]) -> list[dict]:
     return out
 
 
+# Services of a place file. In a place, only StarterGui's ScreenGuis are on screen when
+# the game starts; ScreenGuis kept in ReplicatedStorage, ServerStorage and the like are
+# templates a script clones into PlayerGui, so they are not drawn unless asked for
+# (`--all-guis`). A model file has no services and draws every ScreenGui.
+PLACE_SERVICES = {
+    "Workspace", "Lighting", "ReplicatedStorage", "ReplicatedFirst", "ServerStorage",
+    "ServerScriptService", "StarterGui", "StarterPack", "StarterPlayer", "SoundService",
+    "Teams", "Chat", "TextChatService", "MaterialService",
+}
+# Set by the CLI's --all-guis.
+INCLUDE_STORED_GUIS = False
+
+
+def shown_ui_roots(raw: list[dict]) -> tuple[list[dict], list[str]]:
+    """The roots whose UI is on screen, and the paths of stored ScreenGuis left out."""
+    if INCLUDE_STORED_GUIS or not any(n.get("className") in PLACE_SERVICES for n in raw):
+        return raw, []
+    shown = [n for n in raw if n.get("className") == "StarterGui" or n.get("className") not in PLACE_SERVICES]
+    hidden: list[str] = []
+    for root in raw:
+        if root in shown:
+            continue
+        for node in _screen_nodes([root], classes={"ScreenGui"}):
+            hidden.append(node.get("_path") or node.get("name", "ScreenGui"))
+    return shown, hidden
+
+
 def _screen_nodes(
     nodes: list[dict],
     out: list[dict] | None = None,
@@ -238,7 +265,7 @@ def load_screens(
     topbar = insets.REFERENCE_TOPBAR_HEIGHT if topbar_height is None else topbar_height
     ir = load_ir(ir_path)
     ir_by_path = _index_paths(ir["roots"])
-    raw = ir_to_raw_nodes(ir)
+    raw, _ = shown_ui_roots(ir_to_raw_nodes(ir))
     screens = _screen_nodes(raw, classes={"ScreenGui"} if screen_gui_only else None)
     if not screens:
         if screen_gui_only:

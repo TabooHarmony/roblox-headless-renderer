@@ -88,6 +88,8 @@ local PROPS = {
   "Texture", "StudsPerTileU", "StudsPerTileV", "OffsetStudsU", "OffsetStudsV",
   "TimeScale", "Transparency", "VelocityInheritance", "VelocitySpread", "WindAffectsDrag",
   "ZOffset",
+  -- SurfaceAppearance and MaterialVariant images; a part's MaterialVariant by name
+  "ColorMap", "StudsPerTile", "BaseMaterial", "MaterialVariant", "AlphaMode",
   -- Containers. (No "Name" here: it is already listed above, and this is a list, so a
   -- duplicate is a second read of the same property on every instance.)
 }
@@ -106,6 +108,7 @@ local CONTENT_PROPERTY_ALIASES = {
   SkyboxUp = "SkyboxUpContent",
   MoonTextureId = "MoonTextureContent",
   SunTextureId = "SunTextureContent",
+  ColorMap = "ColorMapContent",
 }
 
 local VISUAL_CLASSES = {

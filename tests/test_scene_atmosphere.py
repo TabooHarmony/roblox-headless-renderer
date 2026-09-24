@@ -129,15 +129,19 @@ def main() -> None:
 
         tint_delta = delta(outputs["none"], outputs["thin"])
         fog_delta = delta(outputs["thin"], outputs["dense"])
-        assert tint_delta > 20.0, tint_delta
+        # The Atmosphere tints the default sky toward the horizon; it no longer repaints
+        # the whole backdrop one flat colour (that turned Roblox's template grey).
+        assert tint_delta > 3.0, tint_delta
         assert fog_delta > 1.0, fog_delta
 
         with Image.open(outputs["none"]).convert("RGB") as plain, Image.open(outputs["thin"]).convert("RGB") as tinted:
             # Without an Atmosphere a place shows Roblox's default sky (blue); the
-            # Atmosphere tints that backdrop.
+            # Atmosphere tints it toward the horizon (tint_delta above) and leaves the
+            # sky overhead blue.
             sky = plain.getpixel((5, 5))
             assert sky[2] > sky[0] + 60, sky
-            assert tinted.getpixel((5, 5)) != sky
+            top = tinted.getpixel((180, 2))
+            assert top[2] > top[0] + 30, f"the sky stays blue overhead under an Atmosphere ({top})"
 
         dense_ir = tmp / "dense.json"
         proc = run("scene-dump", str(dense_ir))

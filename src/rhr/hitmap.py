@@ -156,7 +156,9 @@ def build_hitmap(ir_path, width: int, height: int, topbar_height: float | None =
     from rhr.pipeline import load_screens
 
     ir = load_ir(ir_path)
-    raw_nodes = ir_to_raw_nodes(ir)
+    from rhr.pipeline import shown_ui_roots
+
+    raw_nodes, _ = shown_ui_roots(ir_to_raw_nodes(ir))
     raw_panes = _pane_raw_nodes(raw_nodes)
     screens = load_screens(
         str(ir_path),
