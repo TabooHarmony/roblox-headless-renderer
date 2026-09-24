@@ -126,7 +126,7 @@ def main() -> int:
         "source": "ambientCG (https://ambientcg.com), CC0 1.0 Universal",
         "note": "Colour maps converted to greyscale detail tiles and resized; normal maps resized.",
         "materials": credits,
-    }, indent=2) + "\n", encoding="utf-8")
+    }, indent=2) + "\n", encoding="utf-8", newline="\n")
     return 0
 
 
