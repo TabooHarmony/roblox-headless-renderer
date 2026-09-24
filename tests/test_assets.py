@@ -7,7 +7,7 @@ Two things are asserted, both from real renders:
     `ImageContent` and reports it as `Image`; if that regression returns, images
     silently disappear again and this check fails.
   * the renderer paints that image from `<rhr cache>/cache/icons/<id>.png`, i.e. the
-    location scripts/fetch_assets.py fills. The same render without the cache must
+    location `rhr fetch` fills. The same render without the cache must
     paint nothing red, so a pass cannot come from some other element.
 
 Run: python tests/test_assets.py
@@ -88,7 +88,7 @@ def main() -> int:
         f"Image={props.get('Image')!r}",
     )
 
-    # the cache the renderer reads must be the cache fetch_assets.py fills, and it
+    # the cache the renderer reads must be the cache `rhr fetch` fills, and it
     # must live in the per-user cache, outside the package and the vendored tree
     from ui_engine.assets import _asset_cache_dir
 
@@ -111,14 +111,13 @@ def main() -> int:
         str(cache_dir),
     )
 
-    sys.path.insert(0, str(REPO / "scripts"))
-    import fetch_assets
+    from rhr import fetch
 
     check(
-        "fetch_assets writes to the renderer's icon root",
-        fetch_assets.ICONS_DIR == ICONS_DIR,
+        "rhr fetch writes to the renderer's icon root",
+        fetch.ICONS_DIR == ICONS_DIR,
     )
-    discovered = fetch_assets.asset_refs({
+    discovered, _ = fetch.collect_refs({
         "props": {
             "Image": "rbxassetid://41",
             "Texture": "rbxassetid://42",
@@ -129,7 +128,7 @@ def main() -> int:
         "children": [],
     })
     check(
-        "fetch_assets discovers world/particle texture IDs in typed IR",
+        "rhr fetch discovers world/particle texture IDs in typed IR",
         {"41", "42", "43", "44", "45"}.issubset(discovered),
         repr(sorted(discovered)),
     )

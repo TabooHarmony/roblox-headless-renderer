@@ -52,7 +52,7 @@ for _p in (ENGINE, COMPONENT, PRODUCT_OUTPUT.parent):
 FONTS_DIR = ENGINE / "ui_engine" / "fonts"
 # The engine's icon root (rhr.paths.ICONS_DIR). The engine derives its image cache
 # from the parent of this dir (`_asset_cache_dir`: <parent>/cache/icons/<asset_id>.png),
-# which is rhr.paths.ICON_CACHE, where scripts/fetch_assets.py writes.
+# which is rhr.paths.ICON_CACHE, where `rhr fetch` writes.
 
 _SCREEN_GUI_CLASSES = {"ScreenGui", "SurfaceGui", "BillboardGui"}
 _RENDERABLE_CLASSES = {

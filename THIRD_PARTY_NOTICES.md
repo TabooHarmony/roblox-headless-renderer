@@ -28,6 +28,14 @@ for the upstream licence texts, which ship with the package.
 Font files are not relicensed here. Preserve their embedded copyright and licence
 metadata on redistribution.
 
+## Material textures
+
+- Location: `src/rhr/scene/materials/`
+- Source: [ambientCG](https://ambientcg.com), CC0 1.0 Universal (public domain).
+  `credits.json` names the asset each texture was made from;
+  `scripts/make_material_textures.py` rebuilds them (greyscale detail tiles and
+  resized normal maps). They are look-alikes, not Roblox's material images.
+
 ## THREE.js
 
 - Location: `src/rhr/vendor/three/` (version 0.186.0, from the npm package)
@@ -44,6 +52,5 @@ metadata on redistribution.
   unverified redistribution rights. The parser and renderer code are kept.
 - `src/rhr/vendor/pinevex/vendor/icon_library/manifest.json` lists 11 icon names
   whose artwork is Roblox's own. It is a name list; **no Roblox image files are
-  bundled**. Images that you fetch for your own models with
-  `scripts/fetch_assets.py` stay in your local cache and are not part of this
-  project.
+  bundled**. Images and meshes that you fetch for your own models with `rhr fetch`
+  stay in your local cache and are not part of this project.

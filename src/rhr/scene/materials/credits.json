@@ -1,0 +1,228 @@
+{
+  "source": "ambientCG (https://ambientcg.com), CC0 1.0 Universal",
+  "note": "Colour maps converted to greyscale detail tiles and resized; normal maps resized.",
+  "materials": {
+    "Brick": {
+      "asset": "Bricks104",
+      "url": "https://ambientcg.com/view?id=Bricks104",
+      "license": "CC0 1.0",
+      "normalMap": true
+    },
+    "Wood": {
+      "asset": "Wood095",
+      "url": "https://ambientcg.com/view?id=Wood095",
+      "license": "CC0 1.0",
+      "normalMap": true
+    },
+    "WoodPlanks": {
+      "asset": "WoodFloor040",
+      "url": "https://ambientcg.com/view?id=WoodFloor040",
+      "license": "CC0 1.0",
+      "normalMap": true
+    },
+    "Concrete": {
+      "asset": "Concrete034",
+      "url": "https://ambientcg.com/view?id=Concrete034",
+      "license": "CC0 1.0",
+      "normalMap": true
+    },
+    "Cobblestone": {
+      "asset": "PavingStones150",
+      "url": "https://ambientcg.com/view?id=PavingStones150",
+      "license": "CC0 1.0",
+      "normalMap": true
+    },
+    "Grass": {
+      "asset": "Grass001",
+      "url": "https://ambientcg.com/view?id=Grass001",
+      "license": "CC0 1.0",
+      "normalMap": true
+    },
+    "LeafyGrass": {
+      "asset": "Grass004",
+      "url": "https://ambientcg.com/view?id=Grass004",
+      "license": "CC0 1.0",
+      "normalMap": true
+    },
+    "Sand": {
+      "asset": "Ground079S",
+      "url": "https://ambientcg.com/view?id=Ground079S",
+      "license": "CC0 1.0",
+      "normalMap": true
+    },
+    "Slate": {
+      "asset": "Rock030",
+      "url": "https://ambientcg.com/view?id=Rock030",
+      "license": "CC0 1.0",
+      "normalMap": true
+    },
+    "Granite": {
+      "asset": "Granite002A",
+      "url": "https://ambientcg.com/view?id=Granite002A",
+      "license": "CC0 1.0",
+      "normalMap": true
+    },
+    "Marble": {
+      "asset": "Marble012",
+      "url": "https://ambientcg.com/view?id=Marble012",
+      "license": "CC0 1.0",
+      "normalMap": true
+    },
+    "Pebble": {
+      "asset": "Gravel043",
+      "url": "https://ambientcg.com/view?id=Gravel043",
+      "license": "CC0 1.0",
+      "normalMap": true
+    },
+    "DiamondPlate": {
+      "asset": "DiamondPlate008C",
+      "url": "https://ambientcg.com/view?id=DiamondPlate008C",
+      "license": "CC0 1.0",
+      "normalMap": true
+    },
+    "CorrodedMetal": {
+      "asset": "Metal041B",
+      "url": "https://ambientcg.com/view?id=Metal041B",
+      "license": "CC0 1.0",
+      "normalMap": true
+    },
+    "Metal": {
+      "asset": "Metal055A",
+      "url": "https://ambientcg.com/view?id=Metal055A",
+      "license": "CC0 1.0",
+      "normalMap": true
+    },
+    "Fabric": {
+      "asset": "Fabric061",
+      "url": "https://ambientcg.com/view?id=Fabric061",
+      "license": "CC0 1.0",
+      "normalMap": true
+    },
+    "Foil": {
+      "asset": "Foil003",
+      "url": "https://ambientcg.com/view?id=Foil003",
+      "license": "CC0 1.0",
+      "normalMap": true
+    },
+    "Snow": {
+      "asset": "Snow010A",
+      "url": "https://ambientcg.com/view?id=Snow010A",
+      "license": "CC0 1.0",
+      "normalMap": true
+    },
+    "Ice": {
+      "asset": "Ice003",
+      "url": "https://ambientcg.com/view?id=Ice003",
+      "license": "CC0 1.0",
+      "normalMap": true
+    },
+    "Glacier": {
+      "asset": "Ice003",
+      "url": "https://ambientcg.com/view?id=Ice003",
+      "license": "CC0 1.0",
+      "normalMap": true
+    },
+    "Asphalt": {
+      "asset": "Asphalt031",
+      "url": "https://ambientcg.com/view?id=Asphalt031",
+      "license": "CC0 1.0",
+      "normalMap": true
+    },
+    "Ground": {
+      "asset": "Ground048",
+      "url": "https://ambientcg.com/view?id=Ground048",
+      "license": "CC0 1.0",
+      "normalMap": true
+    },
+    "Mud": {
+      "asset": "Ground071",
+      "url": "https://ambientcg.com/view?id=Ground071",
+      "license": "CC0 1.0",
+      "normalMap": true
+    },
+    "Rock": {
+      "asset": "Rock023",
+      "url": "https://ambientcg.com/view?id=Rock023",
+      "license": "CC0 1.0",
+      "normalMap": true
+    },
+    "Limestone": {
+      "asset": "Concrete047A",
+      "url": "https://ambientcg.com/view?id=Concrete047A",
+      "license": "CC0 1.0",
+      "normalMap": true
+    },
+    "Pavement": {
+      "asset": "PavingStones128",
+      "url": "https://ambientcg.com/view?id=PavingStones128",
+      "license": "CC0 1.0",
+      "normalMap": true
+    },
+    "Plaster": {
+      "asset": "Plaster001",
+      "url": "https://ambientcg.com/view?id=Plaster001",
+      "license": "CC0 1.0",
+      "normalMap": true
+    },
+    "Carpet": {
+      "asset": "Carpet012",
+      "url": "https://ambientcg.com/view?id=Carpet012",
+      "license": "CC0 1.0",
+      "normalMap": true
+    },
+    "CeramicTiles": {
+      "asset": "Tiles141",
+      "url": "https://ambientcg.com/view?id=Tiles141",
+      "license": "CC0 1.0",
+      "normalMap": true
+    },
+    "ClayRoofTiles": {
+      "asset": "RoofingTiles012A",
+      "url": "https://ambientcg.com/view?id=RoofingTiles012A",
+      "license": "CC0 1.0",
+      "normalMap": true
+    },
+    "RoofShingles": {
+      "asset": "RoofingTiles001",
+      "url": "https://ambientcg.com/view?id=RoofingTiles001",
+      "license": "CC0 1.0",
+      "normalMap": true
+    },
+    "Leather": {
+      "asset": "Leather030",
+      "url": "https://ambientcg.com/view?id=Leather030",
+      "license": "CC0 1.0",
+      "normalMap": true
+    },
+    "Rubber": {
+      "asset": "Rubber001",
+      "url": "https://ambientcg.com/view?id=Rubber001",
+      "license": "CC0 1.0",
+      "normalMap": true
+    },
+    "Cardboard": {
+      "asset": "Cardboard002",
+      "url": "https://ambientcg.com/view?id=Cardboard002",
+      "license": "CC0 1.0",
+      "normalMap": true
+    },
+    "Sandstone": {
+      "asset": "Rock061",
+      "url": "https://ambientcg.com/view?id=Rock061",
+      "license": "CC0 1.0",
+      "normalMap": true
+    },
+    "Basalt": {
+      "asset": "Rock028",
+      "url": "https://ambientcg.com/view?id=Rock028",
+      "license": "CC0 1.0",
+      "normalMap": true
+    },
+    "CrackedLava": {
+      "asset": "Lava004",
+      "url": "https://ambientcg.com/view?id=Lava004",
+      "license": "CC0 1.0",
+      "normalMap": true
+    }
+  }
+}

@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.2.0 (alpha)
+
+### Added
+
+- **Material textures.** Brick, Wood, WoodPlanks, Grass, Cobblestone, Slate, Concrete
+  and 30 more materials now have look-alike textures in 3D. They are public-domain
+  (CC0) materials from ambientCG, tinted by each part's colour the way Roblox tints
+  its own and tiled at a fixed size in studs. `--flat-materials` turns them off.
+  Roblox's own material images are not redistributable, so these read as the right
+  material rather than Roblox's exact pattern.
+- **`rhr fetch <file>`** downloads the images and meshes a model uses into the local
+  cache, and names any it could not get (Roblox serves some meshes only to signed-in
+  accounts). It replaces `scripts/fetch_assets.py` and `scripts/fetch_meshes.py`,
+  which only existed in a git checkout.
+
 ## 0.1.0 (alpha)
 
 The first public release.

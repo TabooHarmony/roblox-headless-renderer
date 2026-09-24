@@ -276,6 +276,19 @@ def _layout(args) -> int:
     return 0
 
 
+def _fetch(args) -> int:
+    from rhr import fetch
+
+    source = Path(args.file)
+    if not source.exists():
+        return _die(f"no such file: {source}")
+    try:
+        ir_path = ir_for(source, None)
+    except (ValueError, RuntimeError) as exc:
+        return _die(str(exc))
+    return fetch.run(ir_path, images=not args.meshes_only, meshes=not args.images_only)
+
+
 def _ir(args) -> int:
     from rhr import rojo
     from rhr.ir import emit_ir
@@ -424,6 +437,7 @@ def _scene(args) -> int:
             focus=args.focus,
             view=args.view,
             shadows=args.shadows,
+            flat_materials=args.flat_materials,
             texture_dir=texture_dir,
             mesh_dir=mesh_dir,
             notes_out=page_notes,
@@ -477,6 +491,7 @@ def _preview(args) -> int:
                 focus=args.focus,
                 view=args.view,
                 shadows=args.shadows,
+                flat_materials=args.flat_materials,
                 texture_dir=texture_dir,
                 mesh_dir=mesh_dir,
                 camera_state_out=resolved_camera if args.time is not None else None,
@@ -620,6 +635,14 @@ def build_parser() -> argparse.ArgumentParser:
     p_setup.add_argument("--no-rojo", action="store_true", help="skip Rojo (only needed for Rojo projects)")
     p_setup.set_defaults(func=lambda a: __import__("rhr.tools").tools.setup(rojo=not a.no_rojo))
 
+    p_fetch = sub.add_parser(
+        "fetch", help="download the images and meshes a model uses into the local cache (needs network)")
+    p_fetch.add_argument("file", help="Roblox model/place, Rojo project, or IR .json")
+    only = p_fetch.add_mutually_exclusive_group()
+    only.add_argument("--images-only", action="store_true", help="fetch images only")
+    only.add_argument("--meshes-only", action="store_true", help="fetch meshes only")
+    p_fetch.set_defaults(func=_fetch)
+
     p_doctor = sub.add_parser("doctor", help="check what RHR needs and say what is missing")
     p_doctor.set_defaults(func=lambda a: __import__("rhr.tools").tools.doctor())
 
@@ -723,6 +746,8 @@ def build_parser() -> argparse.ArgumentParser:
                          help="auto-frame the focus target, or the whole scene when --focus is omitted")
     p_scene.add_argument("--shadows", action="store_true",
                          help="enable bounded directional shadows (off by default; SwiftShader cost is measured)")
+    p_scene.add_argument("--flat-materials", action="store_true",
+                         help="plain colours: no material textures (brick, wood, grass...)")
     p_scene.add_argument("--texture-dir",
                          help="local directory containing <asset_id>.<ext> textures/decals")
     p_scene.add_argument("--mesh-dir",
@@ -756,6 +781,8 @@ def build_parser() -> argparse.ArgumentParser:
     p_preview.add_argument("--view", choices=("iso", "front", "back", "left", "right", "top"),
                            help="auto-frame the focus target or whole scene")
     p_preview.add_argument("--shadows", action="store_true", help="enable bounded directional shadows")
+    p_preview.add_argument("--flat-materials", action="store_true",
+                           help="plain colours: no material textures (brick, wood, grass...)")
     p_preview.add_argument("--texture-dir", help="local directory containing <asset_id>.<ext> textures/decals")
     p_preview.add_argument("--mesh-dir", help="local directory containing decompressed <asset_id>.mesh files")
     p_preview.add_argument("--time", type=float,

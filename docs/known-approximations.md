@@ -68,10 +68,10 @@ Known differences:
 
 ## Images
 
-Images are drawn only from the local cache (`scripts/fetch_assets.py` fills it for
-the asset ids in your model). Rendering never downloads anything. A missing image
-leaves its area empty and is listed as a missing asset. Private assets usually
-cannot be fetched without being signed in.
+Images are drawn only from the local cache (`rhr fetch <file>` fills it for the
+asset ids in your model). Rendering never downloads anything. A missing image leaves
+its area empty and is listed as a missing asset. `rhr fetch` gets images from Roblox's
+thumbnail service, so an image is at most 420 px even when the original is larger.
 
 `ResampleMode` (Default = smooth, Pixelated = nearest) is honoured for Stretch, Fit
 and Crop. Tile and Slice filtering, and whether Roblox uses a thumbnail or the
@@ -100,9 +100,15 @@ scaled model that ships with Studio).
 
 **Approximate, by eye:**
 
-- Materials are roughness/metalness values per material, with no textures (no
-  grass, wood or baseplate studs). Neon glows; glass-like materials are see-through.
-  Unknown materials draw as Plastic and are counted as `materialFallbacks`.
+- Materials: each has a roughness/metalness setting and, for all but Plastic,
+  SmoothPlastic, Neon, Glass and ForceField, a look-alike texture: a public-domain
+  (CC0) ambientCG material turned into a greyscale detail tile that the part's Color
+  tints, plus a relief map (`src/rhr/scene/materials/credits.json` lists the source
+  of each). They read as brick, wood or grass, but the pattern, its scale (4-10
+  studs per tile) and its contrast are not Roblox's. MaterialVariants are not read,
+  and Plastic has no studs. Neon glows; glass-like materials are see-through. Unknown
+  materials draw as Plastic and are counted as `materialFallbacks`.
+  `--flat-materials` draws plain colours.
 - Lighting: Ambient, OutdoorAmbient, Brightness, ClockTime and GeographicLatitude
   drive the sun and sky light; intensities are tuned by eye. Shadows are off unless
   you pass `--shadows` (Studio draws them by default).
@@ -115,7 +121,7 @@ scaled model that ships with Studio).
 
 **Drawn as stand-ins, and reported as such:**
 
-- MeshParts and FileMeshes use cached mesh files (`scripts/fetch_meshes.py`); without
+- MeshParts and FileMeshes use cached mesh files (`rhr fetch`); without
   one, the part is drawn as a box and counted as a geometry fallback. Skinned meshes,
   bones, LOD and SurfaceAppearance are not modelled.
 - Unions (`UnionOperation`) are drawn as their bounding box.

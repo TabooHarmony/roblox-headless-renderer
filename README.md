@@ -14,7 +14,7 @@ line or in CI. No GPU or display is needed.
 
 <p align="center"><sub>Both images come from <code>examples/</code>, rendered by <code>rhr render</code> and <code>rhr scene --view iso --shadows</code>.</sub></p>
 
-> **Status: v0.1, an early alpha.** The UI layout numbers are solid: they match
+> **Status: v0.2, an early alpha.** The UI layout numbers are solid: they match
 > Studio within 2 px on every test place. The pictures are *previews*: close enough
 > to spot mistakes, not a copy of Studio's renderer. Anything RHR can't draw
 > faithfully, it says so in its output instead of guessing quietly. See
@@ -71,6 +71,7 @@ The shop has one deliberate mistake, and `rhr check` finds it:
 | `rhr preview <file>` | One PNG with the 3D world, in-world UI (BillboardGui, SurfaceGui) and screen UI together |
 | `rhr compare a.png b.png` | How much changed between two renders, to tell a geometry change from a colour change |
 | `rhr ir <file>` | The parsed file as JSON, including properties that could not be read |
+| `rhr fetch <file>` | Download the images and meshes a model uses into the local cache (the only command that uses the network) |
 | `rhr setup` / `rhr doctor` | Install the external tools / check them |
 
 Every JSON output carries a `schema` name (`rhr.layout/1`, `rhr.check/1`, ...), so a
@@ -78,8 +79,9 @@ change in shape is never silent. A Rojo project works anywhere a file does: pass
 folder with `default.project.json`, or the `*.project.json` file.
 
 **Experimental** (rough sketches, and labelled as such in the output): materials
-other than plastic, lights, shadows, Sky and Atmosphere, Decals and Textures,
-MeshParts, Beams, Trails, and particles (`rhr particles`, `rhr preview --time T`).
+other than plastic (look-alike textures), lights, shadows, Sky and Atmosphere,
+Decals and Textures, MeshParts, Beams, Trails, and particles (`rhr particles`,
+`rhr preview --time T`).
 
 ## For agents
 
@@ -98,10 +100,17 @@ it once.
 
 - **Top bar.** Screen UI is laid out below Roblox's 58 px top bar, as in a running
   game. Studio's edit view has none: pass `--topbar-height 0` to match it.
-- **Images and meshes.** Rendering never touches the network. Images and meshes are
-  drawn from a local cache that you fill yourself for your own models
-  (`scripts/fetch_assets.py`, `scripts/fetch_meshes.py`). Without them, images are
-  left empty and meshes are drawn as boxes, and the output says so.
+- **Images and meshes.** Rendering never touches the network. Run
+  `rhr fetch <file>` once to download the images and meshes a model uses into a local
+  cache. Without them, images are left empty and meshes are drawn as boxes, and the
+  output says so. Images come from Roblox's thumbnail service (no sign-in, up to
+  420 px); some meshes Roblox only serves to a signed-in account, and `rhr fetch`
+  lists those.
+- **Material textures.** Roblox's own material images can't be redistributed, so
+  Brick, Wood, Grass, Cobblestone and the rest use public-domain (CC0) look-alikes
+  from [ambientCG](https://ambientcg.com), tinted by each part's colour. They read as
+  the right material, not as Roblox's exact pattern. `--flat-materials` turns them
+  off.
 - **Fonts.** With a Roblox or Studio install on the machine, RHR uses its fonts.
   Without one it uses bundled open-licence fonts, and a few Roblox-only faces are
   replaced by look-alikes.

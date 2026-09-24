@@ -263,6 +263,7 @@ def render_scene(
     focus: str | None = None,
     view: str | None = None,
     shadows: bool = False,
+    flat_materials: bool = False,
     texture_dir: Path | None = None,
     mesh_dir: Path | None = None,
     camera_state_out: dict | None = None,
@@ -286,6 +287,8 @@ def render_scene(
         query_values["view"] = view
     if shadows:
         query_values["shadows"] = "1"
+    if flat_materials:
+        query_values["flatMaterials"] = "1"
     if camera_state_out is not None:
         query_values["reportCamera"] = "1"
     if texture_dir is not None:

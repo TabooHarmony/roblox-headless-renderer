@@ -66,9 +66,11 @@ What RHR tells you it did not do exactly:
   Treat experimental output as a rough sketch.
 - `scene-dump` lists the same under `fallbacks`, `unsupportedVisualClasses` and
   `experimental`.
-- Images and meshes need a local cache (`scripts/fetch_assets.py`,
-  `scripts/fetch_meshes.py`); without it images are skipped and meshes are boxes, and
+- Images and meshes need a local cache: run `rhr fetch <file>` once (it needs the
+  network; nothing else does). Without it images are skipped and meshes are boxes, and
   the output says so.
+- Material textures (brick, wood, grass...) are look-alikes, not Roblox's images. When
+  you only care about colours, `--flat-materials` draws plain colours.
 - `docs/known-approximations.md` lists every known difference.
 
 What RHR does not do at all: run scripts, physics or animation. A UI that a script

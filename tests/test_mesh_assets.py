@@ -7,9 +7,13 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "scripts"))
+sys.path.insert(0, str(ROOT / "src"))
 
-from fetch_meshes import asset_id, mesh_refs  # noqa: E402
+from rhr.fetch import asset_id, collect_refs  # noqa: E402
+
+
+def mesh_refs(data: dict) -> set[str]:
+    return collect_refs(data)[1]
 
 
 def main() -> None:

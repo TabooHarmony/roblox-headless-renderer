@@ -21,6 +21,8 @@ const anchorByNode = new Map();
 const sceneTextureCache = new Map();
 const sceneMeshGeometryCache = new Map();
 const meshGeometryJobs = [];
+const materialTextureJobs = [];
+const flatMaterials = params.get('flatMaterials') === '1';
 const sceneAssetManifest = fetch('/__rhr_assets__.json')
   .then(response => response.ok ? response.json() : {})
   .catch(() => ({}));
@@ -457,6 +459,93 @@ const MATERIAL_TABLE = {
   Rubber: {roughness: 0.92, metalness: 0.0},
 };
 
+// Material look-alike textures (src/rhr/scene/materials, CC0 from ambientCG; see
+// credits.json): a greyscale detail tile the part's Color tints, as Roblox tints its
+// own materials, plus a normal map for relief. Plastic, SmoothPlastic, Neon, Glass
+// and ForceField stay plain, as they are in Roblox.
+const MATERIAL_TILE_STUDS = {
+  Brick: 8, Cobblestone: 8, Pavement: 8, CeramicTiles: 8, ClayRoofTiles: 8, RoofShingles: 8,
+  WoodPlanks: 8, Wood: 8, DiamondPlate: 4, Fabric: 4, Carpet: 4, Foil: 6,
+};
+const DEFAULT_TILE_STUDS = 10;
+const materialCredits = flatMaterials
+  ? Promise.resolve({})
+  : fetch('./materials/credits.json').then(r => (r.ok ? r.json() : {})).then(j => j.materials || {}).catch(() => ({}));
+const materialTextureCache = new Map();
+
+function loadMaterialTextures(name) {
+  if (materialTextureCache.has(name)) return materialTextureCache.get(name);
+  const promise = materialCredits.then(async credits => {
+    const entry = credits[name];
+    if (!entry) return null;
+    const loader = new THREE.TextureLoader();
+    const load = url => new Promise(resolve => loader.load(url, resolve, undefined, () => resolve(null)));
+    const [map, normalMap] = await Promise.all([
+      load(`./materials/${name}.jpg`),
+      entry.normalMap ? load(`./materials/${name}_n.jpg`) : Promise.resolve(null),
+    ]);
+    for (const texture of [map, normalMap]) {
+      if (!texture) continue;
+      texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
+      texture.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
+    }
+    if (map) map.colorSpace = THREE.SRGBColorSpace;
+    return map ? {map, normalMap} : null;
+  });
+  materialTextureCache.set(name, promise);
+  return promise;
+}
+
+// UVs in studs by box projection in the part's own space: each vertex takes the two
+// axes across its face, so a texture tiles at the same world size on every face of
+// every part, whatever its size, and does not stretch on long parts.
+function studUVs(geometry, tileStuds) {
+  const position = geometry.attributes.position;
+  let normal = geometry.attributes.normal;
+  if (!normal) {
+    geometry.computeVertexNormals();
+    normal = geometry.attributes.normal;
+  }
+  const uv = new Float32Array(position.count * 2);
+  for (let i = 0; i < position.count; i += 1) {
+    const ax = Math.abs(normal.getX(i));
+    const ay = Math.abs(normal.getY(i));
+    const az = Math.abs(normal.getZ(i));
+    let u;
+    let v;
+    if (ay >= ax && ay >= az) {
+      u = position.getX(i); v = position.getZ(i);
+    } else if (ax >= az) {
+      u = position.getZ(i); v = position.getY(i);
+    } else {
+      u = position.getX(i); v = position.getY(i);
+    }
+    uv[i * 2] = u / tileStuds;
+    uv[i * 2 + 1] = v / tileStuds;
+  }
+  geometry.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+  return geometry;
+}
+
+function applyMaterialTexture(mesh, materialName, geometryReady = Promise.resolve()) {
+  if (flatMaterials || !materialName) return;
+  if (['Plastic', 'SmoothPlastic', 'Neon', 'Glass', 'ForceField'].includes(materialName)) return;
+  const tile = MATERIAL_TILE_STUDS[materialName] || DEFAULT_TILE_STUDS;
+  // After the part's own mesh load, so the UVs are computed on the final geometry.
+  const job = Promise.all([loadMaterialTextures(materialName), geometryReady]).then(([textures]) => {
+    if (!textures) return;
+    studUVs(mesh.geometry, tile);
+    mesh.material.map = textures.map;
+    if (textures.normalMap) {
+      mesh.material.normalMap = textures.normalMap;
+      mesh.material.normalScale = new THREE.Vector2(0.8, 0.8);
+    }
+    mesh.material.needsUpdate = true;
+    mesh.userData.rhrMaterialTexture = materialName;
+  });
+  materialTextureJobs.push(job);
+}
+
 function addPart(node, parent) {
   const cf = node.props?.CFrame;
   if (!cf) return;
@@ -477,6 +566,7 @@ function addPart(node, parent) {
   });
   const mesh = new THREE.Mesh(shapeGeometry(node), material);
   const special = specialMeshChild(node);
+  let geometryReady = Promise.resolve();
   if (node.className === 'MeshPart' && node.props?.MeshId) {
     const job = loadMeshGeometry(node.props.MeshId).then(baseGeometry => {
       if (!baseGeometry) return;
@@ -486,6 +576,7 @@ function addPart(node, parent) {
       mesh.userData.rhrMeshAsset = meshAssetId(node.props.MeshId);
     });
     meshGeometryJobs.push(job);
+    geometryReady = job;
   } else if (special?.props?.MeshType?.name === 'FileMesh' && special.props?.MeshId) {
     const job = loadMeshGeometry(special.props.MeshId).then(baseGeometry => {
       if (!baseGeometry) return;
@@ -495,7 +586,9 @@ function addPart(node, parent) {
       mesh.userData.rhrMeshAsset = meshAssetId(special.props.MeshId);
     });
     meshGeometryJobs.push(job);
+    geometryReady = job;
   }
+  applyMaterialTexture(mesh, materialName, geometryReady);
   mesh.castShadow = node.props?.CastShadow !== false;
   mesh.receiveShadow = true;
   mesh.userData.rhrNode = node;
@@ -1693,6 +1786,7 @@ async function main() {
     configureViewportLights(viewport);
     for (const child of Object.values(viewport.children || {})) addNode(child, scene);
     await Promise.all(meshGeometryJobs);
+    await Promise.all(materialTextureJobs);
     const cameraNode = findCamera(buildNodeIndex([viewport]));
     camera = new THREE.PerspectiveCamera();
     // Games assign CurrentCamera (a Camera instance) at runtime; the saved place
@@ -1704,6 +1798,7 @@ async function main() {
     const cameraNode = findCamera(index);
     for (const root of roots) addNode(root, scene);
     await Promise.all(meshGeometryJobs);
+    await Promise.all(materialTextureJobs);
     await addSurfaceImages(index);
     addAttachmentAnchors(index);
     addLocalLights(index);
