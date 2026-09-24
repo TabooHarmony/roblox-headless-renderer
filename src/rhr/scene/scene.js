@@ -534,8 +534,12 @@ function studUVs(geometry, tileStuds) {
 let materialVariantsByName = null;
 let sceneIndex = null;
 
+// The variant a surface uses: the part's own MaterialVariant, else MaterialService's
+// override for its base material ("GrassName" = "MossGrass"), which Terrain uses too.
 function materialVariant(index, node, materialName) {
-  const name = node.props?.MaterialVariant;
+  const service = nodesOfClass(index, 'MaterialService')[0];
+  const override = service?.props?.[`${materialName}Name`];
+  const name = node?.props?.MaterialVariant || (override && override !== materialName ? override : null);
   if (!name) return null;
   if (!materialVariantsByName) {
     materialVariantsByName = new Map();
@@ -555,8 +559,52 @@ async function loadVariantTextures(variant) {
   return {map, normalMap: null};
 }
 
+// A MeshPart's SurfaceAppearance replaces its material's look. With the mesh and the
+// ColorMap both cached, the image is drawn with the mesh's own UVs: AlphaMode
+// Transparency cuts out the transparent parts (leaves), Overlay shows the part's
+// Color through them, as in Roblox. Normal/roughness/metalness maps are not used.
+function surfaceAppearanceOf(node) {
+  if (node?.className !== 'MeshPart') return null;
+  const surface = Object.values(node.children || {}).find(child => child.className === 'SurfaceAppearance');
+  return surface?.props?.ColorMap ? surface : null;
+}
+
+function applySurfaceAppearance(mesh, node, geometryReady) {
+  const surface = surfaceAppearanceOf(node);
+  if (!surface || flatMaterials) return;
+  const job = Promise.all([loadSceneTexture(surface.props.ColorMap), geometryReady]).then(([texture]) => {
+    if (!texture || !mesh.userData.rhrMeshAsset || !texture.image) return;
+    const material = mesh.material;
+    const overlay = (surface.props?.AlphaMode?.name || 'Overlay') === 'Overlay';
+    let map = texture;
+    if (overlay) {
+      // Part colour underneath, the image on top.
+      const image = texture.image;
+      const canvas = document.createElement('canvas');
+      canvas.width = image.width || 256;
+      canvas.height = image.height || 256;
+      const context = canvas.getContext('2d');
+      context.fillStyle = '#' + material.color.getHexString(THREE.SRGBColorSpace);
+      context.fillRect(0, 0, canvas.width, canvas.height);
+      context.drawImage(image, 0, 0, canvas.width, canvas.height);
+      map = new THREE.CanvasTexture(canvas);
+      map.colorSpace = THREE.SRGBColorSpace;
+    } else {
+      material.alphaTest = 0.5;
+      material.side = THREE.DoubleSide;
+    }
+    map.wrapS = map.wrapT = THREE.RepeatWrapping;
+    material.map = map;
+    material.color.copy(colorValue(surface.props?.Color));
+    material.needsUpdate = true;
+    mesh.userData.rhrSurfaceAppearance = true;
+  });
+  materialTextureJobs.push(job);
+}
+
 function applyMaterialTexture(mesh, materialName, geometryReady = Promise.resolve(), node = null, index = null) {
   if (flatMaterials || !materialName) return;
+  if (surfaceAppearanceOf(node)) return;  // the SurfaceAppearance replaces the material's look
   const variant = node && index ? materialVariant(index, node, materialName) : null;
   if (!variant && ['Plastic', 'SmoothPlastic', 'Neon', 'Glass', 'ForceField'].includes(materialName)) return;
   const builtInTile = MATERIAL_TILE_STUDS[materialName] || DEFAULT_TILE_STUDS;
@@ -627,6 +675,7 @@ function addPart(node, parent) {
     geometryReady = job;
   }
   applyMaterialTexture(mesh, materialName, geometryReady, node, sceneIndex);
+  applySurfaceAppearance(mesh, node, geometryReady);
   mesh.castShadow = node.props?.CastShadow !== false;
   mesh.receiveShadow = true;
   mesh.userData.rhrNode = node;
@@ -700,6 +749,145 @@ async function stylePlaceholderMeshes() {
     })());
   });
   await Promise.all(jobs);
+}
+
+// Voxel terrain (rhr.terrain decodes Terrain.SmoothGrid): 4-stud blocks, one mesh
+// per material, faces only where a block meets empty space. A surface block's top
+// sits at its occupancy, so a half-filled voxel is a half-height block; that is as
+// smooth as this gets. Roblox smooths terrain into curved surfaces; this shows where
+// the ground, hills and water are, not their exact shape. Experimental.
+let terrainSummary = null;
+
+function base64Bytes(text) {
+  const binary = atob(text);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+  return bytes;
+}
+
+async function addTerrain(index) {
+  if (!nodesOfClass(index, 'Terrain').length) return;
+  let terrain;
+  try {
+    const response = await fetch('/__rhr_terrain__.json');
+    terrain = response.ok ? await response.json() : null;
+  } catch (_) {
+    terrain = null;
+  }
+  if (!terrain || !terrain.chunks?.length) return;
+  const n = terrain.chunkSize;
+  const v = terrain.voxelStuds;
+  const names = terrain.materials;
+  const WATER = names.indexOf('Water');
+  const chunks = new Map();
+  for (const chunk of terrain.chunks) {
+    chunks.set(chunk.position.join(','), {
+      position: chunk.position,
+      materials: base64Bytes(chunk.materials),
+      occupancy: base64Bytes(chunk.occupancy),
+    });
+  }
+  // A voxel counts when it is at least a fifth full; thinner slivers are dropped.
+  const MIN_OCC = 50;
+  const voxel = (gx, gy, gz) => {
+    const cx = Math.floor(gx / n), cy = Math.floor(gy / n), cz = Math.floor(gz / n);
+    const chunk = chunks.get(`${cx},${cy},${cz}`);
+    if (!chunk) return 0;
+    const i = (gx - cx * n) + n * (gz - cz * n) + n * n * (gy - cy * n);
+    const material = chunk.materials[i];
+    if (!material || chunk.occupancy[i] < MIN_OCC) return 0;
+    return material;
+  };
+  const occupancyAt = (gx, gy, gz) => {
+    const cx = Math.floor(gx / n), cy = Math.floor(gy / n), cz = Math.floor(gz / n);
+    const chunk = chunks.get(`${cx},${cy},${cz}`);
+    return chunk ? chunk.occupancy[(gx - cx * n) + n * (gz - cz * n) + n * n * (gy - cy * n)] : 0;
+  };
+  const solid = m => m !== 0 && m !== WATER;
+  const byMaterial = new Map();
+  const quad = (list, corners, normal) => {
+    // Two triangles, counter-clockwise seen from `normal`.
+    for (const k of [0, 1, 2, 0, 2, 3]) list.positions.push(...corners[k]);
+    for (let k = 0; k < 6; k += 1) list.normals.push(...normal);
+  };
+  let blocks = 0;
+  for (const chunk of chunks.values()) {
+    const [cx, cy, cz] = chunk.position;
+    for (let ly = 0; ly < n; ly += 1) for (let lz = 0; lz < n; lz += 1) for (let lx = 0; lx < n; lx += 1) {
+      const i = lx + n * lz + n * n * ly;
+      const material = chunk.materials[i];
+      if (!material || chunk.occupancy[i] < MIN_OCC) continue;
+      const gx = cx * n + lx, gy = cy * n + ly, gz = cz * n + lz;
+      const water = material === WATER;
+      const covers = m => (water ? m !== 0 : solid(m));  // what hides a face of this block
+      const above = voxel(gx, gy + 1, gz);
+      const height = covers(above) ? v : v * Math.max(0.25, occupancyAt(gx, gy, gz) / 255);
+      const x0 = gx * v, y0 = gy * v, z0 = gz * v, x1 = x0 + v, y1 = y0 + height, z1 = z0 + v;
+      let list = byMaterial.get(material);
+      if (!list) byMaterial.set(material, list = {positions: [], normals: []});
+      let faces = 0;
+      if (!covers(above) || height < v) { quad(list, [[x0, y1, z0], [x0, y1, z1], [x1, y1, z1], [x1, y1, z0]], [0, 1, 0]); faces += 1; }
+      if (!covers(voxel(gx, gy - 1, gz))) { quad(list, [[x0, y0, z0], [x1, y0, z0], [x1, y0, z1], [x0, y0, z1]], [0, -1, 0]); faces += 1; }
+      if (!covers(voxel(gx + 1, gy, gz))) { quad(list, [[x1, y0, z0], [x1, y1, z0], [x1, y1, z1], [x1, y0, z1]], [1, 0, 0]); faces += 1; }
+      if (!covers(voxel(gx - 1, gy, gz))) { quad(list, [[x0, y0, z0], [x0, y0, z1], [x0, y1, z1], [x0, y1, z0]], [-1, 0, 0]); faces += 1; }
+      if (!covers(voxel(gx, gy, gz + 1))) { quad(list, [[x0, y0, z1], [x1, y0, z1], [x1, y1, z1], [x0, y1, z1]], [0, 0, 1]); faces += 1; }
+      if (!covers(voxel(gx, gy, gz - 1))) { quad(list, [[x0, y0, z0], [x0, y1, z0], [x1, y1, z0], [x1, y0, z0]], [0, 0, -1]); faces += 1; }
+      if (faces) blocks += 1;
+    }
+  }
+  const terrainNode = nodesOfClass(index, 'Terrain')[0];
+  const jobs = [];
+  for (const [material, list] of byMaterial) {
+    if (!list.positions.length) continue;
+    const name = names[material];
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.Float32BufferAttribute(list.positions, 3));
+    geometry.setAttribute('normal', new THREE.Float32BufferAttribute(list.normals, 3));
+    const water = material === WATER;
+    const rgb = water ? null : terrain.colors[name];
+    const color = water
+      ? colorValue(nodesOfClass(index, 'Terrain')[0]?.props?.WaterColor, 0x0c545c)
+      : new THREE.Color().setRGB(rgb[0] / 255, rgb[1] / 255, rgb[2] / 255, THREE.SRGBColorSpace);
+    const meshMaterial = new THREE.MeshStandardMaterial({
+      color,
+      roughness: water ? 0.2 : 0.95,
+      metalness: 0,
+      transparent: water,
+      opacity: water ? 0.65 : 1,
+      depthWrite: !water,
+    });
+    const mesh = new THREE.Mesh(geometry, meshMaterial);
+    mesh.receiveShadow = true;
+    mesh.castShadow = !water;
+    mesh.userData.rhrNode = terrainNode;
+    mesh.userData.rhrTerrain = name;
+    scene.add(mesh);
+    if (!water && !flatMaterials) {
+      const variant = materialVariant(index, null, name);
+      jobs.push((async () => {
+        // The place's own variant image, in its real colours, tinted by the place's
+        // MaterialColor as Roblox does (white leaves it as is); else the look-alike.
+        const own = variant ? await loadVariantTextures(variant) : null;
+        if (own) {
+          studUVs(geometry, Number(variant.props?.StudsPerTile) || 10);
+          const raw = terrain.rawColors?.[name] || [255, 255, 255];
+          meshMaterial.color.setRGB(raw[0] / 255, raw[1] / 255, raw[2] / 255, THREE.SRGBColorSpace);
+          meshMaterial.map = own.map;
+          meshMaterial.needsUpdate = true;
+          mesh.userData.rhrMaterialVariant = variant.name;
+          return;
+        }
+        const textures = await loadMaterialTextures(name);
+        if (!textures) return;
+        studUVs(geometry, MATERIAL_TILE_STUDS[name] || DEFAULT_TILE_STUDS);
+        meshMaterial.map = textures.map;
+        if (textures.normalMap) meshMaterial.normalMap = textures.normalMap;
+        meshMaterial.needsUpdate = true;
+      })());
+    }
+  }
+  await Promise.all(jobs);
+  terrainSummary = {blocks, materials: [...byMaterial.keys()].map(m => names[m])};
 }
 
 function addNode(node, parent) {
@@ -1864,6 +2052,9 @@ async function addSurfaceGuis(index, camera) {
 
 async function reportNotes() {
   const notes = [];
+  if (terrainSummary) {
+    notes.push(`terrain drawn as ${terrainSummary.blocks} 4-stud blocks (${terrainSummary.materials.join(', ')}); Roblox's smooth shape is approximated`);
+  }
   if (localLightsDropped) {
     notes.push(`drew the ${MAX_LOCAL_LIGHTS} most relevant local lights; ${localLightsDropped} farther ones were left out`);
   }
@@ -1945,6 +2136,7 @@ async function main() {
   } else {
     const cameraNode = findCamera(index);
     for (const root of roots) addNode(root, scene);
+    await addTerrain(index);
     await Promise.all(meshGeometryJobs);
     await Promise.all(materialTextureJobs);
     await stylePlaceholderMeshes();

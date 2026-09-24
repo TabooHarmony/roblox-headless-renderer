@@ -37,6 +37,19 @@ class _SceneHandler(http.server.SimpleHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(payload)
             return
+        if request_path == "/__rhr_terrain__.json":
+            # Voxel terrain from the source place (rhr.terrain); `null` without any.
+            from rhr.terrain import terrain_payload
+
+            source = json.loads(self.ir_path.read_text(encoding="utf-8")).get("sourcePath")
+            terrain = terrain_payload(Path(source)) if source and Path(source).is_file() else None
+            payload = json.dumps(terrain).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(payload)))
+            self.end_headers()
+            self.wfile.write(payload)
+            return
         if request_path == "/__rhr_assets__.json":
             payload = self.asset_manifest_payload
             self.send_response(200)

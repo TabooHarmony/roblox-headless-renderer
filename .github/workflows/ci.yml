@@ -78,7 +78,7 @@ jobs:
             python -m pytest -m "not browser"
             python -m pytest tests/test_scene.py tests/test_preview.py tests/test_mcp_adapter.py \
               tests/test_scene_framing.py tests/test_browser_session.py tests/test_scene_material_textures.py \
-              tests/test_place_realism.py
+              tests/test_place_realism.py tests/test_terrain.py
           else
             python -m pytest
           fi

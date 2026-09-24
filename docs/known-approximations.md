@@ -134,15 +134,23 @@ scaled model that ships with Studio).
 
 **Drawn as stand-ins, and reported as such:**
 
-- MeshParts and FileMeshes use cached mesh files (`rhr fetch`). Roblox now serves
-  most mesh files only to a signed-in account (all 47 in Roblox's own game template),
-  so in practice most MeshParts are placeholders: their bounding box with an outline,
-  casting no shadow, counted as a geometry fallback. The box takes its colour from the
-  part's SurfaceAppearance ColorMap when that image is cached (images do not need
-  sign-in), so foliage is green rather than a white block. Skinned meshes, bones, LOD
-  and SurfaceAppearance's other maps are not modelled.
+- MeshParts and FileMeshes use cached mesh files (`rhr fetch`). Roblox serves most
+  mesh files only to a signed-in account (all 47 in Roblox's own game template);
+  `rhr fetch --use-studio-login` gets them as the Roblox Studio user on the machine.
+  A MeshPart with its mesh is drawn with its SurfaceAppearance ColorMap through the
+  mesh's UVs (AlphaMode Transparency cuts out, Overlay shows the part colour
+  through); the normal, roughness and metalness maps are not used. Without the mesh
+  it is a placeholder: its bounding box with an outline, no shadow, coloured from the
+  SurfaceAppearance image, counted as a geometry fallback. Skinned meshes, bones and
+  LOD are not modelled.
 - Unions (`UnionOperation`) are drawn as their bounding box.
-- Terrain is not drawn. `scene-dump` reports whether a place has any.
+- Terrain is drawn as 4-stud blocks (experimental, `TerrainBlocks` in the notes),
+  decoded from the place's saved voxels (the format was checked voxel by voxel
+  against Studio). A block takes its material's colour, or the MaterialVariant image
+  MaterialService assigns to that material; a partly filled surface voxel is a
+  shorter block; water is translucent. Roblox's smooth surfaces, terrain decorations
+  (grass blades) and water waves are not drawn. Terrain whose data does not decode is
+  reported as unsupported instead of guessed.
 
 ## In-world UI (BillboardGui, SurfaceGui)
 

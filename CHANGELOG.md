@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.4.0 (alpha)
+
+### Added
+
+- **Terrain** is drawn, as 4-stud blocks. RHR decodes the place's saved voxels (the
+  format has no public spec; it was worked out and checked voxel by voxel against
+  Studio) and colours each block by material, or with the MaterialVariant image the
+  place assigns to that material. Builds no longer float.
+- **`rhr fetch --use-studio-login`** downloads the meshes Roblox serves only to
+  signed-in accounts (most of them) as the user signed in to Roblox Studio on the
+  machine. The login is read and sent to roblox.com by Lune; RHR never sees or
+  stores it. On Roblox's game template this took real meshes from 0 to 47 of 47.
+- **SurfaceAppearance images** are drawn on real meshes (foliage cut-outs, Overlay
+  colour), and MaterialService's per-material overrides are applied to parts and
+  terrain.
+
 ## 0.3.0 (alpha)
 
 Found by running RHR on Roblox's own game template (2,800 instances, 800 MeshParts,

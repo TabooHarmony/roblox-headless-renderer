@@ -14,7 +14,7 @@ line or in CI. No GPU or display is needed.
 
 <p align="center"><sub>Both images come from <code>examples/</code>, rendered by <code>rhr render</code> and <code>rhr scene --view iso --shadows</code>.</sub></p>
 
-> **Status: v0.3, an early alpha.** The UI layout numbers are solid: they match
+> **Status: v0.4, an early alpha.** The UI layout numbers are solid: they match
 > Studio within 2 px on every test place. The pictures are *previews*: close enough
 > to spot mistakes, not a copy of Studio's renderer. Anything RHR can't draw
 > faithfully, it says so in its output instead of guessing quietly. See
@@ -71,7 +71,7 @@ The shop has one deliberate mistake, and `rhr check` finds it:
 | `rhr preview <file>` | One PNG with the 3D world, in-world UI (BillboardGui, SurfaceGui) and screen UI together |
 | `rhr compare a.png b.png` | How much changed between two renders, to tell a geometry change from a colour change |
 | `rhr ir <file>` | The parsed file as JSON, including properties that could not be read |
-| `rhr fetch <file>` | Download the images and meshes a model uses into the local cache (the only command that uses the network) |
+| `rhr fetch <file>` | Download the images and meshes a model uses into the local cache (the only command that uses the network). `--use-studio-login` gets meshes that need a signed-in account |
 | `rhr setup` / `rhr doctor` | Install the external tools / check them |
 
 Every JSON output carries a `schema` name (`rhr.layout/1`, `rhr.check/1`, ...), so a
@@ -104,9 +104,18 @@ it once.
   `rhr fetch <file>` once to download the images and meshes a model uses into a local
   cache. Without them, images are left empty and meshes are drawn as boxes, and the
   output says so. Images come from Roblox's thumbnail service (no sign-in, up to
-  420 px). Roblox now serves most mesh files only to a signed-in account, so most
-  MeshParts are drawn as outlined placeholder boxes in their SurfaceAppearance's
-  colour; `rhr fetch` lists which meshes it could not get.
+  420 px). Roblox serves most mesh files only to a signed-in account: add
+  `--use-studio-login` to download them as the user signed in to Roblox Studio on
+  that machine (see below). Without the meshes, MeshParts are outlined placeholder
+  boxes in their SurfaceAppearance's colour.
+- **`--use-studio-login`** is opt-in. Lune reads the login Roblox Studio saved on
+  your machine and sends it only to Roblox's own asset download service, the same
+  request Studio makes; RHR never sees, prints, logs or stores it. It downloads
+  only the meshes the model uses that the normal route could not get. Use it on
+  your own machine and your own models.
+- **Terrain** is drawn as 4-stud blocks in each material's colour (or the place's
+  own MaterialVariant image), with partly filled voxels as shorter blocks. It shows
+  where the ground, hills and water are; Roblox's smooth shape is approximated.
 - **Place files.** In a `.rbxl`, only StarterGui's ScreenGuis are drawn; templates
   stored in ReplicatedStorage and elsewhere are named on stderr (`--all-guis` draws
   them). MaterialVariants use their own images once `rhr fetch` has cached them.

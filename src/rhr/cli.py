@@ -301,7 +301,8 @@ def _fetch(args) -> int:
         ir_path = ir_for(source, None)
     except (ValueError, RuntimeError) as exc:
         return _die(str(exc))
-    return fetch.run(ir_path, images=not args.meshes_only, meshes=not args.images_only)
+    return fetch.run(ir_path, images=not args.meshes_only, meshes=not args.images_only,
+                     studio_login=args.use_studio_login)
 
 
 def _ir(args) -> int:
@@ -656,6 +657,11 @@ def build_parser() -> argparse.ArgumentParser:
     only = p_fetch.add_mutually_exclusive_group()
     only.add_argument("--images-only", action="store_true", help="fetch images only")
     only.add_argument("--meshes-only", action="store_true", help="fetch meshes only")
+    p_fetch.add_argument(
+        "--use-studio-login", action="store_true",
+        help="download meshes Roblox serves only to signed-in accounts as the user signed in to "
+             "Roblox Studio on this machine (Lune reads the login and sends it only to roblox.com; "
+             "RHR never sees or stores it)")
     p_fetch.set_defaults(func=_fetch)
 
     p_doctor = sub.add_parser("doctor", help="check what RHR needs and say what is missing")

@@ -68,8 +68,10 @@ What RHR tells you it did not do exactly:
   `experimental`.
 - Images and meshes need a local cache: run `rhr fetch <file>` once (it needs the
   network; nothing else does). Without it images are skipped and meshes are boxes, and
-  the output says so. Most meshes need a signed-in account, so expect MeshParts as
-  outlined placeholder boxes: right position and size, not the real shape.
+  the output says so. Most meshes need a signed-in account: `--use-studio-login` gets
+  them as the machine's Roblox Studio user. Only use it if the person you work for has
+  asked for it; it acts as their Roblox account.
+- Terrain is drawn as 4-stud blocks: trust where the ground is, not its exact shape.
 - In a place file, a ScreenGui outside StarterGui (a template in ReplicatedStorage)
   is not drawn or checked; a `note` names it. Pass `--all-guis` to include it.
 - Material textures (brick, wood, grass...) are look-alikes, not Roblox's images. When

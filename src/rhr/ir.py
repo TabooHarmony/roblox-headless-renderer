@@ -94,9 +94,10 @@ def cached_ir(source_path, *, profile: str = "full") -> Path:
 
     An agent runs several commands on one unchanged file (layout, then render, then
     check); converting it through Lune each time costs about a second. The cache key
-    is the file's content plus the converter script and the Lune binary, so an edited
-    file, a new RHR or a new Lune always converts again. Each key has its own folder,
-    which also keeps two different files that share a name apart.
+    is the file's content and location plus the converter script and the Lune
+    binary, so an edited or moved file, a new RHR or a new Lune always converts
+    again. Each key has its own folder, which also keeps two different files that
+    share a name apart.
     """
     from rhr.paths import IR_DIR
 
@@ -108,6 +109,9 @@ def cached_ir(source_path, *, profile: str = "full") -> Path:
     digest.update(source_path.read_bytes())
     digest.update(LUAU_IR_SCRIPT.read_bytes())
     digest.update(f"{profile}|{lune}|{lune.stat().st_size}|{lune.stat().st_mtime_ns}".encode())
+    # The IR records where it came from (sourcePath, read again for terrain); the same
+    # bytes in another folder are a different entry, so that path is never stale.
+    digest.update(str(source_path).encode("utf-8"))
     folder = IR_DIR / digest.hexdigest()[:20]
     suffix = ".json" if profile == "full" else f".{profile}.json"
     target = folder / f"{source_path.stem}{suffix}"

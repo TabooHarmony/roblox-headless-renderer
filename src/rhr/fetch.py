@@ -10,8 +10,11 @@ images, Decals, Textures, Sky faces, particle and beam textures) and mesh ids
 
 Images come from the thumbnail service, which needs no sign-in but serves a
 thumbnail (up to 420 px) rather than the original file. Roblox's asset delivery
-serves some meshes only to a signed-in account; those are reported, not guessed.
-Only fetch assets you have the right to use.
+serves most meshes only to a signed-in account. With `--use-studio-login`, those are
+downloaded as the user signed in to Roblox Studio on this machine: a Lune script
+(luau/fetch-signed-in.luau) reads Studio's saved login and sends it only to Roblox's
+asset delivery; RHR never sees, prints or stores it. Without the flag they are
+reported, not guessed. Only fetch assets you have the right to use.
 """
 
 from __future__ import annotations
@@ -108,17 +111,48 @@ def fetch_mesh(asset: str, cache_dir: Path = MESH_CACHE, *, timeout: float = 20.
         return f"missing (HTTP {exc.code})"
     except (urllib.error.URLError, TimeoutError, OSError) as exc:
         return f"missing ({exc})"
+    return _store_mesh(payload, destination)
+
+
+def _store_mesh(payload: bytes, destination: Path) -> str:
     try:
         raw = gzip.decompress(payload) if payload.startswith(b"\x1f\x8b") else payload
     except (gzip.BadGzipFile, EOFError) as exc:
         return f"missing (invalid gzip: {exc})"
     if not raw.startswith(b"version "):
         return f"missing (not a Roblox mesh: {raw[:16]!r})"
-    cache_dir.mkdir(parents=True, exist_ok=True)
+    destination.parent.mkdir(parents=True, exist_ok=True)
     temporary = destination.with_suffix(".mesh.tmp")
     temporary.write_bytes(raw)
     temporary.replace(destination)
     return "fetched"
+
+
+def fetch_meshes_signed_in(ids: list[str], cache_dir: Path = MESH_CACHE) -> dict[str, str]:
+    """Download meshes as the Roblox Studio user on this machine (see the module docstring)."""
+    import subprocess
+    import tempfile
+
+    from rhr.ir import lune_executable
+    from rhr.paths import PACKAGE
+
+    script = PACKAGE / "luau" / "fetch-signed-in.luau"
+    results: dict[str, str] = {}
+    with tempfile.TemporaryDirectory(prefix="rhr-signed-in-") as directory:
+        for start in range(0, len(ids), 50):
+            batch = ids[start:start + 50]
+            proc = subprocess.run([lune_executable(), "run", str(script), directory, *batch],
+                                  capture_output=True, text=True, timeout=300, stdin=subprocess.DEVNULL)
+            if proc.stdout.strip() == "nologin":
+                return {i: "missing (no Roblox Studio login found on this machine)" for i in ids}
+            for line in proc.stdout.splitlines():
+                asset, _, status = line.partition(" ")
+                if status == "ok":
+                    payload = (Path(directory) / f"{asset}.bin").read_bytes()
+                    results[asset] = _store_mesh(payload, cache_dir / f"{asset}.mesh")
+                elif asset:
+                    results[asset] = f"missing (signed in: {status})"
+    return {i: results.get(i, "missing (signed in: no answer)") for i in ids}
 
 
 def fetch_meshes(ids: set[str], cache_dir: Path = MESH_CACHE) -> dict[str, str]:
@@ -132,7 +166,7 @@ def fetch_meshes(ids: set[str], cache_dir: Path = MESH_CACHE) -> dict[str, str]:
     return results
 
 
-def run(ir_path: Path, *, images: bool = True, meshes: bool = True) -> int:
+def run(ir_path: Path, *, images: bool = True, meshes: bool = True, studio_login: bool = False) -> int:
     """Fetch everything the IR at `ir_path` references; print a summary. Exit code."""
     ir = json.loads(Path(ir_path).read_text(encoding="utf-8"))
     image_ids, mesh_ids = collect_refs(ir)
@@ -148,6 +182,14 @@ def run(ir_path: Path, *, images: bool = True, meshes: bool = True) -> int:
     if meshes:
         print(f"meshes  {len(mesh_ids)} referenced", file=sys.stderr)
         results = fetch_meshes(mesh_ids)
+        needs_login = sorted((a for a, r in results.items() if "signed-in account" in r), key=int)
+        if needs_login and studio_login:
+            print(f"meshes  {len(needs_login)} need a signed-in account: fetching as the Roblox Studio user",
+                  file=sys.stderr)
+            results.update(fetch_meshes_signed_in(needs_login))
+        elif needs_login:
+            print(f"meshes  {len(needs_login)} need a signed-in account; `--use-studio-login` fetches them "
+                  "as the user signed in to Roblox Studio on this machine", file=sys.stderr)
         for asset in sorted(results, key=int):
             if results[asset].startswith("missing"):
                 print(f"  {asset}: {results[asset]}", file=sys.stderr)

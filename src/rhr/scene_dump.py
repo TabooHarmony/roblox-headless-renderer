@@ -294,14 +294,26 @@ def build_scene_dump(
             payload = terrain_payloads[terrain_index] if terrain_index < len(terrain_payloads) else None
             terrain_index += 1
             empty = payload == EMPTY_TERRAIN_SMOOTH_GRID if payload is not None else None
+            decodes = False
+            if payload is not None and not empty:
+                from rhr.terrain import TerrainFormatError, decode_smooth_grid
+
+                try:
+                    decodes = bool(decode_smooth_grid(payload))
+                except TerrainFormatError:
+                    decodes = False
             terrain_summaries.append({
                 "path": path,
                 "rawAvailable": payload is not None,
                 "smoothGridBytes": len(payload) if payload is not None else None,
                 "empty": empty,
+                # Drawn as 4-stud blocks (experimental) when its voxels decode.
+                "drawn": "blocks" if decodes else None,
             })
-            if empty is not True:
+            if empty is not True and not decodes:
                 unsupported_counts["Terrain"] = unsupported_counts.get("Terrain", 0) + 1
+            elif decodes:
+                class_counts["TerrainBlocks"] = class_counts.get("TerrainBlocks", 0) + 1
 
         if class_name == "Sky" and (sky is None or in_lighting):
             face_properties = (
@@ -478,7 +490,7 @@ def build_scene_dump(
 # the way Part geometry, cameras and UI layout are.
 EXPERIMENTAL_CLASSES = (
     "Atmosphere", "Beam", "Decal", "MeshPart", "ParticleEmitter", "PointLight", "Sky",
-    "SpecialMesh", "SpotLight", "SurfaceLight", "Texture", "Trail",
+    "SpecialMesh", "SpotLight", "SurfaceLight", "TerrainBlocks", "Texture", "Trail",
 )
 
 

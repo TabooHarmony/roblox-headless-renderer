@@ -90,6 +90,14 @@ local PROPS = {
   "ZOffset",
   -- SurfaceAppearance and MaterialVariant images; a part's MaterialVariant by name
   "ColorMap", "StudsPerTile", "BaseMaterial", "MaterialVariant", "AlphaMode",
+  -- MaterialService's per-material overrides ("GrassName" = the MaterialVariant used)
+  "PlasticName", "SmoothPlasticName", "NeonName", "WoodName", "WoodPlanksName", "MarbleName",
+  "SlateName", "ConcreteName", "GraniteName", "BrickName", "PebbleName", "CobblestoneName",
+  "CorrodedMetalName", "DiamondPlateName", "FoilName", "MetalName", "GrassName", "SandName",
+  "FabricName", "IceName", "GlacierName", "SnowName", "SandstoneName", "MudName", "BasaltName",
+  "GroundName", "CrackedLavaName", "AsphaltName", "LeafyGrassName", "SaltName", "LimestoneName",
+  "PavementName", "RockName", "CardboardName", "CarpetName", "CeramicTilesName",
+  "ClayRoofTilesName", "RoofShinglesName", "LeatherName", "PlasterName", "RubberName",
   -- Containers. (No "Name" here: it is already listed above, and this is a list, so a
   -- duplicate is a second read of the same property on every instance.)
 }
@@ -131,6 +139,8 @@ local VISUAL_CLASSES = {
   -- Known visual classes not rendered yet: keep them visible to coverage/fallbacks.
   Terrain = true, Sky = true, Atmosphere = true, SurfaceAppearance = true,
   MaterialVariant = true, Highlight = true,
+  -- Its per-material overrides pick the MaterialVariant parts and Terrain draw with.
+  MaterialService = true,
 }
 
 local VISUAL_XML_RECOVERY = {

@@ -80,6 +80,31 @@ def main() -> int:
     check("16 most relevant local lights; 4 farther ones were left out" in proc.stderr,
           "20 PointLights: 16 drawn, and a note counts the 4 left out")
 
+    # With its mesh cached, the same MeshPart is drawn as the mesh, textured with its
+    # SurfaceAppearance image (red) through the mesh's own UVs.
+    import tempfile
+
+    sys.path.insert(0, str(REPO / "tests"))
+    from test_scene_meshpart import mesh_v2
+
+    with tempfile.TemporaryDirectory(prefix="rhr-sa-mesh-") as meshes:
+        (Path(meshes) / "900000199.mesh").write_bytes(mesh_v2())
+        png = OUT / "scene-mesh.png"
+        proc = rhr("scene", str(SCENE), "--viewport", "400x240", "--texture-dir", str(TEXTURES),
+                   "--mesh-dir", meshes, "--out", str(png))
+    check(proc.returncode == 0 and "geometry-fallbacks=0" in proc.stderr,
+          f"with the mesh cached, the MeshPart is not a fallback ({proc.stderr.strip()[-160:]})")
+    with Image.open(png).convert("RGB") as img:
+        import numpy as np
+
+        rgb = np.asarray(img).astype(int)[:, 200:]
+    red = (rgb[..., 0] > rgb[..., 1] + 60) & (rgb[..., 0] > rgb[..., 2] + 60)
+    check(red.mean() > 0.01, f"the mesh draws its SurfaceAppearance image ({red.mean():.1%} red pixels)")
+
+    # `rhr fetch --use-studio-login` is not exercised here: tests never read a user's
+    # Roblox login or touch the network. It is checked by hand (all 47 meshes of
+    # Roblox's game template, which all need a signed-in account).
+
     print("place realism: ok" if not failures else f"place realism: {len(failures)} failed")
     return 1 if failures else 0
 

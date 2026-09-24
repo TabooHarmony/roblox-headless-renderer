@@ -125,6 +125,7 @@ def main() -> None:
             "rawAvailable": True,
             "smoothGridBytes": 2,
             "empty": True,
+            "drawn": None,
         }]
         assert "Terrain" not in dump["unsupportedVisualClasses"]
 
@@ -134,6 +135,8 @@ def main() -> None:
         nonempty_ir.write_text(json.dumps(terrain_ir(nonempty_binary)))
         nonempty_dump = build_scene_dump(nonempty_ir)
         assert nonempty_dump["terrain"][0]["empty"] is False
+        # Bytes that do not decode as voxels stay unsupported rather than drawn as a guess.
+        assert nonempty_dump["terrain"][0]["drawn"] is None
         assert nonempty_dump["unsupportedVisualClasses"]["Terrain"] == 1
 
         unknown_ir = tmp / "unknown.json"
