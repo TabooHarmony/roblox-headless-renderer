@@ -459,11 +459,111 @@ const MATERIAL_TABLE = {
   Rubber: {roughness: 0.92, metalness: 0.0},
 };
 
-// Material look-alike textures (src/rhr/scene/materials, CC0 from ambientCG; see
-// credits.json): a greyscale detail tile the part's Color tints, as Roblox tints its
-// own materials, plus a normal map for relief. Plastic, SmoothPlastic, Neon, Glass
-// and ForceField stay plain, as they are in Roblox.
-const MATERIAL_TILE_STUDS = {
+// Roblox's own material textures. Roblox publishes the asset ids of every built-in
+// material's colour, normal, roughness and metalness maps (roblox_materials.json,
+// from its creator docs); `rhr fetch` / the render's own fetch step downloads them
+// with the Studio login into the local cache, and /__rhr_extras__.json lists what is
+// there. The colour map's alpha marks where the part's Color applies (Brick: the
+// bricks take the colour, the mortar keeps its own), so the shader tints by it.
+// MaterialService.Use2022Materials picks the current or the pre-2022 set.
+//
+// Without them (no Studio login, or --flat-materials off but nothing cached) the
+// CC0 look-alikes below stand in: a greyscale detail tile the part's Color tints,
+// plus a normal map for relief.
+const extrasManifest = fetch('/__rhr_extras__.json')
+  .then(response => (response.ok ? response.json() : {}))
+  .catch(() => ({}));
+const robloxMaterialTable = flatMaterials
+  ? Promise.resolve(null)
+  : fetch('./roblox_materials.json').then(r => (r.ok ? r.json() : null)).catch(() => null);
+// Roblox tiles its built-in material textures once per 10 studs (the same default
+// MaterialVariant.StudsPerTile has).
+const ROBLOX_TILE_STUDS = 10;
+let use2022Materials = true;
+const robloxMapCache = new Map();
+const robloxMaterialsUsed = new Set();
+const lookAlikeMaterialsUsed = new Set();
+
+function computeUse2022Materials(index) {
+  const service = nodesOfClass(index, 'MaterialService')[0];
+  if (service) {
+    const props = service.props || {};
+    return Boolean(props.Use2022MaterialsXml ?? props.Use2022Materials ?? false);
+  }
+  // A place that never saved the setting keeps the pre-2022 set; a model file lands
+  // in whatever place uses it, which today uses the current set.
+  return !(nodesOfClass(index, 'Lighting').length || nodesOfClass(index, 'Workspace').length);
+}
+
+function loadRobloxMap(id, color) {
+  const key = `${id}|${color ? 'c' : 'd'}`;
+  if (robloxMapCache.has(key)) return robloxMapCache.get(key);
+  const promise = extrasManifest.then(extras => {
+    const url = id ? extras.materials?.[id] : null;
+    if (!url) return null;
+    return new Promise(resolve => new THREE.TextureLoader().load(url, texture => {
+      texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
+      texture.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
+      texture.colorSpace = color ? THREE.SRGBColorSpace : THREE.NoColorSpace;
+      resolve(texture);
+    }, undefined, () => resolve(null)));
+  });
+  robloxMapCache.set(key, promise);
+  return promise;
+}
+
+// The map ids for a material (a part's, or a terrain face's: 'top' / 'side' / 'bottom').
+async function robloxMaterialEntry(name, terrainFace = null) {
+  const table = await robloxMaterialTable;
+  if (!table) return null;
+  if (terrainFace) {
+    const terrain = use2022Materials ? table.terrain : {...table.terrain, ...table.terrainLegacy};
+    const faces = terrain[name];
+    if (!faces) return null;
+    return faces[terrainFace] || faces.all || faces.side || faces.top || null;
+  }
+  const parts = use2022Materials ? table.parts : {...table.parts, ...table.partsLegacy};
+  return parts[name] || null;
+}
+
+async function loadRobloxMaterial(name, terrainFace = null) {
+  const entry = await robloxMaterialEntry(name, terrainFace);
+  if (!entry?.color) return null;
+  const [map, normalMap, roughnessMap, metalnessMap] = await Promise.all([
+    loadRobloxMap(entry.color, true),
+    loadRobloxMap(entry.normal, false),
+    loadRobloxMap(entry.roughness, false),
+    loadRobloxMap(entry.metalness, false),
+  ]);
+  if (!map) return null;
+  return {map, normalMap, roughnessMap, metalnessMap, roblox: true};
+}
+
+// Colour = texture x part colour where the texture's alpha is 1, texture alone where
+// it is 0; the alpha never makes the surface see-through.
+function useTintMask(material) {
+  material.onBeforeCompile = shader => {
+    shader.fragmentShader = shader.fragmentShader.replace('#include <map_fragment>', `
+#ifdef USE_MAP
+  vec4 rhrTexel = texture2D( map, vMapUv );
+  diffuseColor.rgb = rhrTexel.rgb * mix( vec3( 1.0 ), diffuseColor.rgb, rhrTexel.a );
+#endif`);
+  };
+  material.customProgramCacheKey = () => 'rhr-tint-mask';
+}
+
+// Metals reflect the sky. Only surfaces that are mostly metal get the environment
+// map: it would also add sky light to every rough surface, whose lighting is set by
+// the scene's lights (see configureSceneLights).
+let environmentTexture = null;
+let environmentSpecularScale = 1;
+const environmentMaterials = new Set();
+function wantsEnvironment(material) {
+  environmentMaterials.add(material);
+  if (environmentTexture) material.envMap = environmentTexture;
+}
+
+const LOOKALIKE_TILE_STUDS = {
   Brick: 8, Cobblestone: 8, Pavement: 8, CeramicTiles: 8, ClayRoofTiles: 8, RoofShingles: 8,
   WoodPlanks: 8, Wood: 8, DiamondPlate: 4, Fabric: 4, Carpet: 4, Foil: 6,
 };
@@ -496,9 +596,48 @@ function loadMaterialTextures(name) {
   return promise;
 }
 
+// Roblox's textures where cached, else the look-alike; with the tile size to use.
+async function materialTextures(name, terrainFace = null) {
+  const roblox = await loadRobloxMaterial(name, terrainFace);
+  if (roblox) {
+    robloxMaterialsUsed.add(name);
+    return {...roblox, tile: ROBLOX_TILE_STUDS};
+  }
+  const lookAlike = await loadMaterialTextures(name);
+  if (lookAlike) lookAlikeMaterialsUsed.add(name);
+  return lookAlike ? {...lookAlike, tile: LOOKALIKE_TILE_STUDS[name] || DEFAULT_TILE_STUDS} : null;
+}
+
+// Apply a set of material maps to a MeshStandardMaterial.
+function applyMaps(material, textures) {
+  material.map = textures.map;
+  if (textures.roblox) useTintMask(material);
+  if (textures.normalMap) {
+    material.normalMap = textures.normalMap;
+    material.normalScale = new THREE.Vector2(1, 1);
+  }
+  if (textures.roughnessMap) {
+    material.roughnessMap = textures.roughnessMap;
+    material.roughness = 1;
+  }
+  if (textures.metalnessMap) {
+    material.metalnessMap = textures.metalnessMap;
+    // With Lighting.EnvironmentSpecularScale 0 Roblox's metals reflect no sky and
+    // read as their colour, lit like any surface (Studio); at 1 they are full metals.
+    material.metalness = environmentSpecularScale;
+    wantsEnvironment(material);
+  } else if (textures.roblox) {
+    material.metalness = 0;
+  }
+  material.needsUpdate = true;
+}
+
 // UVs in studs by box projection in the part's own space: each vertex takes the two
-// axes across its face, so a texture tiles at the same world size on every face of
-// every part, whatever its size, and does not stretch on long parts.
+// axes across its face, measured from the part's corner, so a texture tiles at the
+// same world size on every face of every part, whatever its size, and does not
+// stretch on long parts. U runs the other way on the far faces, so a pattern reads
+// the right way round from outside every face. Vertical faces keep the texture
+// upright.
 function studUVs(geometry, tileStuds) {
   const position = geometry.attributes.position;
   let normal = geometry.attributes.normal;
@@ -506,19 +645,21 @@ function studUVs(geometry, tileStuds) {
     geometry.computeVertexNormals();
     normal = geometry.attributes.normal;
   }
+  geometry.computeBoundingBox();
+  const min = geometry.boundingBox.min;
   const uv = new Float32Array(position.count * 2);
   for (let i = 0; i < position.count; i += 1) {
-    const ax = Math.abs(normal.getX(i));
-    const ay = Math.abs(normal.getY(i));
-    const az = Math.abs(normal.getZ(i));
+    const nx = normal.getX(i), ny = normal.getY(i), nz = normal.getZ(i);
+    const ax = Math.abs(nx), ay = Math.abs(ny), az = Math.abs(nz);
+    const x = position.getX(i) - min.x, y = position.getY(i) - min.y, z = position.getZ(i) - min.z;
     let u;
     let v;
     if (ay >= ax && ay >= az) {
-      u = position.getX(i); v = position.getZ(i);
+      u = x; v = z;
     } else if (ax >= az) {
-      u = position.getZ(i); v = position.getY(i);
+      u = nx > 0 ? -z : z; v = y;
     } else {
-      u = position.getX(i); v = position.getY(i);
+      u = nz > 0 ? x : -x; v = y;
     }
     uv[i * 2] = u / tileStuds;
     uv[i * 2 + 1] = v / tileStuds;
@@ -528,9 +669,9 @@ function studUVs(geometry, tileStuds) {
 }
 
 // A part's MaterialVariant (by name, from MaterialService) with its own ColorMap in
-// the local image cache (`rhr fetch`) is drawn with that image, tinted by the part's
-// Color and tiled at the variant's StudsPerTile, as in Roblox. Without the image,
-// the base material's look-alike texture stands in.
+// the local image cache is drawn with that image, tinted by the part's Color and
+// tiled at the variant's StudsPerTile, as in Roblox, with its normal, roughness and
+// metalness maps when it has them. Without the image, the base material stands in.
 let materialVariantsByName = null;
 let sceneIndex = null;
 
@@ -552,50 +693,76 @@ function materialVariant(index, node, materialName) {
 }
 
 async function loadVariantTextures(variant) {
-  const map = variant?.props?.ColorMap ? await loadSceneTexture(variant.props.ColorMap) : null;
+  const props = variant?.props || {};
+  const map = props.ColorMap ? await loadSceneTexture(props.ColorMap) : null;
   if (!map) return null;
   map.wrapS = map.wrapT = THREE.RepeatWrapping;
   map.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
-  return {map, normalMap: null};
+  const [normalMap, roughnessMap, metalnessMap] = await Promise.all([
+    props.NormalMap ? loadSceneDataTexture(props.NormalMap) : null,
+    props.RoughnessMap ? loadSceneDataTexture(props.RoughnessMap) : null,
+    props.MetalnessMap ? loadSceneDataTexture(props.MetalnessMap) : null,
+  ]);
+  return {map, normalMap, roughnessMap, metalnessMap};
 }
 
 // A MeshPart's SurfaceAppearance replaces its material's look. With the mesh and the
 // ColorMap both cached, the image is drawn with the mesh's own UVs: AlphaMode
 // Transparency cuts out the transparent parts (leaves), Overlay shows the part's
-// Color through them, as in Roblox. Normal/roughness/metalness maps are not used.
+// Color through them, as in Roblox. Its normal, roughness and metalness maps are
+// used too when cached.
 function surfaceAppearanceOf(node) {
   if (node?.className !== 'MeshPart') return null;
   const surface = Object.values(node.children || {}).find(child => child.className === 'SurfaceAppearance');
-  return surface?.props?.ColorMap ? surface : null;
+  return surface?.props?.ColorMap || surface?.props?.NormalMap || surface?.props?.RoughnessMap ? surface : null;
 }
 
 function applySurfaceAppearance(mesh, node, geometryReady) {
   const surface = surfaceAppearanceOf(node);
   if (!surface || flatMaterials) return;
-  const job = Promise.all([loadSceneTexture(surface.props.ColorMap), geometryReady]).then(([texture]) => {
-    if (!texture || !mesh.userData.rhrMeshAsset || !texture.image) return;
+  const props = surface.props || {};
+  const job = Promise.all([
+    props.ColorMap ? loadSceneTexture(props.ColorMap) : null,
+    props.NormalMap ? loadSceneDataTexture(props.NormalMap) : null,
+    props.RoughnessMap ? loadSceneDataTexture(props.RoughnessMap) : null,
+    props.MetalnessMap ? loadSceneDataTexture(props.MetalnessMap) : null,
+    geometryReady,
+  ]).then(([texture, normalMap, roughnessMap, metalnessMap]) => {
+    if (!mesh.userData.rhrMeshAsset) return;
     const material = mesh.material;
-    const overlay = (surface.props?.AlphaMode?.name || 'Overlay') === 'Overlay';
-    let map = texture;
-    if (overlay) {
-      // Part colour underneath, the image on top.
-      const image = texture.image;
-      const canvas = document.createElement('canvas');
-      canvas.width = image.width || 256;
-      canvas.height = image.height || 256;
-      const context = canvas.getContext('2d');
-      context.fillStyle = '#' + material.color.getHexString(THREE.SRGBColorSpace);
-      context.fillRect(0, 0, canvas.width, canvas.height);
-      context.drawImage(image, 0, 0, canvas.width, canvas.height);
-      map = new THREE.CanvasTexture(canvas);
-      map.colorSpace = THREE.SRGBColorSpace;
-    } else {
-      material.alphaTest = 0.5;
-      material.side = THREE.DoubleSide;
+    if (texture?.image) {
+      const overlay = (props.AlphaMode?.name || 'Overlay') === 'Overlay';
+      let map = texture;
+      if (overlay) {
+        // Part colour underneath, the image on top.
+        const image = texture.image;
+        const canvas = document.createElement('canvas');
+        canvas.width = image.width || 256;
+        canvas.height = image.height || 256;
+        const context = canvas.getContext('2d');
+        context.fillStyle = '#' + material.color.getHexString(THREE.SRGBColorSpace);
+        context.fillRect(0, 0, canvas.width, canvas.height);
+        context.drawImage(image, 0, 0, canvas.width, canvas.height);
+        map = new THREE.CanvasTexture(canvas);
+        map.colorSpace = THREE.SRGBColorSpace;
+      } else {
+        material.alphaTest = 0.5;
+        material.side = THREE.DoubleSide;
+      }
+      map.wrapS = map.wrapT = THREE.RepeatWrapping;
+      material.map = map;
+      material.color.copy(colorValue(props.Color));
     }
-    map.wrapS = map.wrapT = THREE.RepeatWrapping;
-    material.map = map;
-    material.color.copy(colorValue(surface.props?.Color));
+    if (normalMap) material.normalMap = normalMap;
+    if (roughnessMap) {
+      material.roughnessMap = roughnessMap;
+      material.roughness = 1;
+    }
+    if (metalnessMap) {
+      material.metalnessMap = metalnessMap;
+      material.metalness = 1;
+      wantsEnvironment(material);
+    }
     material.needsUpdate = true;
     mesh.userData.rhrSurfaceAppearance = true;
   });
@@ -606,30 +773,142 @@ function applyMaterialTexture(mesh, materialName, geometryReady = Promise.resolv
   if (flatMaterials || !materialName) return;
   if (surfaceAppearanceOf(node)) return;  // the SurfaceAppearance replaces the material's look
   const variant = node && index ? materialVariant(index, node, materialName) : null;
-  if (!variant && ['Plastic', 'SmoothPlastic', 'Neon', 'Glass', 'ForceField'].includes(materialName)) return;
-  const builtInTile = MATERIAL_TILE_STUDS[materialName] || DEFAULT_TILE_STUDS;
+  if (!variant && ['Plastic', 'SmoothPlastic', 'Neon', 'Glass', 'ForceField'].includes(materialName)) {
+    if (materialName === 'Plastic' || materialName === 'SmoothPlastic') applyPlasticDetail(mesh, node, geometryReady);
+    return;
+  }
   const variantTile = Number(variant?.props?.StudsPerTile) || 10;
   const textures = (async () => {
     const own = variant ? await loadVariantTextures(variant) : null;
     if (own) return {...own, tile: variantTile, variant: variant.name};
-    const builtIn = await loadMaterialTextures(materialName);
-    return builtIn ? {...builtIn, tile: builtInTile} : null;
+    return materialTextures(materialName);
   })();
   // After the part's own mesh load, so the UVs are computed on the final geometry.
   const job = Promise.all([textures, geometryReady]).then(([textures]) => {
     if (!textures) return;
-    const tile = textures.tile;
     if (textures.variant) mesh.userData.rhrMaterialVariant = textures.variant;
-    studUVs(mesh.geometry, tile);
-    mesh.material.map = textures.map;
-    if (textures.normalMap) {
-      mesh.material.normalMap = textures.normalMap;
-      mesh.material.normalScale = new THREE.Vector2(0.8, 0.8);
-    }
-    mesh.material.needsUpdate = true;
+    studUVs(mesh.geometry, textures.tile);
+    applyMaps(mesh.material, textures);
+    if (!textures.roblox && !textures.variant) mesh.material.normalScale = new THREE.Vector2(0.8, 0.8);
     mesh.userData.rhrMaterialTexture = materialName;
   });
   materialTextureJobs.push(job);
+}
+
+// Plastic's faint surface relief, and legacy surfaces (a Baseplate's studs), from the
+// local Studio install when there is one. UVs are in studs; each texture's repeat
+// sets its size: the relief every 4 studs, a surface tile every 2 (it holds 2x2 studs).
+const studioTextureCache = new Map();
+function loadStudioTexture(name, repeat) {
+  if (!studioTextureCache.has(name)) {
+    studioTextureCache.set(name, extrasManifest.then(extras => {
+      const url = extras.studio?.[name];
+      if (!url) return null;
+      return new Promise(resolve => new THREE.TextureLoader().load(url, texture => {
+        texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
+        texture.colorSpace = THREE.NoColorSpace;
+        texture.repeat.set(1 / repeat, 1 / repeat);
+        texture.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
+        resolve(texture);
+      }, undefined, () => resolve(null)));
+    }));
+  }
+  return studioTextureCache.get(name);
+}
+
+// Part faces in BoxGeometry's group order, and the surface texture per SurfaceType.
+const BOX_FACE_SURFACES = ['RightSurface', 'LeftSurface', 'TopSurface', 'BottomSurface', 'BackSurface', 'FrontSurface'];
+const SURFACE_TEXTURES = {
+  Studs: 'surface_studs', Inlet: 'surface_inlet', Universal: 'surface_universal',
+  Weld: 'surface_weld', Glue: 'surface_weld',
+};
+
+function applyPlasticDetail(mesh, node, geometryReady) {
+  const isBox = node?.className === 'Part' && ['Block', undefined].includes(node.props?.Shape?.name ?? node.props?.shape?.name);
+  const surfaces = isBox ? BOX_FACE_SURFACES.map(face => SURFACE_TEXTURES[node.props?.[face]?.name] || null) : [];
+  const job = Promise.all([
+    loadStudioTexture('plastic_normaldetail', 4),
+    Promise.all(surfaces.map(name => (name ? loadStudioTexture(name, 2) : null))),
+    geometryReady,
+  ]).then(([detail, tiles]) => {
+    if (!detail && !tiles.some(Boolean)) return;
+    studUVs(mesh.geometry, 1);
+    const base = mesh.material;
+    if (detail) {
+      base.normalMap = detail;
+      base.normalScale = new THREE.Vector2(0.25, 0.25);
+      base.needsUpdate = true;
+    }
+    if (!tiles.some(Boolean)) return;
+    // The surface tile is grey around mid-value: the part's colour times twice the
+    // tile, so the face keeps its colour on average.
+    mesh.material = tiles.map(tile => {
+      if (!tile) return base;
+      const material = base.clone();
+      material.map = tile;
+      material.onBeforeCompile = shader => {
+        shader.fragmentShader = shader.fragmentShader.replace('#include <map_fragment>', `
+#ifdef USE_MAP
+  diffuseColor.rgb *= texture2D( map, vMapUv ).rgb * 2.0;
+#endif`);
+      };
+      material.customProgramCacheKey = () => 'rhr-surface';
+      return material;
+    });
+  });
+  materialTextureJobs.push(job);
+}
+
+// Union (CSG) render meshes, decoded by rhr.unions into the cache (see rhr.fetch).
+const sceneUnionCache = new Map();
+
+// The cache key of a union's mesh: its asset id, or for a mesh saved in the file
+// (MeshData2) "inline-" + the hash rhr.scene named it by.
+async function unionKey(node) {
+  if (node.props?.AssetId) return contentAssetId(node.props.AssetId);
+  const encoded = node.props?.MeshData2;
+  if (!encoded) return null;
+  const digest = await crypto.subtle.digest('SHA-1', base64Bytes(encoded));
+  const hex = [...new Uint8Array(digest)].map(b => b.toString(16).padStart(2, '0')).join('');
+  return `inline-${hex.slice(0, 20)}`;
+}
+
+function loadUnionGeometry(assetId) {
+  if (!assetId) return Promise.resolve(null);
+  if (sceneUnionCache.has(assetId)) return sceneUnionCache.get(assetId);
+  const promise = (async () => {
+    const extras = await extrasManifest;
+    const url = extras.unions?.[assetId];
+    if (!url) return null;
+    const response = await fetch(url);
+    if (!response.ok) return null;
+    const data = await response.json();
+    const floats = text => new Float32Array(base64Bytes(text).buffer);
+    const positions = floats(data.positions);
+    if (!positions.length) return null;
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    const normals = floats(data.normals);
+    const uvs = floats(data.uvs);
+    const colors = base64Bytes(data.colors);
+    const count = positions.length / 3;
+    if (normals.length === count * 3) geometry.setAttribute('normal', new THREE.BufferAttribute(normals, 3));
+    if (uvs.length === count * 2) geometry.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
+    if (colors.length === count * 4) {
+      const linear = new Float32Array(count * 3);
+      const c = new THREE.Color();
+      for (let i = 0; i < count; i += 1) {
+        c.setRGB(colors[i * 4] / 255, colors[i * 4 + 1] / 255, colors[i * 4 + 2] / 255, THREE.SRGBColorSpace);
+        linear[i * 3] = c.r; linear[i * 3 + 1] = c.g; linear[i * 3 + 2] = c.b;
+      }
+      geometry.setAttribute('color', new THREE.BufferAttribute(linear, 3));
+    }
+    geometry.setIndex(new THREE.BufferAttribute(new Uint32Array(base64Bytes(data.indices).buffer), 1));
+    if (!geometry.attributes.normal) geometry.computeVertexNormals();
+    return geometry;
+  })().catch(() => null);
+  sceneUnionCache.set(assetId, promise);
+  return promise;
 }
 
 function addPart(node, parent) {
@@ -650,6 +929,9 @@ function addPart(node, parent) {
     transparent: opacity < 1,
     opacity,
   });
+  if (reflectance > 0.2 || ['Glass', 'Ice', 'Glacier', 'Foil', 'Metal', 'DiamondPlate'].includes(materialName)) {
+    wantsEnvironment(material);
+  }
   const mesh = new THREE.Mesh(shapeGeometry(node), material);
   const special = specialMeshChild(node);
   let geometryReady = Promise.resolve();
@@ -660,6 +942,24 @@ function addPart(node, parent) {
       mesh.geometry.dispose();
       mesh.geometry = fitted;
       mesh.userData.rhrMeshAsset = meshAssetId(node.props.MeshId);
+    });
+    meshGeometryJobs.push(job);
+    geometryReady = job;
+  } else if (node.className === 'UnionOperation' && (node.props?.AssetId || node.props?.MeshData2)) {
+    const job = unionKey(node).then(async key => {
+      const baseGeometry = await loadUnionGeometry(key);
+      if (!baseGeometry) return;
+      const fitted = fitMeshGeometryToPart(baseGeometry, node.props?.Size);
+      mesh.geometry.dispose();
+      mesh.geometry = fitted;
+      mesh.userData.rhrUnionAsset = key;
+      // Without UsePartColor a union keeps the colour of each part it was made from.
+      if (fitted.attributes.color && node.props?.UsePartColor !== true) {
+        material.vertexColors = true;
+        material.color.set(0xffffff);
+        if (material.emissiveIntensity) material.emissive.set(0xffffff);
+        material.needsUpdate = true;
+      }
     });
     meshGeometryJobs.push(job);
     geometryReady = job;
@@ -724,9 +1024,10 @@ async function stylePlaceholderMeshes() {
   const jobs = [];
   scene.traverse(object => {
     const node = object.userData?.rhrNode;
-    if (!object.isMesh || !node || object.userData.rhrMeshAsset) return;
+    if (!object.isMesh || !node || object.userData.rhrMeshAsset || object.userData.rhrUnionAsset) return;
     const special = specialMeshChild(node);
     const wantsMesh = (node.className === 'MeshPart' && node.props?.MeshId)
+      || node.className === 'UnionOperation'
       || (special?.props?.MeshType?.name === 'FileMesh' && special.props?.MeshId);
     if (!wantsMesh) return;
     object.castShadow = false;
@@ -751,11 +1052,21 @@ async function stylePlaceholderMeshes() {
   await Promise.all(jobs);
 }
 
-// Voxel terrain (rhr.terrain decodes Terrain.SmoothGrid): 4-stud blocks, one mesh
-// per material, faces only where a block meets empty space. A surface block's top
-// sits at its occupancy, so a half-filled voxel is a half-height block; that is as
-// smooth as this gets. Roblox smooths terrain into curved surfaces; this shows where
-// the ground, hills and water are, not their exact shape. Experimental.
+// Voxel terrain (rhr.terrain decodes Terrain.SmoothGrid), drawn smooth the way Roblox
+// meshes it: surface nets over the voxel grid. Grid corners are voxel centres; every
+// cell that the surface passes through gets one vertex, placed at the average of the
+// points where the surface crosses the cell's edges, and each voxel face between a
+// solid and an empty voxel becomes a quad joining the four cells around it. Where
+// along an edge the surface crosses comes from the solid voxel's occupancy: a full
+// voxel reaches all the way to its empty neighbour's centre, a nearly empty one
+// barely leaves its own. Normals are averaged over the whole surface, so material
+// borders do not crease.
+//
+// Each face takes the material of its solid voxel, and the texture for its
+// direction (Roblox gives Grass, Asphalt and others separate top, side and bottom
+// textures), projected along the face's main axis in world space. Where two
+// materials meet the edge is hard; Roblox blends them. Water is its own surface,
+// only where it meets air.
 let terrainSummary = null;
 
 function base64Bytes(text) {
@@ -763,6 +1074,140 @@ function base64Bytes(text) {
   const bytes = new Uint8Array(binary.length);
   for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
   return bytes;
+}
+
+// Terrain textures repeat every 8 studs (checked against Studio).
+const TERRAIN_TILE_STUDS = 8;
+
+function terrainSurface(chunks, n, voxelStuds, isInside, isOutside) {
+  const key = (x, y, z) => `${x},${y},${z}`;
+  const sample = (gx, gy, gz) => {
+    const cx = Math.floor(gx / n), cy = Math.floor(gy / n), cz = Math.floor(gz / n);
+    const chunk = chunks.get(key(cx, cy, cz));
+    if (!chunk) return [0, 0];
+    const i = (gx - cx * n) + n * (gz - cz * n) + n * n * (gy - cy * n);
+    return [chunk.materials[i], chunk.occupancy[i]];
+  };
+  const vertexIndex = new Map();   // "x,y,z" of the cell -> vertex number
+  const positions = [];
+  const vertexOf = (x, y, z) => {
+    const id = key(x, y, z);
+    let index = vertexIndex.get(id);
+    if (index !== undefined) return index;
+    // Average the crossings on the cell's 12 edges.
+    let sx = 0, sy = 0, sz = 0, count = 0;
+    const corner = [];
+    for (let c = 0; c < 8; c += 1) {
+      const ox = c & 1, oy = (c >> 1) & 1, oz = (c >> 2) & 1;
+      const [material, occupancy] = sample(x + ox, y + oy, z + oz);
+      corner.push({ox, oy, oz, inside: isInside(material), occupancy});
+    }
+    for (let a = 0; a < 8; a += 1) {
+      for (const bit of [1, 2, 4]) {
+        const b = a | bit;
+        if (b === a) continue;
+        const ca = corner[a], cb = corner[b];
+        if (ca.inside === cb.inside) continue;
+        const t = ca.inside ? (ca.occupancy + 1) / 256 : 1 - (cb.occupancy + 1) / 256;
+        sx += ca.ox + (cb.ox - ca.ox) * t;
+        sy += ca.oy + (cb.oy - ca.oy) * t;
+        sz += ca.oz + (cb.oz - ca.oz) * t;
+        count += 1;
+      }
+    }
+    if (!count) { sx = sy = sz = 0.5; count = 1; }
+    index = positions.length / 3;
+    positions.push(
+      (x + sx / count + 0.5) * voxelStuds,
+      (y + sy / count + 0.5) * voxelStuds,
+      (z + sz / count + 0.5) * voxelStuds,
+    );
+    vertexIndex.set(id, index);
+    return index;
+  };
+
+  const quads = [];  // [v0, v1, v2, v3, material]
+  const axes = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
+  for (const chunk of chunks.values()) {
+    const [cx, cy, cz] = chunk.position;
+    // Voxel pairs (p, p + axis) whose first voxel lies in this chunk; the pair may
+    // reach into the next chunk. Pairs starting just before the chunk are done
+    // here only when there is no chunk there to do them.
+    const start = [
+      chunks.has(key(cx - 1, cy, cz)) ? 0 : -1,
+      chunks.has(key(cx, cy - 1, cz)) ? 0 : -1,
+      chunks.has(key(cx, cy, cz - 1)) ? 0 : -1,
+    ];
+    for (let ly = start[1]; ly < n; ly += 1) for (let lz = start[2]; lz < n; lz += 1) for (let lx = start[0]; lx < n; lx += 1) {
+      const gx = cx * n + lx, gy = cy * n + ly, gz = cz * n + lz;
+      const [m0] = sample(gx, gy, gz);
+      const in0 = isInside(m0);
+      for (let axis = 0; axis < 3; axis += 1) {
+        // A pair starting outside this chunk on another axis belongs to that neighbour.
+        if ((lx < 0 && axis !== 0) || (ly < 0 && axis !== 1) || (lz < 0 && axis !== 2)) continue;
+        const [dx, dy, dz] = axes[axis];
+        const [m1] = sample(gx + dx, gy + dy, gz + dz);
+        const in1 = isInside(m1);
+        if (in0 === in1) continue;
+        if (in0 && !isOutside(m1)) continue;
+        if (in1 && !isOutside(m0)) continue;
+        // The four cells around this edge, in order round the axis.
+        const u = axes[(axis + 1) % 3], v = axes[(axis + 2) % 3];
+        const cell = (a, b) => vertexOf(gx - u[0] * a - v[0] * b, gy - u[1] * a - v[1] * b, gz - u[2] * a - v[2] * b);
+        const ring = [cell(0, 0), cell(1, 0), cell(1, 1), cell(0, 1)];
+        // Wind so the face looks out of the solid side.
+        if (!in0) ring.reverse();
+        quads.push([...ring, in0 ? m0 : m1]);
+      }
+    }
+  }
+
+  // Smooth normals over the whole surface.
+  const normals = new Float32Array(positions.length);
+  const p = i => new THREE.Vector3(positions[i * 3], positions[i * 3 + 1], positions[i * 3 + 2]);
+  for (const quad of quads) {
+    const [a, b, c, d] = quad;
+    const normal = new THREE.Vector3().crossVectors(p(c).sub(p(a)), p(d).sub(p(b)));
+    for (const index of [a, b, c, d]) {
+      normals[index * 3] += normal.x; normals[index * 3 + 1] += normal.y; normals[index * 3 + 2] += normal.z;
+    }
+  }
+  for (let i = 0; i < normals.length; i += 3) {
+    const length = Math.hypot(normals[i], normals[i + 1], normals[i + 2]) || 1;
+    normals[i] /= length; normals[i + 1] /= length; normals[i + 2] /= length;
+  }
+  return {positions, normals, quads};
+}
+
+// One geometry per (material, texture direction), with world-space box-projected UVs.
+function terrainGeometries(surface, faceKind) {
+  const {positions, normals, quads} = surface;
+  const groups = new Map();
+  for (const quad of quads) {
+    const [a, b, c, d, material] = quad;
+    const ny = (normals[a * 3 + 1] + normals[b * 3 + 1] + normals[c * 3 + 1] + normals[d * 3 + 1]) / 4;
+    const kind = faceKind(ny);
+    const groupKey = `${material}|${kind}`;
+    let group = groups.get(groupKey);
+    if (!group) groups.set(groupKey, group = {material, kind, positions: [], normals: [], uvs: []});
+    for (const index of [a, b, c, a, c, d]) {
+      const x = positions[index * 3], y = positions[index * 3 + 1], z = positions[index * 3 + 2];
+      const nx = normals[index * 3], nyv = normals[index * 3 + 1], nz = normals[index * 3 + 2];
+      group.positions.push(x, y, z);
+      group.normals.push(nx, nyv, nz);
+      const ax = Math.abs(nx), ay = Math.abs(nyv), az = Math.abs(nz);
+      if (ay >= ax && ay >= az) group.uvs.push(x / TERRAIN_TILE_STUDS, z / TERRAIN_TILE_STUDS);
+      else if (ax >= az) group.uvs.push(z / TERRAIN_TILE_STUDS, y / TERRAIN_TILE_STUDS);
+      else group.uvs.push(x / TERRAIN_TILE_STUDS, y / TERRAIN_TILE_STUDS);
+    }
+  }
+  return [...groups.values()].map(group => {
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.Float32BufferAttribute(group.positions, 3));
+    geometry.setAttribute('normal', new THREE.Float32BufferAttribute(group.normals, 3));
+    geometry.setAttribute('uv', new THREE.Float32BufferAttribute(group.uvs, 2));
+    return {geometry, material: group.material, kind: group.kind, triangles: group.positions.length / 9};
+  });
 }
 
 async function addTerrain(index) {
@@ -776,7 +1221,6 @@ async function addTerrain(index) {
   }
   if (!terrain || !terrain.chunks?.length) return;
   const n = terrain.chunkSize;
-  const v = terrain.voxelStuds;
   const names = terrain.materials;
   const WATER = names.indexOf('Water');
   const chunks = new Map();
@@ -787,107 +1231,81 @@ async function addTerrain(index) {
       occupancy: base64Bytes(chunk.occupancy),
     });
   }
-  // A voxel counts when it is at least a fifth full; thinner slivers are dropped.
-  const MIN_OCC = 50;
-  const voxel = (gx, gy, gz) => {
-    const cx = Math.floor(gx / n), cy = Math.floor(gy / n), cz = Math.floor(gz / n);
-    const chunk = chunks.get(`${cx},${cy},${cz}`);
-    if (!chunk) return 0;
-    const i = (gx - cx * n) + n * (gz - cz * n) + n * n * (gy - cy * n);
-    const material = chunk.materials[i];
-    if (!material || chunk.occupancy[i] < MIN_OCC) return 0;
-    return material;
-  };
-  const occupancyAt = (gx, gy, gz) => {
-    const cx = Math.floor(gx / n), cy = Math.floor(gy / n), cz = Math.floor(gz / n);
-    const chunk = chunks.get(`${cx},${cy},${cz}`);
-    return chunk ? chunk.occupancy[(gx - cx * n) + n * (gz - cz * n) + n * n * (gy - cy * n)] : 0;
-  };
-  const solid = m => m !== 0 && m !== WATER;
-  const byMaterial = new Map();
-  const quad = (list, corners, normal) => {
-    // Two triangles, counter-clockwise seen from `normal`.
-    for (const k of [0, 1, 2, 0, 2, 3]) list.positions.push(...corners[k]);
-    for (let k = 0; k < 6; k += 1) list.normals.push(...normal);
-  };
-  let blocks = 0;
-  for (const chunk of chunks.values()) {
-    const [cx, cy, cz] = chunk.position;
-    for (let ly = 0; ly < n; ly += 1) for (let lz = 0; lz < n; lz += 1) for (let lx = 0; lx < n; lx += 1) {
-      const i = lx + n * lz + n * n * ly;
-      const material = chunk.materials[i];
-      if (!material || chunk.occupancy[i] < MIN_OCC) continue;
-      const gx = cx * n + lx, gy = cy * n + ly, gz = cz * n + lz;
-      const water = material === WATER;
-      const covers = m => (water ? m !== 0 : solid(m));  // what hides a face of this block
-      const above = voxel(gx, gy + 1, gz);
-      const height = covers(above) ? v : v * Math.max(0.25, occupancyAt(gx, gy, gz) / 255);
-      const x0 = gx * v, y0 = gy * v, z0 = gz * v, x1 = x0 + v, y1 = y0 + height, z1 = z0 + v;
-      let list = byMaterial.get(material);
-      if (!list) byMaterial.set(material, list = {positions: [], normals: []});
-      let faces = 0;
-      if (!covers(above) || height < v) { quad(list, [[x0, y1, z0], [x0, y1, z1], [x1, y1, z1], [x1, y1, z0]], [0, 1, 0]); faces += 1; }
-      if (!covers(voxel(gx, gy - 1, gz))) { quad(list, [[x0, y0, z0], [x1, y0, z0], [x1, y0, z1], [x0, y0, z1]], [0, -1, 0]); faces += 1; }
-      if (!covers(voxel(gx + 1, gy, gz))) { quad(list, [[x1, y0, z0], [x1, y1, z0], [x1, y1, z1], [x1, y0, z1]], [1, 0, 0]); faces += 1; }
-      if (!covers(voxel(gx - 1, gy, gz))) { quad(list, [[x0, y0, z0], [x0, y0, z1], [x0, y1, z1], [x0, y1, z0]], [-1, 0, 0]); faces += 1; }
-      if (!covers(voxel(gx, gy, gz + 1))) { quad(list, [[x0, y0, z1], [x1, y0, z1], [x1, y1, z1], [x0, y1, z1]], [0, 0, 1]); faces += 1; }
-      if (!covers(voxel(gx, gy, gz - 1))) { quad(list, [[x0, y0, z0], [x0, y1, z0], [x1, y1, z0], [x1, y0, z0]], [0, 0, -1]); faces += 1; }
-      if (faces) blocks += 1;
-    }
-  }
   const terrainNode = nodesOfClass(index, 'Terrain')[0];
+  const solid = m => m !== 0 && m !== WATER;
+  const ground = terrainSurface(chunks, n, terrain.voxelStuds, solid, m => !solid(m));
+  const water = terrainSurface(chunks, n, terrain.voxelStuds, m => m === WATER, m => m === 0);
+  const kindOf = ny => (ny > 0.5 ? 'top' : ny < -0.5 ? 'bottom' : 'side');
   const jobs = [];
-  for (const [material, list] of byMaterial) {
-    if (!list.positions.length) continue;
-    const name = names[material];
-    const geometry = new THREE.BufferGeometry();
-    geometry.setAttribute('position', new THREE.Float32BufferAttribute(list.positions, 3));
-    geometry.setAttribute('normal', new THREE.Float32BufferAttribute(list.normals, 3));
-    const water = material === WATER;
-    const rgb = water ? null : terrain.colors[name];
-    const color = water
-      ? colorValue(nodesOfClass(index, 'Terrain')[0]?.props?.WaterColor, 0x0c545c)
-      : new THREE.Color().setRGB(rgb[0] / 255, rgb[1] / 255, rgb[2] / 255, THREE.SRGBColorSpace);
+  let triangles = 0;
+  const materialsDrawn = new Set();
+  for (const part of [...terrainGeometries(ground, kindOf), ...terrainGeometries(water, () => 'top')]) {
+    const name = names[part.material];
+    const isWater = part.material === WATER;
+    materialsDrawn.add(name);
+    triangles += part.triangles;
+    const raw = terrain.rawColors?.[name];
+    const natural = terrain.colors?.[name];
+    const color = isWater
+      ? colorValue(terrainNode?.props?.WaterColor, 0x0c545c)
+      : new THREE.Color().setRGB(...(natural || [128, 128, 128]).map(c => c / 255), THREE.SRGBColorSpace);
     const meshMaterial = new THREE.MeshStandardMaterial({
       color,
-      roughness: water ? 0.2 : 0.95,
+      roughness: isWater ? 0.15 : 0.95,
       metalness: 0,
-      transparent: water,
-      opacity: water ? 0.65 : 1,
-      depthWrite: !water,
+      transparent: isWater,
+      opacity: isWater ? 0.6 : 1,
+      depthWrite: !isWater,
     });
-    const mesh = new THREE.Mesh(geometry, meshMaterial);
+    if (isWater) wantsEnvironment(meshMaterial);
+    const mesh = new THREE.Mesh(part.geometry, meshMaterial);
     mesh.receiveShadow = true;
-    mesh.castShadow = !water;
+    mesh.castShadow = !isWater;
     mesh.userData.rhrNode = terrainNode;
     mesh.userData.rhrTerrain = name;
     scene.add(mesh);
-    if (!water && !flatMaterials) {
+    if (isWater || flatMaterials) continue;
+    jobs.push((async () => {
+      // A MaterialVariant override: its image in real colours, tinted by the place's
+      // MaterialColor (white leaves it as is).
       const variant = materialVariant(index, null, name);
-      jobs.push((async () => {
-        // The place's own variant image, in its real colours, tinted by the place's
-        // MaterialColor as Roblox does (white leaves it as is); else the look-alike.
-        const own = variant ? await loadVariantTextures(variant) : null;
-        if (own) {
-          studUVs(geometry, Number(variant.props?.StudsPerTile) || 10);
-          const raw = terrain.rawColors?.[name] || [255, 255, 255];
-          meshMaterial.color.setRGB(raw[0] / 255, raw[1] / 255, raw[2] / 255, THREE.SRGBColorSpace);
-          meshMaterial.map = own.map;
-          meshMaterial.needsUpdate = true;
-          mesh.userData.rhrMaterialVariant = variant.name;
-          return;
-        }
-        const textures = await loadMaterialTextures(name);
-        if (!textures) return;
-        studUVs(geometry, MATERIAL_TILE_STUDS[name] || DEFAULT_TILE_STUDS);
-        meshMaterial.map = textures.map;
-        if (textures.normalMap) meshMaterial.normalMap = textures.normalMap;
-        meshMaterial.needsUpdate = true;
-      })());
-    }
+      const own = variant ? await loadVariantTextures(variant) : null;
+      const tint = raw || [255, 255, 255];
+      if (own) {
+        meshMaterial.color.setRGB(tint[0] / 255, tint[1] / 255, tint[2] / 255, THREE.SRGBColorSpace);
+        const tile = Number(variant.props?.StudsPerTile) || 10;
+        const uv = part.geometry.attributes.uv;
+        for (let i = 0; i < uv.count; i += 1) uv.setXY(i, uv.getX(i) * TERRAIN_TILE_STUDS / tile, uv.getY(i) * TERRAIN_TILE_STUDS / tile);
+        applyMaps(meshMaterial, own);
+        mesh.userData.rhrMaterialVariant = variant.name;
+        return;
+      }
+      const roblox = await loadRobloxMaterial(name, part.kind);
+      if (roblox) {
+        // Roblox's terrain textures are pale: it multiplies them by the material's
+        // base colour (the install's materials2022.json), scaled by the place's
+        // MaterialColor over the default one. Without the install, the default
+        // colour stands in for the base colour.
+        robloxMaterialsUsed.add(name);
+        const fallback = terrain.defaultColors?.[name] || tint;
+        const base = terrain.baseColors?.[name] || fallback;
+        const channel = k => (base[k] / 255) * Math.min(2, tint[k] / Math.max(1, fallback[k]));
+        meshMaterial.color.setRGB(channel(0), channel(1), channel(2), THREE.SRGBColorSpace);
+        applyMaps(meshMaterial, roblox);
+        meshMaterial.onBeforeCompile = () => {};  // terrain colour maps are not tint masks
+        meshMaterial.customProgramCacheKey = () => 'rhr-terrain';
+        return;
+      }
+      const lookAlike = await loadMaterialTextures(name);
+      if (!lookAlike) return;
+      lookAlikeMaterialsUsed.add(name);
+      meshMaterial.map = lookAlike.map;
+      if (lookAlike.normalMap) meshMaterial.normalMap = lookAlike.normalMap;
+      meshMaterial.needsUpdate = true;
+    })());
   }
   await Promise.all(jobs);
-  terrainSummary = {blocks, materials: [...byMaterial.keys()].map(m => names[m])};
+  terrainSummary = {triangles, materials: [...materialsDrawn]};
 }
 
 function addNode(node, parent) {
@@ -914,6 +1332,27 @@ async function loadSceneTexture(uri) {
     return texture;
   })();
   sceneTextureCache.set(assetId, promise);
+  return promise;
+}
+
+// A normal, roughness or metalness map: the same cached image, read as data (no sRGB).
+const sceneDataTextureCache = new Map();
+async function loadSceneDataTexture(uri) {
+  const assetId = contentAssetId(uri);
+  if (!assetId) return null;
+  if (sceneDataTextureCache.has(assetId)) return sceneDataTextureCache.get(assetId);
+  const promise = (async () => {
+    const manifest = await sceneAssetManifest;
+    const url = manifest[assetId];
+    if (!url) return null;
+    const texture = await new Promise(resolve => new THREE.TextureLoader().load(url, resolve, undefined, () => resolve(null)));
+    if (texture) {
+      texture.colorSpace = THREE.NoColorSpace;
+      texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
+    }
+    return texture;
+  })();
+  sceneDataTextureCache.set(assetId, promise);
   return promise;
 }
 
@@ -1564,6 +2003,31 @@ function sceneGeometryBounds() {
   return count && !box.isEmpty() ? box : null;
 }
 
+// A cube map from six images. Roblox stretches each sky face over its square, whatever
+// the image's own size (sky uploads are often 1023x682 and the like); WebGL needs six
+// equal squares, so every face is drawn onto one first.
+async function loadSquareCube(urls) {
+  const images = await Promise.all(urls.map(url => new Promise(resolve => {
+    const image = new Image();
+    image.onload = () => resolve(image);
+    image.onerror = () => resolve(null);
+    image.src = url;
+  })));
+  if (images.some(image => !image)) return null;
+  const largest = Math.max(...images.map(image => Math.max(image.naturalWidth, image.naturalHeight)));
+  const size = Math.min(1024, 2 ** Math.ceil(Math.log2(Math.max(16, largest))));
+  const faces = images.map(image => {
+    const canvas = document.createElement('canvas');
+    canvas.width = canvas.height = size;
+    canvas.getContext('2d').drawImage(image, 0, 0, size, size);
+    return canvas;
+  });
+  const cube = new THREE.CubeTexture(faces);
+  cube.colorSpace = THREE.SRGBColorSpace;
+  cube.needsUpdate = true;
+  return cube;
+}
+
 async function configureSky(index) {
   const sky = findLightingClass(index, 'Sky');
   if (!sky) return false;
@@ -1578,10 +2042,10 @@ async function configureSky(index) {
     front: contentAssetId(props.SkyboxFt),
   };
   const urls = [
-    // CubeTexture samples the X faces opposite the camera direction; swap
-    // Roblox Rt/Lf here so looking +X sees SkyboxRt and -X sees SkyboxLf.
-    manifest[faceIds.left],
+    // Checked in Studio: looking toward +X shows SkyboxLf, toward -X SkyboxRt
+    // (THREE's cube faces go +X, -X, +Y, -Y, +Z, -Z in this order).
     manifest[faceIds.right],
+    manifest[faceIds.left],
     manifest[faceIds.up],
     manifest[faceIds.down],
     manifest[faceIds.back],
@@ -1589,12 +2053,8 @@ async function configureSky(index) {
   ];
   if (urls.some(url => !url)) return false;
 
-  const loader = new THREE.CubeTextureLoader();
-  const cube = await new Promise(resolve => {
-    loader.load(urls, resolve, undefined, () => resolve(null));
-  });
+  const cube = await loadSquareCube(urls);
   if (!cube) return false;
-  cube.colorSpace = THREE.SRGBColorSpace;
   scene.background = cube;
 
   const orientation = props.SkyboxOrientation;
@@ -1672,8 +2132,60 @@ function fitSunShadow(camera, focus) {
   sunLight.shadow.map = null;
 }
 
-// Roblox draws its default sky when a place has no Sky object. Approximated with a
-// vertical gradient sampled from Studio's default sky (zenith blue to pale horizon).
+// Roblox draws its default sky when a place has no Sky object: the sky512 cube in
+// the Studio install (rhr.studio converts it into the cache). Faces go in the same
+// order as a Sky object's (see configureSky).
+async function studioDefaultSky() {
+  const studio = (await extrasManifest).studio || {};
+  const urls = ['sky_rt', 'sky_lf', 'sky_up', 'sky_dn', 'sky_bk', 'sky_ft'].map(name => studio[name]);
+  if (urls.some(url => !url)) return null;
+  return loadSquareCube(urls);
+}
+
+// The sky, prefiltered for reflections (metals, glass). A gradient cube stands in
+// when the sky is not a cube image.
+function configureEnvironment(index) {
+  if (!environmentMaterials.size) return;
+  let cube = scene.background?.isCubeTexture ? scene.background : null;
+  if (!cube) {
+    const faces = [];
+    for (let face = 0; face < 6; face += 1) {
+      const canvas = document.createElement('canvas');
+      canvas.width = canvas.height = 16;
+      const context = canvas.getContext('2d');
+      if (face === 2) context.fillStyle = '#5eb4dc';
+      else if (face === 3) context.fillStyle = '#7a7d80';
+      else {
+        const gradient = context.createLinearGradient(0, 0, 0, 16);
+        gradient.addColorStop(0, '#6fbde0');
+        gradient.addColorStop(0.5, '#c4e2ea');
+        gradient.addColorStop(0.5001, '#8a8d90');
+        gradient.addColorStop(1, '#7a7d80');
+        context.fillStyle = gradient;
+      }
+      context.fillRect(0, 0, 16, 16);
+      faces.push(canvas);
+    }
+    cube = new THREE.CubeTexture(faces);
+    cube.colorSpace = THREE.SRGBColorSpace;
+    cube.needsUpdate = true;
+  }
+  const generator = new THREE.PMREMGenerator(renderer);
+  environmentTexture = generator.fromCubemap(cube).texture;
+  generator.dispose();
+  const lighting = findFirstClass(index, 'Lighting');
+  const specular = Number(lighting?.props?.EnvironmentSpecularScale ?? 1);
+  // Roblox metals stay readable with EnvironmentSpecularScale 0; keep some sky in them.
+  const intensity = Math.max(0.35, Math.min(1, Number.isFinite(specular) ? specular : 1));
+  for (const material of environmentMaterials) {
+    material.envMap = environmentTexture;
+    material.envMapIntensity = intensity;
+    material.needsUpdate = true;
+  }
+}
+
+// Without a Studio install: a vertical gradient sampled from Studio's default sky
+// (zenith blue to pale horizon).
 function defaultSkyTexture(horizon = null) {
   const canvas = document.createElement('canvas');
   canvas.width = 2;
@@ -2053,7 +2565,7 @@ async function addSurfaceGuis(index, camera) {
 async function reportNotes() {
   const notes = [];
   if (terrainSummary) {
-    notes.push(`terrain drawn as ${terrainSummary.blocks} 4-stud blocks (${terrainSummary.materials.join(', ')}); Roblox's smooth shape is approximated`);
+    notes.push(`terrain drawn smooth (${terrainSummary.materials.join(', ')}); materials meet with a hard edge where Roblox blends them`);
   }
   if (localLightsDropped) {
     notes.push(`drew the ${MAX_LOCAL_LIGHTS} most relevant local lights; ${localLightsDropped} farther ones were left out`);
@@ -2117,6 +2629,12 @@ async function main() {
   const roots = ir.roots || [];
   const index = buildNodeIndex(roots);
   sceneIndex = index;
+  use2022Materials = computeUse2022Materials(index);
+  {
+    const lighting = nodesOfClass(index, 'Lighting')[0];
+    const value = Number(lighting?.props?.EnvironmentSpecularScale ?? (lighting ? 0 : 1));
+    environmentSpecularScale = Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : 1;
+  }
   let camera;
   if (viewportMode) {
     const viewport = findNodeByPath(index, params.get('path') || '');
@@ -2126,6 +2644,7 @@ async function main() {
     await Promise.all(meshGeometryJobs);
     await Promise.all(materialTextureJobs);
     await stylePlaceholderMeshes();
+    configureEnvironment(index);
     const cameraNode = findCamera(buildNodeIndex([viewport]));
     camera = new THREE.PerspectiveCamera();
     // Games assign CurrentCamera (a Camera instance) at runtime; the saved place
@@ -2145,7 +2664,10 @@ async function main() {
     addLocalLights(index);
     await configureSky(index);
     configureAtmosphere(index);
-    if (!scene.background && findFirstClass(index, 'Lighting')) scene.background = defaultSkyTexture(atmosphereHorizon);
+    if (!scene.background && findFirstClass(index, 'Lighting')) {
+      scene.background = (await studioDefaultSky()) || defaultSkyTexture(atmosphereHorizon);
+    }
+    configureEnvironment(index);
     configureSceneLights(index);
     camera = new THREE.PerspectiveCamera();
     configureCamera(camera, cameraNode);

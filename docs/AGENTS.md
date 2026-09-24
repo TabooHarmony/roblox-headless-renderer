@@ -1,6 +1,6 @@
 # Using RHR from an agent
 
-RHR lets you check Roblox UI and 3D builds without Studio: point a command at a
+RHR lets you check Roblox UI and 3D builds without driving Studio: point a command at a
 `.rbxm` / `.rbxmx` / `.rbxl` / `.rbxlx` file or a Rojo project and read back a PNG
 and JSON. This page is the working guide: which command answers which question,
 the edit loop, and how to read the output without being misled.
@@ -62,20 +62,22 @@ What RHR tells you it did not do exactly:
 
 - `scene` / `preview` print a `notes` line: geometry fallbacks (meshes drawn as boxes),
   unsupported visual classes, missing assets and **experimental** features (Beams,
-  Trails, particles, Sky, Atmosphere, lights, decals, meshes, non-plastic materials).
+  Trails, particles, Atmosphere, lights, decals).
   Treat experimental output as a rough sketch.
 - `scene-dump` lists the same under `fallbacks`, `unsupportedVisualClasses` and
   `experimental`.
-- Images and meshes need a local cache: run `rhr fetch <file>` once (it needs the
-  network; nothing else does). Without it images are skipped and meshes are boxes, and
-  the output says so. Most meshes need a signed-in account: `--use-studio-login` gets
-  them as the machine's Roblox Studio user. Only use it if the person you work for has
-  asked for it; it acts as their Roblox account.
-- Terrain is drawn as 4-stud blocks: trust where the ground is, not its exact shape.
+- RHR expects Roblox Studio installed and signed in on the machine. `render`, `scene`
+  and `preview` download what the file uses and the cache lacks (images, meshes,
+  unions, Roblox's material textures) as that Studio user before drawing; the first
+  render of a big place can take a minute, later ones reuse the cache. The login is
+  handled by Lune and sent only to Roblox. `--offline` skips downloading. Without
+  Studio, stderr says the preview will look less like Roblox (thumbnails, box
+  meshes, look-alike materials).
+- Terrain is drawn smooth with Roblox's textures; materials meet with a hard edge.
 - In a place file, a ScreenGui outside StarterGui (a template in ReplicatedStorage)
   is not drawn or checked; a `note` names it. Pass `--all-guis` to include it.
-- Material textures (brick, wood, grass...) are look-alikes, not Roblox's images. When
-  you only care about colours, `--flat-materials` draws plain colours.
+- Material textures are Roblox's own (look-alikes without Studio). When you only care
+  about colours, `--flat-materials` draws plain colours.
 - `docs/known-approximations.md` lists every known difference.
 
 What RHR does not do at all: run scripts, physics or animation. A UI that a script

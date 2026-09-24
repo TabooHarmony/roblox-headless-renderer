@@ -9,7 +9,7 @@ import math
 import re
 from pathlib import Path
 
-from rhr.paths import ICON_CACHE, MESH_CACHE
+from rhr.paths import ICON_CACHE, MESH_CACHE, UNION_CACHE
 
 from rhr.ir import load_ir
 from rhr.rbxl_raw import EMPTY_TERRAIN_SMOOTH_GRID, BinaryRbxError, extract_serialized_string_property
@@ -87,6 +87,10 @@ def _mesh_available(asset_id: str | None, mesh_dir: Path | None) -> bool:
         roots.append(mesh_dir)
     roots.append(DEFAULT_MESH_DIR)
     return any((root / f"{asset_id}.mesh").is_file() for root in roots)
+
+
+def _union_available(asset_id: str | None) -> bool:
+    return bool(asset_id) and (UNION_CACHE / f"{asset_id}.json").is_file()
 
 
 def _asset_available(asset_id: str | None, texture_dir: Path | None) -> bool:
@@ -307,13 +311,11 @@ def build_scene_dump(
                 "rawAvailable": payload is not None,
                 "smoothGridBytes": len(payload) if payload is not None else None,
                 "empty": empty,
-                # Drawn as 4-stud blocks (experimental) when its voxels decode.
-                "drawn": "blocks" if decodes else None,
+                # Drawn as a smooth surface when its voxels decode.
+                "drawn": "smooth" if decodes else None,
             })
             if empty is not True and not decodes:
                 unsupported_counts["Terrain"] = unsupported_counts.get("Terrain", 0) + 1
-            elif decodes:
-                class_counts["TerrainBlocks"] = class_counts.get("TerrainBlocks", 0) + 1
 
         if class_name == "Sky" and (sky is None or in_lighting):
             face_properties = (
@@ -400,6 +402,9 @@ def build_scene_dump(
                 "geometry": (
                     "mesh-asset"
                     if class_name == "MeshPart" and _mesh_available(_asset_id(props.get("MeshId")), mesh_dir)
+                    else "union-mesh"
+                    if class_name == "UnionOperation" and (
+                        props.get("MeshData2") or _union_available(_asset_id(props.get("AssetId"))))
                     else "box-fallback"
                     if class_name in BOX_FALLBACK_CLASSES
                     else (_enum_name(props.get("Shape")) or class_name)
@@ -420,6 +425,19 @@ def build_scene_dump(
                     "property": "MeshId",
                     "uri": props.get("MeshId"),
                     "assetId": mesh_id,
+                    "available": available,
+                })
+                if not available:
+                    fallback_counts[class_name] = fallback_counts.get(class_name, 0) + 1
+            elif class_name == "UnionOperation":
+                union_id = _asset_id(props.get("AssetId")) if props.get("AssetId") else None
+                available = bool(props.get("MeshData2")) or _union_available(union_id)
+                mesh_references.append({
+                    "path": path,
+                    "class": class_name,
+                    "property": "AssetId",
+                    "uri": props.get("AssetId"),
+                    "assetId": union_id,
                     "available": available,
                 })
                 if not available:
@@ -487,16 +505,21 @@ def build_scene_dump(
 
 
 # Rough approximations (docs/GOAL.md): present in the render, but not to be trusted
-# the way Part geometry, cameras and UI layout are.
+# the way Part geometry, cameras and UI layout are. Meshes, unions, Sky and terrain
+# are not listed: they are compared with Studio, and a missing mesh or union is a
+# geometry fallback instead.
 EXPERIMENTAL_CLASSES = (
-    "Atmosphere", "Beam", "Decal", "MeshPart", "ParticleEmitter", "PointLight", "Sky",
-    "SpecialMesh", "SpotLight", "SurfaceLight", "TerrainBlocks", "Texture", "Trail",
+    "Atmosphere", "Beam", "Decal", "ParticleEmitter", "PointLight",
+    "SpotLight", "SurfaceLight", "Texture", "Trail",
 )
 
 
 def _experimental(class_counts: dict[str, int], materials: int) -> dict[str, int]:
+    from rhr.studio import studio_install
+
     found = {name: class_counts[name] for name in EXPERIMENTAL_CLASSES if class_counts.get(name)}
-    if materials:
+    # Without Studio, materials are look-alike textures rather than Roblox's own.
+    if materials and studio_install() is None:
         found["Material"] = materials
     return dict(sorted(found.items()))
 

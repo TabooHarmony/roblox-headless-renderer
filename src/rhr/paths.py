@@ -9,6 +9,9 @@ working directory:
     <cache>/cache/icons/      image assets, <asset_id>.png
     <cache>/cache/meshes/     mesh assets, <asset_id>.mesh
     <cache>/cache/particles/  particle textures
+    <cache>/cache/unions/     decoded union (CSG) meshes, <asset_id>.json
+    <cache>/cache/materials/  Roblox's material texture maps, <asset_id>.png
+    <cache>/cache/studio/     PNGs converted from the local Roblox Studio install
     <cache>/icon_library/     the 2D engine's icon root (its cache is ../cache/icons)
     <cache>/ir/               intermediate IR JSON from .rbxm/.rbxl conversions
 
@@ -43,6 +46,8 @@ ICONS_DIR = CACHE / "icon_library"
 ICON_CACHE = CACHE / "cache" / "icons"
 MESH_CACHE = CACHE / "cache" / "meshes"
 PARTICLE_CACHE = CACHE / "cache" / "particles"
+UNION_CACHE = CACHE / "cache" / "unions"
+MATERIAL_CACHE = CACHE / "cache" / "materials"
 IR_DIR = CACHE / "ir"
 
 

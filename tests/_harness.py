@@ -8,6 +8,13 @@ verdict the script would give on its own.
 
 from __future__ import annotations
 
+import os
+
+# Standalone runs are as hermetic as pytest's (see conftest.py): no downloads, never
+# the Studio login, no textures from a local Studio install.
+os.environ.setdefault("RHR_OFFLINE", "1")
+os.environ.setdefault("RHR_STUDIO_DIR", "0")
+
 
 def run_main(main) -> None:
     try:

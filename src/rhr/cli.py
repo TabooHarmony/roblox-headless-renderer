@@ -175,6 +175,7 @@ def _render(args) -> int:
         ir_path = ir_for(source, Path(args.ir) if args.ir else None)
     except (ValueError, RuntimeError) as exc:
         return _die(str(exc))
+    _prepare_ui_images(ir_path, args.offline)
     t_ir = time.perf_counter()
 
     try:
@@ -291,6 +292,45 @@ def _layout(args) -> int:
     return 0
 
 
+def _prepare_scene_assets(ir_path: Path, offline: bool) -> None:
+    """Before a 3D render: fetch what it needs and is not cached, and say what is missing.
+
+    RHR expects Roblox Studio on the machine and signed in; the download runs as that
+    Studio user (rhr.fetch). Nothing is downloaded that is already cached.
+    """
+    from rhr import fetch
+    from rhr.studio import studio_install
+
+    def say(message: str) -> None:
+        print(message, file=sys.stderr)
+
+    if studio_install() is None:
+        say("note   Roblox Studio is not installed on this machine: the default sky, material "
+            "textures, meshes and unions use stand-ins, so this looks less like Roblox than it "
+            "would with Studio (docs/known-approximations.md)")
+    if offline or fetch.offline():
+        return
+    try:
+        fetch.ensure_for_ir(ir_path, log=say)
+    except Exception as exc:  # noqa: BLE001 - a failed download must not fail the render
+        say(f"note   fetching assets failed ({type(exc).__name__}: {exc}); drawing with what is cached")
+
+
+def _prepare_ui_images(ir_path: Path, offline: bool) -> None:
+    """Before a UI render: download the images it uses that are not cached (rhr.fetch)."""
+    from rhr import fetch
+
+    if offline or fetch.offline():
+        return
+    try:
+        ir = json.loads(Path(ir_path).read_text(encoding="utf-8"))
+        images, _ = fetch.collect_refs(ir)
+        fetch.ensure({"images": images}, log=lambda message: print(message, file=sys.stderr))
+    except Exception as exc:  # noqa: BLE001 - a failed download must not fail the render
+        print(f"note   fetching images failed ({type(exc).__name__}: {exc}); drawing with what is cached",
+              file=sys.stderr)
+
+
 def _fetch(args) -> int:
     from rhr import fetch
 
@@ -302,7 +342,7 @@ def _fetch(args) -> int:
     except (ValueError, RuntimeError) as exc:
         return _die(str(exc))
     return fetch.run(ir_path, images=not args.meshes_only, meshes=not args.images_only,
-                     studio_login=args.use_studio_login)
+                     studio_login=not args.no_studio_login)
 
 
 def _ir(args) -> int:
@@ -441,6 +481,7 @@ def _scene(args) -> int:
     mesh_dir = Path(args.mesh_dir) if args.mesh_dir else None
     try:
         ir_path = ir_for(source, Path(args.ir) if args.ir else None, profile="static")
+        _prepare_scene_assets(ir_path, args.offline)
         page_notes: list[str] = []
         actual = render_scene(
             ir_path,
@@ -489,6 +530,7 @@ def _preview(args) -> int:
     try:
         profile = "visual" if args.time is not None else "static"
         ir_path = ir_for(source, Path(args.ir) if args.ir else None, profile=profile)
+        _prepare_scene_assets(ir_path, args.offline)
         with tempfile.TemporaryDirectory(prefix="rhr-preview-") as directory:
             tmp = Path(directory)
             world = tmp / "world.png"
@@ -652,16 +694,17 @@ def build_parser() -> argparse.ArgumentParser:
     p_setup.set_defaults(func=lambda a: __import__("rhr.tools").tools.setup(rojo=not a.no_rojo))
 
     p_fetch = sub.add_parser(
-        "fetch", help="download the images and meshes a model uses into the local cache (needs network)")
+        "fetch", help="download the images, meshes, unions and Roblox material textures a model uses "
+                      "into the local cache, as the Roblox Studio user (scene and preview do this themselves)")
     p_fetch.add_argument("file", help="Roblox model/place, Rojo project, or IR .json")
     only = p_fetch.add_mutually_exclusive_group()
     only.add_argument("--images-only", action="store_true", help="fetch images only")
-    only.add_argument("--meshes-only", action="store_true", help="fetch meshes only")
+    only.add_argument("--meshes-only", action="store_true",
+                      help="fetch everything but images (meshes, unions, material textures)")
     p_fetch.add_argument(
-        "--use-studio-login", action="store_true",
-        help="download meshes Roblox serves only to signed-in accounts as the user signed in to "
-             "Roblox Studio on this machine (Lune reads the login and sends it only to roblox.com; "
-             "RHR never sees or stores it)")
+        "--no-studio-login", action="store_true",
+        help="only fetch what Roblox serves without signing in (images as thumbnails, some meshes)")
+    p_fetch.add_argument("--use-studio-login", action="store_true", help=argparse.SUPPRESS)
     p_fetch.set_defaults(func=_fetch)
 
     p_doctor = sub.add_parser("doctor", help="check what RHR needs and say what is missing")
@@ -692,6 +735,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_render.add_argument("--all-guis", action="store_true",
                          help="in a place, also draw ScreenGuis stored outside StarterGui (templates scripts clone in)")
+    p_render.add_argument("--offline", action="store_true",
+                          help="do not download missing images first (also: RHR_OFFLINE=1)")
     p_render.set_defaults(func=_render)
 
     p_layout = sub.add_parser("layout", help="resolved rect per node, as JSON")
@@ -783,6 +828,8 @@ def build_parser() -> argparse.ArgumentParser:
                          help="local directory containing decompressed <asset_id>.mesh files")
     p_scene.add_argument("--coverage", action="store_true",
                          help="no-op: the fallback/experimental notes line is always printed")
+    p_scene.add_argument("--offline", action="store_true",
+                         help="do not download missing assets first (also: RHR_OFFLINE=1)")
     p_scene.set_defaults(func=_scene)
 
     p_scene_dump = sub.add_parser("scene-dump", help="machine-readable static 3D geometry and fallback summary")
@@ -828,6 +875,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_preview.add_argument("--all-guis", action="store_true",
                          help="in a place, also draw ScreenGuis stored outside StarterGui (templates scripts clone in)")
+    p_preview.add_argument("--offline", action="store_true",
+                         help="do not download missing assets first (also: RHR_OFFLINE=1)")
     p_preview.set_defaults(func=_preview)
 
     p_particles = sub.add_parser("particles", help="render a deterministic particle contact sheet")

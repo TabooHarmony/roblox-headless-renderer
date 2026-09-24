@@ -1,5 +1,43 @@
 # Changelog
 
+## 0.5.0 (alpha)
+
+RHR now assumes Roblox Studio is installed and signed in on the machine (anyone
+making Roblox content has it) and uses it by default. Checked side by side with
+Studio on a swatch of materials, a union and terrain, and on real game places.
+
+### Added
+
+- **Automatic downloads.** `render`, `scene` and `preview` download what the file
+  uses and the cache lacks, as the Roblox Studio user, before drawing: meshes, unions,
+  Roblox's material textures and images at full size (no more 420 px thumbnails,
+  which also misplaced sprite-sheet crops). Cached assets are never downloaded again;
+  assets Roblox refuses are not asked for again for a day. `--offline` /
+  `RHR_OFFLINE=1` skips it. `rhr fetch` uses the login by default
+  (`--no-studio-login` to not). Without Studio, stderr says the preview will look less
+  like Roblox.
+- **Roblox's own material textures**, by the asset ids Roblox publishes: colour,
+  normal, roughness and metalness maps, tinted the way Roblox does it (the colour
+  map's alpha says where the part colour applies: Brick's mortar keeps its own
+  colour), 10 studs per tile, with the current or pre-2022 set per
+  `MaterialService.Use2022Materials`. Metals follow `EnvironmentSpecularScale`.
+- **Unions** are drawn with the render mesh Studio saved (downloaded by AssetId, or
+  read from the file for older places), with each source part's colour unless
+  UsePartColor is set. Previously a bounding box.
+- **Smooth terrain**, meshed from the voxels the way Roblox does it, with Roblox's
+  terrain textures for top, side and bottom faces and its colouring. Previously
+  4-stud blocks.
+- **From the Studio install:** the default sky, Plastic's surface relief, and legacy
+  surfaces (a Baseplate's studs; Inlet, Weld, Glue, Universal).
+- **SurfaceAppearance and MaterialVariant** normal, roughness and metalness maps.
+- Metals and glass reflect the sky.
+
+### Fixed
+
+- Skies whose face images are not square (1023x682 and the like) drew black.
+- A Sky's left and right faces were swapped, leaving seams at the sides.
+- Places saved with ZSTD-compressed chunks lost their terrain.
+
 ## 0.4.0 (alpha)
 
 ### Added

@@ -77,9 +77,11 @@ def dominant(pixel: tuple[int, int, int], expected: str) -> None:
 
 
 def main() -> None:
+    # Checked in Studio with its default sky: looking toward +X shows the SkyboxLf
+    # image, toward -X SkyboxRt; looking toward -Z shows SkyboxFt.
     directions = [
-        ("right", "1,0,0", "red"),
-        ("left", "-1,0,0", "green"),
+        ("+X shows SkyboxLf", "1,0,0", "green"),
+        ("-X shows SkyboxRt", "-1,0,0", "red"),
         ("up", "0,1,0", "blue"),
         ("down", "0,-1,0", "yellow"),
         ("back", "0,0,1", "magenta"),

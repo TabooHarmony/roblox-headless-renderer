@@ -21,6 +21,10 @@ class _SceneHandler(http.server.SimpleHTTPRequestHandler):
     mesh_manifest_payload: bytes = b"{}"
     asset_files: dict[str, Path] = {}
     mesh_files: dict[str, Path] = {}
+    union_files: dict[str, Path] = {}
+    material_files: dict[str, Path] = {}
+    studio_files: dict[str, Path] = {}
+    extras_manifest_payload: bytes = b"{}"
     ir_cache: dict | None = None
 
     def __init__(self, *args, **kwargs):
@@ -66,8 +70,22 @@ class _SceneHandler(http.server.SimpleHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(payload)
             return
-        if request_path.startswith(("/__rhr_mesh__/", "/__rhr_asset__/")):
-            files = self.mesh_files if request_path.startswith("/__rhr_mesh__/") else self.asset_files
+        if request_path == "/__rhr_extras__.json":
+            payload = self.extras_manifest_payload
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(payload)))
+            self.end_headers()
+            self.wfile.write(payload)
+            return
+        prefixes = {
+            "/__rhr_mesh__/": "mesh_files", "/__rhr_asset__/": "asset_files",
+            "/__rhr_union__/": "union_files", "/__rhr_material__/": "material_files",
+            "/__rhr_studio__/": "studio_files",
+        }
+        prefix = next((p for p in prefixes if request_path.startswith(p)), None)
+        if prefix is not None:
+            files = getattr(self, prefixes[prefix])
             asset_id = request_path.rsplit("/", 1)[-1]
             path = files.get(asset_id)
             if path is None or not path.is_file():
@@ -173,6 +191,75 @@ def _mesh_files(roots: list[Path]) -> dict[str, Path]:
     return found
 
 
+def _inline_unions(ir_path: Path) -> dict[str, Path]:
+    """IR path -> decoded mesh file, for unions that carry their mesh in the file (MeshData2).
+
+    Decoded once per distinct mesh into the union cache, named by the bytes' hash.
+    """
+    import base64
+    import hashlib
+
+    from rhr import unions
+    from rhr.paths import UNION_CACHE
+
+    try:
+        ir = json.loads(Path(ir_path).read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    found: dict[str, Path] = {}
+
+    def visit(node: dict, parent: str) -> None:
+        path = node.get("path") or (f"{parent}/{node.get('name')}" if parent else str(node.get("name")))
+        encoded = (node.get("props") or {}).get("MeshData2")
+        if node.get("className") == "UnionOperation" and isinstance(encoded, str) and encoded:
+            try:
+                blob = base64.b64decode(encoded)
+                target = UNION_CACHE / f"inline-{hashlib.sha1(blob).hexdigest()[:20]}.json"
+                if not target.is_file():
+                    payload = unions.to_payload(unions.decode(blob))
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    target.write_text(json.dumps(payload), encoding="utf-8")
+                found[target.stem] = target
+            except (ValueError, unions.UnionFormatError):
+                pass
+        children = node.get("children") or {}
+        for child in (children.values() if isinstance(children, dict) else children):
+            visit(child, path)
+
+    for root in ir.get("roots", []):
+        visit(root, "")
+    return found
+
+
+def _extras(ir_path: Path | None = None) -> dict:
+    """Union meshes, Roblox material maps and Studio textures the page may use."""
+    from rhr.paths import MATERIAL_CACHE, UNION_CACHE
+    from rhr.studio import studio_install, studio_textures
+
+    def by_stem(root: Path, suffix: str) -> dict[str, Path]:
+        if not root.is_dir():
+            return {}
+        return {p.stem: p.resolve() for p in root.glob(f"*{suffix}") if p.stem.isdigit()}
+
+    unions = by_stem(UNION_CACHE, ".json")
+    if ir_path is not None:
+        unions.update(_inline_unions(ir_path))
+    materials = by_stem(MATERIAL_CACHE, ".png")
+    studio = studio_textures()
+    manifest = {
+        "unions": {k: f"/__rhr_union__/{k}" for k in unions},
+        "materials": {k: f"/__rhr_material__/{k}" for k in materials},
+        "studio": {k: f"/__rhr_studio__/{k}" for k in studio},
+        "studioInstalled": studio_install() is not None,
+    }
+    return {
+        "union_files": unions,
+        "material_files": materials,
+        "studio_files": studio,
+        "extras_manifest_payload": json.dumps(manifest).encode(),
+    }
+
+
 def _png_size(path: Path) -> tuple[int, int]:
     header = path.read_bytes()[:24]
     if len(header) < 24 or header[:8] != b"\x89PNG\r\n\x1a\n" or header[12:16] != b"IHDR":
@@ -211,6 +298,7 @@ def _render_browser(
                 for asset_id in (mesh_files or {})
             }).encode(),
             "mesh_files": mesh_files or {},
+            **_extras(ir_path),
         },
     )
     server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)

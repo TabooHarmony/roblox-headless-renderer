@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Voxel terrain: Terrain.SmoothGrid decodes, and draws as blocks where it is.
+"""Voxel terrain: Terrain.SmoothGrid decodes, and draws as a smooth surface where it is.
 
 The decoder (rhr.terrain) was checked against Studio's Terrain:ReadVoxels on Roblox's
 game template. Here a small terrain is encoded in the same format (a grass floor and
@@ -100,7 +100,7 @@ def main() -> int:
                                "--flat-materials", "--out", str(png)],
                               capture_output=True, text=True, cwd=str(REPO), timeout=300)
         check(proc.returncode == 0, f"scene renders a place with terrain ({proc.stderr.strip()[-120:]})")
-        check("terrain drawn as" in proc.stderr, "a note says terrain is drawn as blocks")
+        check("terrain drawn smooth" in proc.stderr, "a note says terrain is drawn smooth")
         if proc.returncode == 0:
             from PIL import Image
             import numpy as np

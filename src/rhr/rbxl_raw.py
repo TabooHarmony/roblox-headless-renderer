@@ -8,12 +8,9 @@ directly from the chunk container.
 
 Only the small subset needed for raw string extraction is implemented:
 - binary format v0 header/chunk framing
-- uncompressed and LZ4-block chunks
+- uncompressed, LZ4-block and ZSTD chunks
 - INST class id/name/count
 - PROP type 0x01 (String/BinaryString/Content)
-
-ZSTD chunks deliberately fail with an explicit message rather than adding a
-large project dependency.
 """
 
 from __future__ import annotations
@@ -130,10 +127,17 @@ def _chunks(data: bytes):
 
         if compressed:
             if body.startswith(ZSTD_MAGIC):
-                raise BinaryRbxError(
-                    "ZSTD-compressed Roblox chunks are not supported by the raw-property extractor"
-                )
-            body = _lz4_block(body, uncompressed)
+                # Recent Studio builds save some places with ZSTD chunks.
+                import zstandard
+
+                try:
+                    body = zstandard.ZstdDecompressor().decompress(body, max_output_size=uncompressed)
+                except zstandard.ZstdError as exc:
+                    raise BinaryRbxError(f"bad ZSTD {name!r} chunk: {exc}") from exc
+                if len(body) != uncompressed:
+                    raise BinaryRbxError(f"ZSTD size mismatch in {name!r} chunk")
+            else:
+                body = _lz4_block(body, uncompressed)
         elif len(body) != uncompressed:
             raise BinaryRbxError(f"bad uncompressed length for {name!r}")
 
@@ -194,16 +198,16 @@ EMPTY_TERRAIN_SMOOTH_GRID = b"\x01\x05"
 
 
 def extract_string_property(
-    path: str | Path,
+    path: str | Path | bytes,
     class_name: str,
     property_name: str,
 ) -> list[bytes]:
     """Return raw string/BinaryString values for one class/property.
 
     Values are returned in the class's INST order. Most services such as Terrain
-    have exactly one value in a place file.
+    have exactly one value in a place file. `path` may also be the file's bytes.
     """
-    data = Path(path).read_bytes()
+    data = bytes(path) if isinstance(path, (bytes, bytearray)) else Path(path).read_bytes()
     classes: dict[int, tuple[str, int]] = {}
     wanted_id: int | None = None
     results: list[bytes] | None = None

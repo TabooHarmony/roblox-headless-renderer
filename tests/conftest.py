@@ -18,6 +18,9 @@ import pytest
 # happens to be on the machine, so results match CI. Subprocesses inherit this.
 os.environ["RHR_ROBLOX_FONTS"] = "0"
 os.environ["RHR_SYSTEM_FONT_FALLBACK"] = "0"
+# Hermetic 3D: no downloads (and never the Studio login), no Studio install textures.
+os.environ["RHR_OFFLINE"] = "1"
+os.environ["RHR_STUDIO_DIR"] = "0"
 os.environ.pop("PINEVEX_RENDERER_ROBLOX_FONT_DIRS", None)
 
 BROWSER = {
@@ -26,7 +29,7 @@ BROWSER = {
     "test_visual_gallery", "test_place_realism", "test_terrain",
 }
 NOT_LUNE = {
-    "test_compare", "test_groundtruth_diff", "test_mesh_assets", "test_project",
+    "test_compare", "test_groundtruth_diff", "test_mesh_assets", "test_project", "test_roblox_assets",
     "test_scroll_scale", "test_text_newlines", "test_textscaled_stroke",
 }
 STUDIO = {"test_studio_smoke"}

@@ -141,7 +141,8 @@ def preview(
         args.extend(["--seed", str(seed), "--burst", str(burst)])
     _append(args, "--topbar-height", topbar_height)
 
-    result = _run(args)
+    # The first preview of a big place also downloads its assets (rhr.fetch).
+    result = _run(args, timeout=900)
     metadata = {
         "path": str(out_path),
         "viewport": viewport,

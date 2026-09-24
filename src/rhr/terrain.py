@@ -29,6 +29,7 @@ replaced by a natural colour for the material.
 from __future__ import annotations
 
 import base64
+import functools
 from pathlib import Path
 
 CHUNK = 32
@@ -51,6 +52,20 @@ NATURAL_COLORS = {
     "Ground": (112, 96, 66), "CrackedLava": (200, 96, 54), "Asphalt": (86, 90, 90),
     "Cobblestone": (132, 126, 110), "Ice": (180, 214, 232), "LeafyGrass": (98, 128, 60),
     "Salt": (210, 204, 196), "Limestone": (210, 196, 168), "Pavement": (148, 148, 140),
+}
+
+
+# Terrain.MaterialColors of a new place (read from Studio). Roblox's own terrain
+# textures are drawn as they are at these colours; another colour tints the texture
+# by its ratio to the default.
+DEFAULT_MATERIAL_COLORS = {
+    "Grass": (111, 126, 62), "Slate": (88, 89, 86), "Concrete": (152, 152, 152),
+    "Brick": (138, 97, 73), "Sand": (207, 203, 167), "WoodPlanks": (172, 148, 108),
+    "Rock": (99, 100, 102), "Glacier": (221, 228, 229), "Snow": (235, 253, 255),
+    "Sandstone": (148, 124, 95), "Mud": (121, 112, 98), "Basalt": (75, 74, 74),
+    "Ground": (140, 130, 104), "CrackedLava": (255, 24, 67), "Asphalt": (80, 84, 84),
+    "Cobblestone": (134, 134, 118), "Ice": (204, 210, 223), "LeafyGrass": (106, 134, 64),
+    "Salt": (255, 255, 254), "Limestone": (255, 243, 192), "Pavement": (143, 144, 135),
 }
 
 
@@ -118,8 +133,9 @@ def material_colors(data: bytes | None) -> dict[str, tuple[int, int, int]]:
     return colors
 
 
-def terrain_payload(source: Path) -> dict | None:
-    """What the scene page needs to draw the terrain of `source`, or None if it has none."""
+@functools.lru_cache(maxsize=4)
+def _decoded(source: str, stamp: tuple[int, int]):
+    """(chunks, MaterialColors bytes) of a place's terrain, or None. Cached per file version."""
     from rhr.rbxl_raw import EMPTY_TERRAIN_SMOOTH_GRID, BinaryRbxError, extract_serialized_string_property
 
     try:
@@ -134,12 +150,42 @@ def terrain_payload(source: Path) -> dict | None:
         colors = extract_serialized_string_property(source, "Terrain", "MaterialColors")
     except (TerrainFormatError, OSError, BinaryRbxError, UnicodeError):
         return None
+    return chunks, colors
+
+
+def _decode_file(source: Path):
+    try:
+        stat = Path(source).stat()
+    except OSError:
+        return None
+    return _decoded(str(Path(source).resolve()), (stat.st_size, stat.st_mtime_ns))
+
+
+def used_materials(source: Path) -> set[str]:
+    """Names of the terrain materials `source`'s terrain has (Water included)."""
+    decoded = _decode_file(source)
+    if not decoded:
+        return set()
+    used: set[int] = set()
+    for _, materials, _ in decoded[0]:
+        used.update(materials)
+    return {MATERIALS[m] for m in used if m}
+
+
+def terrain_payload(source: Path) -> dict | None:
+    """What the scene page needs to draw the terrain of `source`, or None if it has none."""
+    decoded = _decode_file(source)
+    if not decoded:
+        return None
+    chunks, colors = decoded
     return {
         "chunkSize": CHUNK,
         "voxelStuds": VOXEL_STUDS,
         "materials": MATERIALS,
         "colors": material_colors(colors[0] if colors else None),
         "rawColors": raw_material_colors(colors[0] if colors else None),
+        "defaultColors": DEFAULT_MATERIAL_COLORS,
+        "baseColors": _base_colors(),
         "chunks": [
             {"position": list(position), "materials": base64.b64encode(m).decode("ascii"),
              "occupancy": base64.b64encode(o).decode("ascii")}
@@ -147,3 +193,9 @@ def terrain_payload(source: Path) -> dict | None:
             if any(m)
         ],
     }
+
+
+def _base_colors() -> dict:
+    from rhr.studio import terrain_base_colors
+
+    return terrain_base_colors()

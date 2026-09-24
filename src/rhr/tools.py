@@ -213,6 +213,15 @@ def doctor() -> int:
     else:
         print(f"{'chromium':9} MISSING  needed for 3D (scene, preview, ViewportFrame)")
         problems += 1
+    from rhr.studio import studio_install
+
+    studio = studio_install()
+    if studio is not None:
+        print(f"{'studio':9} ok       {studio}  (its login is used to download assets; "
+              "`rhr fetch` says if it is signed out)")
+    else:
+        print(f"{'studio':9} missing  Roblox Studio is expected: without it previews use stand-in "
+              "textures, meshes and unions")
     print(f"{'cache':9}          {CACHE}")
     if problems:
         print("\nRun `rhr setup` to download what is missing.")

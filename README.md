@@ -1,6 +1,6 @@
 # roblox-headless-renderer (rhr)
 
-**See Roblox UI and 3D builds without opening Studio.** Point `rhr` at a `.rbxm`,
+**See Roblox UI and 3D builds from the command line.** Point `rhr` at a `.rbxm`,
 `.rbxmx`, `.rbxl` or `.rbxlx` file, or a Rojo project, and get a preview PNG plus
 JSON: where everything is, how big it is, what overlaps, what is clickable, and what
 looks broken. It is built for AI agents that make Roblox content and need to check
@@ -14,7 +14,7 @@ line or in CI. No GPU or display is needed.
 
 <p align="center"><sub>Both images come from <code>examples/</code>, rendered by <code>rhr render</code> and <code>rhr scene --view iso --shadows</code>.</sub></p>
 
-> **Status: v0.4, an early alpha.** The UI layout numbers are solid: they match
+> **Status: v0.5, an early alpha.** The UI layout numbers are solid: they match
 > Studio within 2 px on every test place. The pictures are *previews*: close enough
 > to spot mistakes, not a copy of Studio's renderer. Anything RHR can't draw
 > faithfully, it says so in its output instead of guessing quietly. See
@@ -71,17 +71,16 @@ The shop has one deliberate mistake, and `rhr check` finds it:
 | `rhr preview <file>` | One PNG with the 3D world, in-world UI (BillboardGui, SurfaceGui) and screen UI together |
 | `rhr compare a.png b.png` | How much changed between two renders, to tell a geometry change from a colour change |
 | `rhr ir <file>` | The parsed file as JSON, including properties that could not be read |
-| `rhr fetch <file>` | Download the images and meshes a model uses into the local cache (the only command that uses the network). `--use-studio-login` gets meshes that need a signed-in account |
+| `rhr fetch <file>` | Download the images, meshes, unions and Roblox material textures a model uses into the local cache, as your Roblox Studio user. `scene` and `preview` do this themselves for whatever they are missing |
 | `rhr setup` / `rhr doctor` | Install the external tools / check them |
 
 Every JSON output carries a `schema` name (`rhr.layout/1`, `rhr.check/1`, ...), so a
 change in shape is never silent. A Rojo project works anywhere a file does: pass the
 folder with `default.project.json`, or the `*.project.json` file.
 
-**Experimental** (rough sketches, and labelled as such in the output): materials
-other than plastic (look-alike textures), lights, shadows, Sky and Atmosphere,
-Decals and Textures, MeshParts, Beams, Trails, and particles (`rhr particles`,
-`rhr preview --time T`).
+**Experimental** (rough sketches, and labelled as such in the output): lights,
+shadows, Atmosphere, Decals and Textures, Beams, Trails, and particles
+(`rhr particles`, `rhr preview --time T`).
 
 ## For agents
 
@@ -100,30 +99,33 @@ it once.
 
 - **Top bar.** Screen UI is laid out below Roblox's 58 px top bar, as in a running
   game. Studio's edit view has none: pass `--topbar-height 0` to match it.
-- **Images and meshes.** Rendering never touches the network. Run
-  `rhr fetch <file>` once to download the images and meshes a model uses into a local
-  cache. Without them, images are left empty and meshes are drawn as boxes, and the
-  output says so. Images come from Roblox's thumbnail service (no sign-in, up to
-  420 px). Roblox serves most mesh files only to a signed-in account: add
-  `--use-studio-login` to download them as the user signed in to Roblox Studio on
-  that machine (see below). Without the meshes, MeshParts are outlined placeholder
-  boxes in their SurfaceAppearance's colour.
-- **`--use-studio-login`** is opt-in. Lune reads the login Roblox Studio saved on
-  your machine and sends it only to Roblox's own asset download service, the same
-  request Studio makes; RHR never sees, prints, logs or stores it. It downloads
-  only the meshes the model uses that the normal route could not get. Use it on
-  your own machine and your own models.
-- **Terrain** is drawn as 4-stud blocks in each material's colour (or the place's
-  own MaterialVariant image), with partly filled voxels as shorter blocks. It shows
-  where the ground, hills and water are; Roblox's smooth shape is approximated.
+- **Roblox Studio is expected.** RHR is for people making Roblox content, so it
+  assumes Roblox Studio is installed and signed in on the machine (it does not have to
+  be running), and uses it by default:
+  - **Downloads.** Before drawing, `scene` and `preview` download whatever the file
+    uses that is not cached yet (meshes, unions, images at full size, and Roblox's
+    own material textures), as the user signed in to Studio. Lune reads the login
+    Studio saved and sends it only to Roblox's asset delivery, the same request
+    Studio makes; RHR never sees, prints, logs or stores it. Anything already cached
+    is never downloaded again. `--offline` (or `RHR_OFFLINE=1`) skips the download.
+  - **The install's files.** The default sky, Plastic's surface relief and legacy
+    surfaces (a Baseplate's studs) come from the Studio install, and RHR uses its fonts.
+  - **Without Studio** every command still works: images come as 420 px thumbnails,
+    meshes and unions are outlined boxes, materials use public-domain look-alike
+    textures, and the sky is a gradient. RHR says so on stderr, because the result
+    looks noticeably less like Roblox.
+- **Terrain** is drawn smooth, meshed from the place's voxels the way Roblox does it,
+  with Roblox's terrain textures (top, side and bottom). Where two materials meet the
+  edge is hard; Roblox blends them.
+- **Unions** are drawn with the exact shape and per-part colours Studio saved for them.
 - **Place files.** In a `.rbxl`, only StarterGui's ScreenGuis are drawn; templates
   stored in ReplicatedStorage and elsewhere are named on stderr (`--all-guis` draws
-  them). MaterialVariants use their own images once `rhr fetch` has cached them.
-- **Material textures.** Roblox's own material images can't be redistributed, so
-  Brick, Wood, Grass, Cobblestone and the rest use public-domain (CC0) look-alikes
-  from [ambientCG](https://ambientcg.com), tinted by each part's colour. They read as
-  the right material, not as Roblox's exact pattern. `--flat-materials` turns them
-  off.
+  them).
+- **Material textures** are Roblox's own, downloaded by the asset ids Roblox
+  publishes in its documentation, tinted by the part's colour the way Roblox does it
+  (Brick's mortar keeps its own colour), with their relief, roughness and metalness.
+  `MaterialService.Use2022Materials` picks the current or pre-2022 set.
+  `--flat-materials` draws plain colours.
 - **Fonts.** With a Roblox or Studio install on the machine, RHR uses its fonts.
   Without one it uses bundled open-licence fonts, and a few Roblox-only faces are
   replaced by look-alikes.

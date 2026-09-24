@@ -90,6 +90,16 @@ local PROPS = {
   "ZOffset",
   -- SurfaceAppearance and MaterialVariant images; a part's MaterialVariant by name
   "ColorMap", "StudsPerTile", "BaseMaterial", "MaterialVariant", "AlphaMode",
+  "NormalMap", "RoughnessMap", "MetalnessMap",
+  -- Which built-in texture set parts and terrain use (current or pre-2022)
+  "Use2022Materials", "Use2022MaterialsXml",
+  -- Unions: the render mesh asset, the size it was made at, per-face colours or not
+  "AssetId", "InitialSize", "UsePartColor",
+  -- Legacy part surfaces (Studs, Inlet, Weld...), drawn from the Studio install
+  "TopSurface", "BottomSurface", "LeftSurface", "RightSurface", "FrontSurface", "BackSurface",
+  -- Lighting technology, Clouds and post-processing effects
+  "Technology", "LightingStyle", "Cover", "Contrast", "Saturation", "TintColor", "Intensity",
+  "Threshold", "Spread",
   -- MaterialService's per-material overrides ("GrassName" = the MaterialVariant used)
   "PlasticName", "SmoothPlasticName", "NeonName", "WoodName", "WoodPlanksName", "MarbleName",
   "SlateName", "ConcreteName", "GraniteName", "BrickName", "PebbleName", "CobblestoneName",
@@ -117,6 +127,9 @@ local CONTENT_PROPERTY_ALIASES = {
   MoonTextureId = "MoonTextureContent",
   SunTextureId = "SunTextureContent",
   ColorMap = "ColorMapContent",
+  NormalMap = "NormalMapContent",
+  RoughnessMap = "RoughnessMapContent",
+  MetalnessMap = "MetalnessMapContent",
 }
 
 local VISUAL_CLASSES = {
@@ -138,7 +151,8 @@ local VISUAL_CLASSES = {
   Beam = true, Trail = true, ParticleEmitter = true,
   -- Known visual classes not rendered yet: keep them visible to coverage/fallbacks.
   Terrain = true, Sky = true, Atmosphere = true, SurfaceAppearance = true,
-  MaterialVariant = true, Highlight = true,
+  MaterialVariant = true, Highlight = true, NegateOperation = true,
+  Clouds = true, BloomEffect = true, ColorCorrectionEffect = true, SunRaysEffect = true,
   -- Its per-material overrides pick the MaterialVariant parts and Terrain draw with.
   MaterialService = true,
 }
@@ -163,6 +177,23 @@ end
 local function finite(n)
   if n ~= n or n == math.huge or n == -math.huge then return 1e6 end
   return n
+end
+
+local B64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+local function base64(data: string): string
+  local len = #data
+  local out = buffer.create(math.ceil(len / 3) * 4)
+  local o = 0
+  for i = 1, len, 3 do
+    local a, b, c = string.byte(data, i, i + 2)
+    local n = a * 65536 + (b or 0) * 256 + (c or 0)
+    buffer.writeu8(out, o, string.byte(B64, bit32.rshift(n, 18) + 1))
+    buffer.writeu8(out, o + 1, string.byte(B64, bit32.band(bit32.rshift(n, 12), 63) + 1))
+    buffer.writeu8(out, o + 2, if b then string.byte(B64, bit32.band(bit32.rshift(n, 6), 63) + 1) else 61)
+    buffer.writeu8(out, o + 3, if c then string.byte(B64, bit32.band(n, 63) + 1) else 61)
+    o += 4
+  end
+  return buffer.tostring(out)
 end
 
 local function conv(v, depth)
@@ -671,6 +702,14 @@ local function walk(inst)
           table.insert(unreadable, name)
         end
       end
+    end
+  end
+  if inst.ClassName == "UnionOperation" and (props.AssetId == nil or props.AssetId == "") then
+    -- A union not uploaded yet keeps its render mesh in the file itself (binary, so
+    -- base64 for JSON); rhr.unions decodes it.
+    local okMesh, mesh = pcall(function() return inst.MeshData2 end)
+    if okMesh and type(mesh) == "string" and #mesh > 0 and #mesh < 16 * 1024 * 1024 then
+      props.MeshData2 = base64(mesh)
     end
   end
   local node = new_node(inst, props, refs)

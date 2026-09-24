@@ -71,14 +71,15 @@ Known differences:
 
 ## Images
 
-Images are drawn only from the local cache (`rhr fetch <file>` fills it for the
-asset ids in your model). Rendering never downloads anything. A missing image leaves
-its area empty and is listed as a missing asset. `rhr fetch` gets images from Roblox's
-thumbnail service, so an image is at most 420 px even when the original is larger.
+Images are drawn from the local cache. `render`, `scene` and `preview` first download
+the ones the file uses that are not cached, as the Roblox Studio user (the original
+file, at full size); `--offline` skips that. Without a Studio login an image comes
+from Roblox's thumbnail service instead, at most 420 px, which puts sprite-sheet
+crops (`ImageRectOffset`, measured in the original's pixels) in the wrong place. A
+missing image leaves its area empty and is listed as a missing asset.
 
 `ResampleMode` (Default = smooth, Pixelated = nearest) is honoured for Stretch, Fit
-and Crop. Tile and Slice filtering, and whether Roblox uses a thumbnail or the
-original resolution, have not been checked.
+and Crop. Tile and Slice filtering have not been checked.
 
 ## Clickable regions (`rhr hitmap`)
 
@@ -101,20 +102,47 @@ shadow direction and the default sky match.
 size and position, so a saved file already holds the scaled geometry (checked on a
 scaled model that ships with Studio).
 
+**Compared side by side with Studio** (a swatch of 16 materials, a brick wall, a
+union and terrain, same camera, default lighting; with Roblox Studio installed and
+signed in, see below):
+
+- Materials use Roblox's own texture maps (colour, normal, roughness, metalness),
+  downloaded by the asset ids Roblox publishes (`src/rhr/scene/roblox_materials.json`,
+  from its creator docs). The colour map's alpha says where the part's Color applies:
+  Brick's bricks take the colour and the mortar keeps its own, as in Studio. Textures
+  tile every 10 studs. `MaterialService.Use2022Materials` picks the current or the
+  pre-2022 set; a model file (no MaterialService) uses the current one. Metals follow
+  `Lighting.EnvironmentSpecularScale`: at 0 they read as their colour, as in Studio; at
+  1 they reflect the sky. A part's MaterialVariant uses its own maps, tinted by the
+  part's Color and tiled at its StudsPerTile, once they are cached. Neon glows;
+  glass-like materials are see-through. Unknown materials draw as Plastic and are
+  counted as `materialFallbacks`. `--flat-materials` draws plain colours.
+- Plastic has Roblox's faint surface relief, and legacy surfaces (`TopSurface =
+  Studs`, Inlet, Weld, Glue, Universal on block Parts of Plastic or SmoothPlastic) are
+  drawn with the install's surface textures, 2 studs per tile.
+- With no Sky, the sky is Roblox's default one from the install. A Sky's faces are
+  stretched onto squares as Roblox does, whatever the images' own sizes.
+- Unions are drawn with the render mesh Studio saved: downloaded by the union's
+  AssetId (modern places) or read from the file (older ones), with each source part's
+  colour unless UsePartColor is set. A union made in a Studio session and exported
+  before the place was saved has neither; it is drawn as its outlined bounding box
+  and counted as a geometry fallback.
+- Terrain is meshed smooth from the place's voxels (surface nets: the surface crosses
+  between a solid and an empty voxel as far as the solid one's occupancy reaches),
+  with Roblox's terrain textures for each face direction (top, side, bottom), 8 studs
+  per tile, coloured by the material's base colour and the place's MaterialColors.
+  Where two materials meet the edge is hard; Roblox blends them. Grass came out a
+  little brighter and yellower than Studio's, rock a little lighter. Terrain
+  decorations (grass blades) and water waves are not drawn.
+
+**Without Roblox Studio** on the machine (or signed out): images are 420 px
+thumbnails, meshes and unions are outlined boxes, materials use public-domain (CC0)
+ambientCG look-alikes (`src/rhr/scene/materials/credits.json`) at 4-10 studs per
+tile, the default sky is a gradient, and there is no plastic relief or stud texture.
+stderr says so on every 3D render.
+
 **Approximate, by eye:**
 
-- Materials: each has a roughness/metalness setting and, for all but Plastic,
-  SmoothPlastic, Neon, Glass and ForceField, a look-alike texture: a public-domain
-  (CC0) ambientCG material turned into a greyscale detail tile that the part's Color
-  tints, plus a relief map (`src/rhr/scene/materials/credits.json` lists the source
-  of each). They read as brick, wood or grass, but the pattern, its scale (4-10
-  studs per tile) and its contrast are not Roblox's. A part's MaterialVariant is
-  drawn with the variant's own ColorMap, tinted by the part's Color and tiled at its
-  StudsPerTile, once `rhr fetch` has cached that image (normal and roughness maps
-  are not used); otherwise the base material's look-alike stands in. Plastic has no
-  studs. Neon glows; glass-like materials are see-through. Unknown
-  materials draw as Plastic and are counted as `materialFallbacks`.
-  `--flat-materials` draws plain colours.
 - Lighting: Ambient, OutdoorAmbient, Brightness, EnvironmentDiffuseScale, ClockTime
   and GeographicLatitude drive the sun and sky light; intensities are tuned by eye
   against Studio screenshots. Post-processing (Bloom, ColorCorrection, SunRays,
@@ -127,30 +155,21 @@ scaled model that ships with Studio).
 - Atmosphere is simple fog, set by eye against Roblox's game template, that tints
   the horizon of the sky; `Glare` is not drawn. In an automatic view (`--view`,
   `--focus`), which stands far back from a whole map, the fog is capped so the build
-  stays readable. A Sky needs all six faces in the local image cache; without them
-  the default blue sky is drawn. The sun, moon and stars are not drawn.
+  stays readable. A Sky whose six faces are not all cached draws the default sky.
+  The sun, moon and stars are not drawn. With several Sky objects the first one is
+  used; which one Roblox picks has not been checked.
 - Decals and Textures need their images cached. Face orientation was checked in
   Studio.
 
 **Drawn as stand-ins, and reported as such:**
 
-- MeshParts and FileMeshes use cached mesh files (`rhr fetch`). Roblox serves most
-  mesh files only to a signed-in account (all 47 in Roblox's own game template);
-  `rhr fetch --use-studio-login` gets them as the Roblox Studio user on the machine.
-  A MeshPart with its mesh is drawn with its SurfaceAppearance ColorMap through the
-  mesh's UVs (AlphaMode Transparency cuts out, Overlay shows the part colour
-  through); the normal, roughness and metalness maps are not used. Without the mesh
-  it is a placeholder: its bounding box with an outline, no shadow, coloured from the
-  SurfaceAppearance image, counted as a geometry fallback. Skinned meshes, bones and
-  LOD are not modelled.
-- Unions (`UnionOperation`) are drawn as their bounding box.
-- Terrain is drawn as 4-stud blocks (experimental, `TerrainBlocks` in the notes),
-  decoded from the place's saved voxels (the format was checked voxel by voxel
-  against Studio). A block takes its material's colour, or the MaterialVariant image
-  MaterialService assigns to that material; a partly filled surface voxel is a
-  shorter block; water is translucent. Roblox's smooth surfaces, terrain decorations
-  (grass blades) and water waves are not drawn. Terrain whose data does not decode is
-  reported as unsupported instead of guessed.
+- MeshParts and FileMeshes use cached mesh files, downloaded before a render with
+  the Studio login (Roblox serves most meshes only to a signed-in account). A MeshPart
+  with its mesh is drawn with its SurfaceAppearance maps through the mesh's UVs
+  (AlphaMode Transparency cuts out, Overlay shows the part colour through; normal,
+  roughness and metalness maps are used). Without the mesh it is a placeholder: its
+  bounding box with an outline, no shadow, coloured from the SurfaceAppearance image,
+  counted as a geometry fallback. Skinned meshes, bones and LOD are not modelled.
 
 ## In-world UI (BillboardGui, SurfaceGui)
 
