@@ -2,6 +2,28 @@
 
 ## Unreleased
 
+### Faster, lighter, more dependable
+
+- **Warm 3D renders are 3x faster**: the browser worker keeps the 3D page loaded
+  between renders (scripts, compiled shaders, decoded images and meshes stay), starts
+  on the first 3D render and stops after 10 idle minutes. Small scene: 2.4 s -> 0.7 s
+  inside RHR. Screenshots use Chromium's fast PNG encoder; a Rokit Lune shim is no
+  longer started on every command when `rhr setup`'s pinned Lune is there.
+- **Heavy effects simulate 5x faster** (in-place stepping, a cheaper search for the
+  fullest moment).
+- **`rhr-mcp` runs every command in one long-lived process**: no Python start-up per
+  tool call (0.8 s for a warm 3D render).
+- **`RHR_PROFILE=1`** prints where a command's time goes, down to the page's steps.
+- **`rhr setup` installs only Chromium's headless shell** (about 260 MB, not 650).
+- **`rhr cache`** shows and clears the cache, which now stays under 2 GB
+  (`RHR_CACHE_LIMIT_MB`, least recently used first).
+- **Dependability**: a worker that fails falls back to a fresh page, a crashed
+  Chromium is relaunched, the CLI falls back to a one-shot Chromium, a worker running
+  older code is replaced, cache files are written atomically, and `rhr doctor` shows
+  the cache and the worker.
+- **Tests**: their own empty cache and worker (results no longer depend on what the
+  machine downloaded), 18 -> ~5 minutes, and `pytest -m smoke` for a quick check.
+
 ### VFX in the 3D scene
 
 - **Particles are drawn inside the scene** by `scene` and `preview`, by default: walls

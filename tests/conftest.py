@@ -3,8 +3,10 @@
     browser  renders through headless Chromium (Playwright)
     lune     converts .rbxm/.rbxmx files to IR through `lune`
     studio   needs local Roblox Studio model files (RHR_STUDIO_MODELS)
+    smoke    one quick test per area (about a minute): run before every commit
 
-`pytest -m "not browser"` runs the quick 2D/IR checks only.
+`pytest -m "not browser"` runs the quick 2D/IR checks only; `pytest -m smoke` the smoke
+group; the full suite before a release.
 """
 
 from __future__ import annotations
@@ -61,16 +63,23 @@ BROWSER = {
     "test_visual_gallery", "test_place_realism", "test_terrain",
 }
 NOT_LUNE = {
-    "test_compare", "test_groundtruth_diff", "test_mesh_assets", "test_project", "test_roblox_assets",
+    "test_compare", "test_groundtruth_diff", "test_mesh_assets", "test_project", "test_roblox_assets", "test_cache", "test_command_worker",
     "test_scroll_scale", "test_text_newlines", "test_textscaled_stroke",
 }
 STUDIO = {"test_studio_smoke"}
+SMOKE = {
+    "test_fixtures", "test_layout_dump", "test_hitmap", "test_checks",       # 2D UI
+    "test_ir_profiles", "test_ir_cache",                                      # file conversion
+    "test_preview", "test_scene_highlight", "test_scene_vfx",                 # 3D
+    "test_tools", "test_cache",                                               # tools, cache
+}
 
 
 def pytest_configure(config):
     config.addinivalue_line("markers", "browser: renders through headless Chromium")
     config.addinivalue_line("markers", "lune: converts Roblox files through lune")
     config.addinivalue_line("markers", "studio: needs local Roblox Studio model files")
+    config.addinivalue_line("markers", "smoke: one quick test per area, for every commit")
 
 
 def pytest_collection_modifyitems(items):
@@ -83,3 +92,5 @@ def pytest_collection_modifyitems(items):
             item.add_marker(pytest.mark.lune)
         if name in STUDIO:
             item.add_marker(pytest.mark.studio)
+        if name in SMOKE:
+            item.add_marker(pytest.mark.smoke)

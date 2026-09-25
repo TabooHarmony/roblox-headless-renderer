@@ -40,8 +40,87 @@ server = FastMCP(
 )
 
 
+class _CommandWorker:
+    """One long-lived `python -m rhr.command_worker` that runs the tools' commands.
+
+    Starting Python for every tool call costs 1-3 s on some Windows machines; this
+    process starts once. One command at a time (a lock); a command that runs past its
+    timeout, or a worker that dies, gets the worker replaced. RHR_MCP_WORKER=0 runs
+    every command in a process of its own instead.
+    """
+
+    def __init__(self) -> None:
+        import threading
+
+        self.process: subprocess.Popen | None = None
+        self.lock = threading.Lock()
+
+    def _start(self) -> subprocess.Popen:
+        return subprocess.Popen(
+            [sys.executable, "-m", "rhr.command_worker"],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            # Never our stdout: that is the MCP protocol pipe.
+            stderr=subprocess.DEVNULL,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            bufsize=1,
+        )
+
+    def stop(self) -> None:
+        if self.process is not None:
+            try:
+                self.process.kill()
+            except OSError:
+                pass
+        self.process = None
+
+    def run(self, args: list[str], timeout: int) -> subprocess.CompletedProcess[str]:
+        import threading
+
+        with self.lock:
+            if self.process is None or self.process.poll() is not None:
+                self.process = self._start()
+            process = self.process
+            reply: list[str] = []
+            process.stdin.write(json.dumps({"args": args}) + "\n")
+            process.stdin.flush()
+            reader = threading.Thread(target=lambda: reply.append(process.stdout.readline()), daemon=True)
+            reader.start()
+            reader.join(timeout)
+            if reader.is_alive():
+                self.stop()
+                raise subprocess.TimeoutExpired([*RHR, *args], timeout)
+            if not reply or not reply[0]:
+                self.stop()
+                raise OSError("the command worker exited")
+            data = json.loads(reply[0])
+            return subprocess.CompletedProcess([*RHR, *args], data["code"], data["stdout"], data["stderr"])
+
+
+_WORKER = _CommandWorker()
+
+
 def _run(args: list[str], *, timeout: int = 180) -> subprocess.CompletedProcess[str]:
-    result = subprocess.run(
+    import os
+
+    result = None
+    if os.environ.get("RHR_MCP_WORKER", "1") != "0":
+        try:
+            result = _WORKER.run(args, timeout)
+        except OSError:
+            result = None  # the worker could not run it: a process of its own below
+    if result is None:
+        result = _run_process(args, timeout=timeout)
+    if result.returncode:
+        detail = (result.stderr or result.stdout).strip()
+        raise RuntimeError(detail or f"rhr {' '.join(args)} exited {result.returncode}")
+    return result
+
+
+def _run_process(args: list[str], *, timeout: int = 180) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
         [*RHR, *args],
         # Never hand the child our stdin: it is the MCP protocol pipe, and on Windows a
         # child inheriting a pipe another thread is reading hangs during startup.
@@ -52,10 +131,6 @@ def _run(args: list[str], *, timeout: int = 180) -> subprocess.CompletedProcess[
         errors="replace",
         timeout=timeout,
     )
-    if result.returncode:
-        detail = (result.stderr or result.stdout).strip()
-        raise RuntimeError(detail or f"rhr {' '.join(args)} exited {result.returncode}")
-    return result
 
 
 def _json_command(args: list[str], *, timeout: int = 180) -> dict[str, Any]:

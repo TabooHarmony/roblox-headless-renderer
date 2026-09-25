@@ -140,19 +140,38 @@ def _tool_version(path: str) -> str:
 
 
 def chromium_path() -> str | None:
-    """Playwright's Chromium executable if it is installed, else None."""
+    """The Chromium RHR launches if it is installed, else None.
+
+    RHR always runs Chromium headless, which Playwright does with its "headless shell"
+    build, installed next to full Chromium (same revision, `chromium_headless_shell-N`).
+    Full Chromium is not needed; `rhr setup` installs the shell alone (about 260 MB
+    instead of 650). RHR_CHROME, if set, is used as it is.
+    """
+    if os.environ.get("RHR_CHROME"):
+        chrome = os.environ["RHR_CHROME"]
+        return chrome if Path(chrome).exists() else None
     try:
         from playwright.sync_api import sync_playwright
 
         with sync_playwright() as p:
-            path = p.chromium.executable_path
+            full = Path(p.chromium.executable_path)
     except Exception:
         return None
-    return path if path and Path(path).exists() else None
+    # .../ms-playwright/chromium-1208/chrome-win64/chrome.exe -> .../chromium_headless_shell-1208/*/chrome-headless-shell*
+    revision = next((part.split("-", 1)[1] for part in full.parts if part.startswith("chromium-")), None)
+    if revision:
+        for root in full.parents:
+            if root.name.startswith("chromium-"):
+                shells = sorted((root.parent / f"chromium_headless_shell-{revision}").glob("*/chrome-headless-shell*"))
+                shells = [shell for shell in shells if shell.is_file() and shell.suffix in {"", ".exe"}]
+                if shells:
+                    return str(shells[0])
+                break
+    return None
 
 
 def _install_chromium() -> int:
-    args = [sys.executable, "-m", "playwright", "install", "chromium"]
+    args = [sys.executable, "-m", "playwright", "install", "--only-shell", "chromium"]
     if sys.platform.startswith("linux") and os.geteuid() == 0:
         args.insert(-1, "--with-deps")
     return subprocess.run(args).returncode
@@ -175,9 +194,9 @@ def setup(*, rojo: bool = True) -> int:
     if chromium_path():
         print(f"{'chromium':9} ok       {chromium_path()}")
     else:
-        print(f"{'chromium':9} ...      python -m playwright install chromium", flush=True)
+        print(f"{'chromium':9} ...      python -m playwright install --only-shell chromium", flush=True)
         if _install_chromium() != 0:
-            print(f"{'chromium':9} FAILED   run `python -m playwright install --with-deps chromium`")
+            print(f"{'chromium':9} FAILED   run `python -m playwright install --with-deps --only-shell chromium`")
             failed = True
     if sys.platform.startswith("linux") and not failed:
         print("On a bare Linux machine Chromium may also need system libraries: "
@@ -229,7 +248,18 @@ def doctor() -> int:
     else:
         print(f"{'studio':9} missing  Roblox Studio is expected: without it previews use stand-in "
               "textures, meshes and unions")
-    print(f"{'cache':9}          {CACHE}")
+    from rhr import cache
+
+    held = sum(cache.sizes().values())
+    print(f"{'cache':9} {held / 1e6:6.0f} MB  {CACHE}  (limit {cache.limit_bytes() / 1e6:.0f} MB; `rhr cache`)")
+    from rhr.browser_session import status as worker_status
+
+    worker = worker_status()
+    if worker.get("running"):
+        print(f"{'worker':9} running  pid {worker.get('pid')}, {worker.get('webgl')} WebGL (warm 3D renders; "
+              "stops after 10 idle minutes)")
+    else:
+        print(f"{'worker':9} stopped  starts on the next 3D render (RHR_PERSISTENT_BROWSER=0 turns it off)")
     if problems:
         print("\nRun `rhr setup` to download what is missing.")
     return 1 if problems else 0

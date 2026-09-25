@@ -121,6 +121,24 @@ exact visuals, Studio's own MCP is the tool for that.
      and rarely needed libraries leave the default install. Drawing the 2D UI in the
      browser (dropping skia-python) is evaluated and written up, not done, in this
      pass.
+
+   Results (2026-09-25, same Windows machine): inside RHR, a warm small 3D scene
+   2.4 s -> 0.72 s (page kept loaded in the worker, Lune lookup 0.6 s -> 10 ms,
+   screenshot 0.41 -> 0.20 s), a 4,400-particle effect 4.0 s -> 1.5 s (simulation
+   1,160 -> 220 ms), a 2D UI render 0.3 s; the worker starts on the first 3D render and
+   stops when idle; MCP tool calls run in one long-lived process (a warm 3D render
+   0.8 s per call, from ~4.4 s). Test suite 18 -> ~5 minutes (own cache, own worker);
+   `-m smoke` in about a minute. `rhr setup` installs only the headless shell
+   (-394 MB); the cache stays under 2 GB (`rhr cache`). Dependability: the worker
+   falls back to a fresh page, relaunches a crashed Chromium, and the CLI falls back to
+   a one-shot Chromium; cache writes are atomic; `rhr doctor` shows the cache and the
+   worker. Decided: no `rhr serve` for the CLI. What is left per command is Python
+   starting (1-3 s on this machine: a venv launcher and antivirus, 0.1 s elsewhere),
+   which a Python client cannot avoid; the MCP server avoids it. Evaluated, not done:
+   drawing the 2D UI in the browser to drop skia-python. It would make UI-only use need
+   Chromium (~260 MB) instead of skia (15 MB) and mean re-writing painting that is
+   tuned to Studio within 2 px, so skia stays. The vendored fonts all back Roblox font
+   families, and numpy is used throughout the UI engine: nothing to trim there.
 3. **Release.** Docs brought up to date, a check on a fresh machine, tag and publish.
 
 **Not in this release (not ruled out; picked up after it):**

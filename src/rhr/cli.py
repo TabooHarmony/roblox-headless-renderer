@@ -668,6 +668,25 @@ def _effect_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--seed", type=int, default=0, help="particle randomness seed")
 
 
+def _cache(args) -> int:
+    from rhr import cache
+
+    if args.clear:
+        try:
+            freed = cache.clear(args.clear)
+        except ValueError as exc:
+            return _die(str(exc))
+        print(f"cache  cleared {args.clear}: {freed / 1e6:.1f} MB")
+        return 0
+    held = cache.sizes()
+    for name, size in held.items():
+        print(f"{name:10} {size / 1e6:8.1f} MB  {cache.AREAS[name]}")
+    limit = cache.limit_bytes()
+    print(f"{'total':10} {sum(held.values()) / 1e6:8.1f} MB  "
+          f"(limit {limit / 1e6:.0f} MB, RHR_CACHE_LIMIT_MB; least recently used goes first)")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     from rhr import __version__
 
@@ -699,6 +718,12 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_doctor = sub.add_parser("doctor", help="check what RHR needs and say what is missing")
     p_doctor.set_defaults(func=lambda a: __import__("rhr.tools").tools.doctor())
+
+    p_cache = sub.add_parser("cache", help="show how much RHR's cache holds, or clear part of it")
+    p_cache.add_argument("--clear", metavar="AREA",
+                         help="remove one area (images, meshes, unions, materials, particles, studio, ir) "
+                              "or all of them; it is downloaded or converted again when needed")
+    p_cache.set_defaults(func=_cache)
 
     p_ir = sub.add_parser("ir", help="dump our IR for a Roblox model")
     p_ir.add_argument("file", help=".rbxm/.rbxmx/.rbxl/.rbxlx")
@@ -891,6 +916,10 @@ def main(argv: list[str] | None = None) -> int:
         if hasattr(stream, "reconfigure"):
             stream.reconfigure(encoding="utf-8", errors="replace")
     args = build_parser().parse_args(argv)
+    if args.func is not _cache:
+        from rhr.cache import maybe_prune
+
+        maybe_prune()  # at most once a day: keeps the cache under its limit
     if getattr(args, "all_guis", False):
         from rhr import pipeline
 

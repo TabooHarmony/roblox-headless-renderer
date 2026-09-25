@@ -33,8 +33,10 @@ it: a different version means the shape changed.
 5. After the next edit, `rhr compare` the two PNGs to confirm only what you meant to
    change moved.
 
-For repeated 3D renders, `rhr browser start` once keeps Chromium warm; renders then
-take a second or two on a machine with a GPU. `rhr browser stop` when done.
+The first 3D render starts a warm Chromium worker; later renders reuse its loaded
+page and take well under a second inside RHR on a machine with a GPU. It stops by
+itself after 10 idle minutes. Through `rhr-mcp`, every tool call also skips starting
+Python. `RHR_PROFILE=1` prints where a command's time went.
 
 ## Reading paths
 

@@ -41,9 +41,9 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -e ".[dev,mcp]"
           if [ "$RUNNER_OS" = "Linux" ]; then
-            python -m playwright install --with-deps chromium
+            python -m playwright install --with-deps --only-shell chromium
           else
-            python -m playwright install chromium
+            python -m playwright install --only-shell chromium
           fi
 
       - name: Install Lune and Rojo

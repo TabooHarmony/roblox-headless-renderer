@@ -22,6 +22,7 @@ from rhr.browser_render import KeptScenePage, capture, launch, webgl_mode
 
 class RenderServer(http.server.HTTPServer):
     browser = None
+    playwright = None
     code = ""
     last_used = 0.0
     kept: KeptScenePage | None = None
@@ -99,6 +100,14 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     print(f"rhr worker: kept page failed ({fallback_reason}); used a fresh page", flush=True)
             self._json(200, {"ok": True, "timings": timings})
         except Exception as exc:
+            # A crashed Chromium would fail every later render too: start a new one.
+            if not self.server.browser.is_connected():
+                print("rhr worker: Chromium disconnected, relaunching", flush=True)
+                try:
+                    self.server.browser = launch(self.server.playwright)
+                    self.server.kept = KeptScenePage(self.server.browser)
+                except Exception as relaunch_error:  # noqa: BLE001
+                    print(f"rhr worker: relaunch failed: {relaunch_error}", flush=True)
             self._json(500, {"error": str(exc)})
 
     def log_message(self, _format, *_args):
@@ -117,6 +126,7 @@ def main() -> int:
     browser = launch(playwright)
     server = RenderServer(("127.0.0.1", 0), Handler)
     server.browser = browser
+    server.playwright = playwright
     server.kept = KeptScenePage(browser)
     from rhr.browser_session import code_stamp
 
@@ -149,7 +159,7 @@ def main() -> int:
         server.serve_forever()
     finally:
         args.port_file.unlink(missing_ok=True)
-        browser.close()
+        server.browser.close()
         playwright.stop()
         server.server_close()
     return 0

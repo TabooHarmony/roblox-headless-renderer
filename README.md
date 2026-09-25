@@ -27,7 +27,7 @@ You need Python 3.12 or newer, on Windows, macOS or Linux.
 
 ```sh
 pip install git+https://github.com/TabooHarmony/roblox-headless-renderer
-rhr setup     # downloads Lune (reads Roblox files), Rojo and Chromium (for 3D)
+rhr setup     # downloads Lune (reads Roblox files), Rojo and headless Chromium (for 3D)
 rhr doctor    # checks everything is in place
 ```
 
@@ -97,11 +97,19 @@ hosts that prefer tools to a shell. Install it with
 `pip install "roblox-headless-renderer[mcp] @ git+https://github.com/TabooHarmony/roblox-headless-renderer"`.
 
 3D renders use the GPU (about 8x faster than software rendering; set
-`RHR_WEBGL=software` for identical pixels on every machine, as the tests do). For
-repeated 3D renders, `rhr browser start` keeps one Chromium running in the
-background, which makes each render faster still. RHR also remembers the last
-conversion of each file, so running several commands on an unchanged file only reads
-it once.
+`RHR_WEBGL=software` for identical pixels on every machine, as the tests do). The first
+3D render starts a warm Chromium worker in the background, which keeps the 3D page
+loaded; later renders reuse it and it stops itself after 10 idle minutes
+(`RHR_PERSISTENT_BROWSER=0` turns it off). RHR also remembers the last conversion of
+each file, so several commands on an unchanged file only read it once.
+
+Measured on a Windows machine with a GPU (`RHR_PROFILE=1` prints the same breakdown
+for any command): once the worker is warm, a small 3D scene takes about 0.7 s inside
+RHR, a 4,400-particle effect about 1.5 s, and a 2D UI render about 0.3 s. Starting
+Python itself adds 0.1-3 s per command depending on the machine; the MCP server
+(`rhr-mcp`) runs every command in one long-lived process, so its tool calls do not
+pay that again. `rhr cache` shows what the cache holds (it stays under 2 GB,
+`RHR_CACHE_LIMIT_MB`).
 
 ## Good to know
 

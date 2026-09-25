@@ -119,7 +119,10 @@ def _crop_tile(source: Path, tile: int, destination: Path) -> None:
     with Image.open(source) as image:
         image.load()
         size = image.width
-        image.crop((0, tile * size, size, (tile + 1) * size)).convert("RGB").save(destination)
+        # Written whole, then moved in: an interrupted run never leaves half a file.
+        temporary = destination.with_suffix(".tmp.png")
+        image.crop((0, tile * size, size, (tile + 1) * size)).convert("RGB").save(temporary)
+    temporary.replace(destination)
 
 
 def _convert(source: Path, destination: Path) -> None:

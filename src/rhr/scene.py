@@ -243,7 +243,9 @@ def _inline_unions(ir_path: Path) -> dict[str, Path]:
                 if not target.is_file():
                     payload = unions.to_payload(unions.decode(blob))
                     target.parent.mkdir(parents=True, exist_ok=True)
-                    target.write_text(json.dumps(payload), encoding="utf-8")
+                    temporary = target.with_suffix(".tmp")
+                    temporary.write_text(json.dumps(payload), encoding="utf-8")
+                    temporary.replace(target)  # never half a file in the cache
                 found[target.stem] = target
             except (ValueError, unions.UnionFormatError):
                 pass
@@ -359,7 +361,15 @@ def _render_browser(
             reuse = None
             if page == "scene/index.html" and not transparent:
                 reuse = {"query": query, "base": f"http://127.0.0.1:{server.server_port}"}
-            render_persistent(url=url, out=out, width=width, height=height, transparent=transparent, reuse=reuse)
+            try:
+                render_persistent(url=url, out=out, width=width, height=height, transparent=transparent, reuse=reuse)
+            except (RuntimeError, OSError) as exc:
+                # The worker failed (or crashed): draw this one in a Chromium of its own.
+                from rhr.browser_render import render_once
+
+                if notes_out is not None:
+                    notes_out.append(f"the warm browser worker failed ({str(exc)[:160]}); drew with a fresh Chromium")
+                render_once(url=url, out=out, width=width, height=height, transparent=transparent)
         else:
             from rhr.browser_render import render_once
 
