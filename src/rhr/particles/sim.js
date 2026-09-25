@@ -1,6 +1,21 @@
 // Deterministic ParticleEmitter primitives for the browser preview.
 
+// Parsed once per sequence: a still frame samples each one for every particle at every
+// step while it looks for the fullest moment.
+const keypointCache = new WeakMap();
 function keypoints(sequence) {
+  if (sequence && typeof sequence === 'object') {
+    let points = keypointCache.get(sequence);
+    if (!points) {
+      points = parseKeypoints(sequence);
+      keypointCache.set(sequence, points);
+    }
+    return points;
+  }
+  return parseKeypoints(sequence);
+}
+
+function parseKeypoints(sequence) {
   const points = (sequence?.keypoints || []).map((point, index) => ({
     time: Number(point.Time ?? point.time ?? 0),
     value: point.Value ?? point.value ?? 0,
@@ -262,4 +277,180 @@ export function simulateEmitter(emitter, options = {}) {
     elapsed += dt;
   }
   return frames;
+}
+
+// ---------------------------------------------------------------------------
+// Playing an effect for a still frame inside the 3D scene.
+//
+// Most VFX are not left running: the emitters are disabled and a script plays them
+// with :Emit(). The community's convention keeps how to play each emitter in its
+// attributes: EmitCount (particles emitted at once), EmitDelay (seconds after the
+// effect starts) and EmitDuration (seconds the emitter is switched on at its Rate).
+// RHR runs no scripts; it reads these and plays the emitters itself. An emitter that
+// is Enabled also streams the whole time, as it does when the model sits in a place.
+
+export function playSchedule(props, attributes) {
+  const number = key => {
+    const value = Number(attributes?.[key]);
+    return attributes && key in attributes && Number.isFinite(value) ? value : null;
+  };
+  const count = number('EmitCount');
+  const delay = Math.max(0, number('EmitDelay') ?? 0);
+  const duration = number('EmitDuration');
+  const rate = Math.max(0, Number(props?.Rate ?? 0));
+  const bursts = [];
+  const windows = [];
+  if (count !== null && count >= 1) bursts.push({time: delay, count: Math.min(Math.floor(count), 5000)});
+  if (duration !== null && duration > 0 && rate > 0) windows.push({start: delay, end: delay + duration});
+  const running = props?.Enabled !== false && rate > 0;
+  if (running) windows.push({start: -Infinity, end: Infinity});
+  const played = bursts.length > 0 || windows.some(window => Number.isFinite(window.end));
+  if (!bursts.length && !windows.length) return {kind: 'idle', bursts, windows, running: false, played: false};
+  return {kind: played ? 'played' : 'running', bursts, windows, running, played};
+}
+
+function lifetimeMax(props) {
+  const lifetime = props?.Lifetime;
+  return Math.max(0, Number(lifetime?.Max ?? lifetime?.max ?? lifetime ?? 1));
+}
+
+// When the effect's own story ends: every burst and stream done and their particles gone.
+export function playHorizon(props, schedule) {
+  const life = Math.min(lifetimeMax(props), 20);
+  let end = 0;
+  for (const burst of schedule.bursts) end = Math.max(end, burst.time + life);
+  for (const window of schedule.windows) if (Number.isFinite(window.end)) end = Math.max(end, window.end + life);
+  return end;
+}
+
+// basis: [right, up, back], the parent's rotation columns as world vectors.
+function mat3Apply(basis, v) {
+  if (!basis) return v;
+  return [
+    basis[0][0] * v[0] + basis[1][0] * v[1] + basis[2][0] * v[2],
+    basis[0][1] * v[0] + basis[1][1] * v[1] + basis[2][1] * v[2],
+    basis[0][2] * v[0] + basis[1][2] * v[1] + basis[2][2] * v[2],
+  ];
+}
+
+function rotateAbout(v, axis, angle) {
+  const c = Math.cos(angle);
+  const s = Math.sin(angle);
+  const d = v[0] * axis[0] + v[1] * axis[1] + v[2] * axis[2];
+  const x = cross(axis, v);
+  return [0, 1, 2].map(i => v[i] * c + x[i] * s + axis[i] * d * (1 - c));
+}
+
+// SpreadAngle (X, Y) turns the direction by up to that many degrees about the two
+// axes across it.
+function spreadDirection(direction, spread, random) {
+  const reference = Math.abs(direction[1]) > 0.9 ? [0, 0, 1] : [0, 1, 0];
+  const across = normalize(cross(reference, direction));
+  const other = normalize(cross(direction, across));
+  let result = direction;
+  const a = (random() * 2 - 1) * spread[0] * Math.PI / 180;
+  const b = (random() * 2 - 1) * spread[1] * Math.PI / 180;
+  if (a) result = rotateAbout(result, other, a);
+  if (b) result = rotateAbout(result, across, b);
+  return normalize(result);
+}
+
+// A seed per emitter from its path, so adding one emitter leaves the others as they were.
+export function hashSeed(text, seed = 0) {
+  let h = (2166136261 ^ Number(seed)) >>> 0;
+  for (const char of String(text)) h = Math.imul(h ^ char.charCodeAt(0), 16777619) >>> 0;
+  return h;
+}
+
+// Step one emitter from the start of its story to `until`, calling visit(time, particles)
+// after every step at or past `from`. Positions and velocities are in world space.
+export function playEmitter(props, schedule, options = {}) {
+  const dt = Math.max(1e-3, Number(options.dt ?? 1 / 60));
+  const random = seededRandom(options.seed ?? 0);
+  const origin = vector(options.origin);
+  const basis = options.basis || null;
+  const size = vector(options.emitterSize);
+  const acceleration = vector(props?.Acceleration);
+  const drag = Math.max(0, Number(props?.Drag ?? 0));
+  const rate = Math.max(0, Number(props?.Rate ?? 0));
+  const timeScale = Math.max(0, Number(props?.TimeScale ?? 1));
+  const spread = vector(props?.SpreadAngle, [0, 0, 0]);
+  const shape = props?.Shape?.name || 'Box';
+  const [columns, rows] = flipbookLayout(props);
+  const until = Number(options.until ?? 0);
+  const from = Number(options.from ?? until);
+  const maxParticles = Math.max(1, Math.floor(Number(options.maxParticles ?? 4000)));
+  // A running emitter has been on for a while already: start it one lifetime early.
+  const start = schedule.running ? -Math.min(lifetimeMax(props), 20) - dt : 0;
+  const bursts = schedule.bursts.map(burst => ({...burst, done: false}));
+  const particles = [];
+  let accumulator = 0;
+  let wasOn = false;
+
+  const spawn = () => {
+    if (particles.length >= maxParticles) return;
+    const lifetime = Math.max(1e-3, sampleRange(props?.Lifetime, random));
+    const speed = sampleRange(props?.Speed, random);
+    const localOffset = shapeOffset(props, random, size);
+    const localDirection = shape !== 'Box' && Math.hypot(...localOffset) > 1e-9
+      ? velocityDirection(props, random, localOffset)
+      : spreadDirection(emissionDirection(props), spread, random);
+    particles.push({
+      age: 0,
+      lifetime,
+      position: add(origin, mat3Apply(basis, localOffset)),
+      velocity: scale(mat3Apply(basis, localDirection), speed),
+      rotation: sampleRange(props?.Rotation, random),
+      rotSpeed: sampleRange(props?.RotSpeed, random),
+      startFrame: props?.FlipbookStartRandom ? Math.floor(random() * columns * rows) : 0,
+    });
+  };
+
+  const steps = Math.max(0, Math.round((until - start) / dt));
+  for (let i = 0; i <= steps; i += 1) {
+    const time = start + i * dt;
+    const step = dt * timeScale;
+    for (const burst of bursts) {
+      if (!burst.done && time >= burst.time - 1e-9) {
+        burst.done = true;
+        for (let n = 0; n < burst.count; n += 1) spawn();
+      }
+    }
+    const on = schedule.windows.some(window => time >= window.start - 1e-9 && time < window.end);
+    // Switching an emitter on shows a particle straight away.
+    if (on && !wasOn) accumulator = Math.max(accumulator, 1);
+    wasOn = on;
+    if (on) {
+      accumulator += rate * step;
+      while (accumulator >= 1) {
+        accumulator -= 1;
+        spawn();
+      }
+    }
+    let alive = 0;
+    for (const particle of particles) {
+      particle.age += step;
+      if (particle.age >= particle.lifetime) continue;
+      particle.velocity = add(scale(particle.velocity, Math.exp(-drag * step)), scale(acceleration, step));
+      particle.position = add(particle.position, scale(particle.velocity, step));
+      particle.rotation += particle.rotSpeed * step;
+      particles[alive] = particle;
+      alive += 1;
+    }
+    particles.length = alive;
+    if (time >= from - 1e-9 && options.visit) options.visit(time, particles);
+  }
+  return particles;
+}
+
+// What a particle looks like at its age: size, colour, transparency, flipbook frame.
+export function particleLook(props, particle) {
+  const alpha = particle.age / particle.lifetime;
+  return {
+    size: sampleNumberSequence(props?.Size, alpha),
+    squash: sampleNumberSequence(props?.Squash, alpha),
+    transparency: sampleNumberSequence(props?.Transparency, alpha),
+    color: sampleColorSequence(props?.Color, alpha),
+    frame: flipbookFrame(props, particle.age, particle.lifetime, particle.startFrame),
+  };
 }

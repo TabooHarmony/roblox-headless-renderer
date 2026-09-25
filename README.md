@@ -78,9 +78,15 @@ Every JSON output carries a `schema` name (`rhr.layout/1`, `rhr.check/1`, ...), 
 change in shape is never silent. A Rojo project works anywhere a file does: pass the
 folder with `default.project.json`, or the `*.project.json` file.
 
+**Effects.** `scene` and `preview` draw ParticleEmitters, Beams and Trails inside the
+3D scene as a still frame: hidden by walls, glowing where `LightEmission` says so.
+Most VFX are played by a script; RHR runs no scripts, but reads the widely used
+`EmitCount` / `EmitDelay` / `EmitDuration` attributes and plays the effect itself,
+showing its fullest moment (`--effect-time T` for another, `--no-effects` to leave
+them out). Emitters a script plays without those attributes are listed, not guessed.
+
 **Experimental** (rough sketches, and labelled as such in the output): local lights,
-Decals and Textures, Beams, Trails, and particles
-(`rhr particles`, `rhr preview --time T`).
+Decals and Textures, and `rhr particles` (a contact sheet over time).
 
 ## For agents
 

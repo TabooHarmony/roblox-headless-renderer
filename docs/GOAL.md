@@ -79,13 +79,19 @@ exact visuals, Studio's own MCP is the tool for that.
 **In the release:**
 
 1. **VFX as a still frame.** Particles, Beams and Trails drawn inside `scene` and
-   `preview`, frozen at a moment where every emitter is running normally:
-   - `LightEmission`: additive blending, so effects brighten what is behind them;
-   - particles inside the 3D scene, hidden by walls and seen through glass;
-   - draw order for overlapping transparent effects, including `ZOffset`, checked
-     against a test scene in Studio;
-   - colour, size and transparency over lifetime, flipbooks, `LightInfluence`,
-     Roblox's built-in particle textures from the Studio install, and `Squash`.
+   `preview`, frozen at one moment of the effect playing. Most real VFX are played by
+   a script (`:Emit()` on disabled emitters); RHR reads the community's `EmitCount` /
+   `EmitDelay` / `EmitDuration` attributes and plays them itself, then shows the
+   fullest moment. The line between useful and detail work: fix what would make an
+   agent edit differently (is the effect there, where, how big, what colour, does it
+   glow, is it hidden), not what a still frame cannot show (motion, exact randomness,
+   exact brightness). Checked against a local collection of community VFX that stays
+   off GitHub:
+   - done: particles inside the 3D scene (hidden by walls), playing from attributes,
+     `LightEmission` blending for particles, Beams and Trails, `ZOffset`, emitter
+     rotation, flipbooks, `Squash`, every `Orientation`, framing that includes effects;
+   - next: side-by-side check against Studio on the collection; Roblox's built-in
+     particle textures from the Studio install; `LightInfluence` as lit or not.
 2. **Speed.** Measure where each render's time goes (Python and Lune start-up, scene
    rebuild, texture loading, the sky-visibility grid, the frame itself), keep one warm
    browser running automatically, cut the biggest costs, and publish the measured

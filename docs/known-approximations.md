@@ -238,17 +238,38 @@ Ambient, LightColor, LightDirection, ImageColor3 and ImageTransparency. Not
 supported: shadows, Sky, post-processing and GUI objects inside the frame. Not yet
 compared with Studio.
 
-## Effects (experimental)
+## Effects
 
-These are rough sketches, useful for checking that an effect is there and roughly
-where, not how it looks:
+Particles, Beams and Trails are drawn inside the 3D scene as one still frame. The aim
+is that an agent sees whether an effect is there, where, how big, what colour and
+whether it glows; not the exact particles Roblox would draw.
 
-- **ParticleEmitter** (`rhr particles`, `rhr preview --time T`): a deterministic
-  simulation with a fixed timestep and seeded randomness. Scripts are not run, so
-  `Emit()` calls do not happen; `--burst N` stands in for them. Parent rotation is
-  not followed.
-- **Beam**: curve, widths, segments, colour and texture are drawn. Texture motion,
-  LightEmission and LightInfluence are not.
+- **Playing an effect.** Scripts are not run. Most VFX keep their emitters disabled
+  and a script plays them with `:Emit()`; the community convention stores how in
+  attributes: `EmitCount` (emitted at once), `EmitDelay` (seconds after the start) and
+  `EmitDuration` (seconds switched on at `Rate`). RHR reads these and plays the effect
+  itself. An Enabled emitter runs the whole time, already full at the start. A
+  disabled emitter without these attributes is not drawn and is named in the output.
+  Other attributes (tweened sizes, `TimeScale_*` curves and the like) are ignored.
+- **Which moment.** By default, the middle of the stretch where the most particle area
+  is on show (the output says which moment); `--effect-time T` picks another.
+- **Randomness** is seeded per emitter (`--seed`), so the same file gives the same
+  picture, but particle positions are not the ones Roblox would pick.
+- **Blending**: `LightEmission` mixes ordinary transparency (0) with adding light (1),
+  as in Roblox. `ZOffset` moves particles toward the camera, keeping their size on
+  screen. `Brightness` multiplies the colour.
+- **Drawn**: emission from parts (Box, Sphere, Cylinder, Disc shapes) and attachments
+  (a point), following their rotation; `EmissionDirection`, `SpreadAngle`, `Speed`,
+  `Acceleration`, `Drag`, `TimeScale`, rotation, size, colour, transparency and
+  `Squash` over lifetime, flipbooks, and every `Orientation`.
+- **Not applied**: `LightInfluence` (particles are drawn as if it were 0, which most
+  VFX use), size and transparency envelopes, `LockedToPart`, wind, `VelocityInheritance`
+  (parts do not move in a still frame). Built-in `rbxasset://` particle textures are not
+  read from the Studio install yet; like a texture that could not be downloaded, they
+  are drawn as soft dots, and the output says so. Fire, Smoke, Sparkles and Explosion
+  are not drawn.
+- **Beam**: curve, widths, segments, colour, texture and `LightEmission` are drawn.
+  Texture motion and `LightInfluence` are not.
 - **Trail**: built from the parent part's saved velocity. A trail with no saved
   motion is reported as unsupported rather than guessed.
 
@@ -260,6 +281,9 @@ RHR reads files with Lune and rbx-dom. A class that rbx-dom's database does not 
 such as UDim2 and Color3 are listed in that node's `unreadable` list, so the element
 may draw without its size or colour and the output says which properties are
 missing.
+
+A part that is fully transparent (Transparency 1) is not drawn at all, so it no
+longer hides effects behind or inside it; it still counts when framing the view.
 
 ## Not done at all
 

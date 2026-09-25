@@ -91,7 +91,8 @@ def inspect_scene(file: str, texture_dir: str | None = None) -> dict[str, Any]:
     name="rhr_preview",
     description=(
         "Render one composed Roblox authoring preview: 3D world, in-world UI, ScreenGui, "
-        "and optionally deterministic particles at a fixed time. Returns metadata and "
+        "and particle effects frozen at their fullest moment (effect_time picks another; "
+        "effects=False leaves them out). Returns metadata and "
         "the PNG image itself. Persistent Chromium is warmed automatically."
     ),
     structured_output=False,
@@ -107,9 +108,9 @@ def preview(
     view: str | None = None,
     shadows: bool = False,
     texture_dir: str | None = None,
-    time_s: float | None = None,
+    effect_time: float | None = None,
+    effects: bool = True,
     seed: int = 0,
-    burst: int = 0,
     topbar_height: float | None = None,
     persistent_browser: bool = True,
 ) -> list[Any]:
@@ -136,9 +137,11 @@ def preview(
     if shadows:
         args.append("--shadows")
     _append(args, "--texture-dir", texture_dir)
-    _append(args, "--time", time_s)
-    if time_s is not None:
-        args.extend(["--seed", str(seed), "--burst", str(burst)])
+    _append(args, "--effect-time", effect_time)
+    if not effects:
+        args.append("--no-effects")
+    if seed:
+        args.extend(["--seed", str(seed)])
     _append(args, "--topbar-height", topbar_height)
 
     # The first preview of a big place also downloads its assets (rhr.fetch).

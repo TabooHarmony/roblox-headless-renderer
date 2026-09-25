@@ -73,6 +73,12 @@ What RHR tells you it did not do exactly:
   handled by Lune and sent only to Roblox. `--offline` skips downloading. Without
   Studio, stderr says the preview will look less like Roblox (thumbnails, box
   meshes, look-alike materials).
+- Effects (particles, Beams, Trails) are one still frame: a `note` says how many
+  particles were drawn and at which moment of the effect. Effects a script plays are
+  played from their `EmitCount` / `EmitDelay` / `EmitDuration` attributes; an emitter
+  a script plays without them is named, not drawn. Judge presence, place, size,
+  colour and glow; not motion or exact particle positions. `--effect-time T` shows
+  another moment, `--focus <path>` frames one effect in a pack of several.
 - Terrain is drawn smooth with Roblox's textures; materials meet with a hard edge.
 - In a place file, a ScreenGui outside StarterGui (a template in ReplicatedStorage)
   is not drawn or checked; a `note` names it. Pass `--all-guis` to include it.

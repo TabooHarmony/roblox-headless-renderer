@@ -85,7 +85,8 @@ def main() -> None:
         assert full["Sound"] == 1 and full["IntValue"] == 1 and full["ParticleEmitter"] == 1
         assert visual["Sound"] == 0 and visual["IntValue"] == 0
         assert visual["ParticleEmitter"] == 1
-        assert static["Sound"] == 0 and static["IntValue"] == 0 and static["ParticleEmitter"] == 0
+        # Particles are part of the still 3D frame, so the static profile keeps them.
+        assert static["Sound"] == 0 and static["IntValue"] == 0 and static["ParticleEmitter"] == 1
         assert visual["Folder"] == 1 and static["Folder"] == 1, "visual ancestor path was dropped"
         assert static["Part"] == 1 and static["ScreenGui"] == 2 and static["Frame"] == 2
 

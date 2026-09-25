@@ -498,6 +498,9 @@ def _scene(args) -> int:
             texture_dir=texture_dir,
             mesh_dir=mesh_dir,
             notes_out=page_notes,
+            effects=not args.no_effects,
+            effect_time=args.effect_time,
+            seed=args.seed,
         )
         from rhr.scene_dump import build_scene_dump, notes_line
 
@@ -517,7 +520,7 @@ def _scene(args) -> int:
 def _preview(args) -> int:
     from PIL import Image
     from rhr.pipeline import load_screens, render_screens
-    from rhr.scene import render_particle_sheet, render_scene
+    from rhr.scene import render_scene
 
     source = Path(args.file)
     if not source.exists():
@@ -528,15 +531,12 @@ def _preview(args) -> int:
     mesh_dir = Path(args.mesh_dir) if args.mesh_dir else None
     t0 = time.perf_counter()
     try:
-        profile = "visual" if args.time is not None else "static"
-        ir_path = ir_for(source, Path(args.ir) if args.ir else None, profile=profile)
+        ir_path = ir_for(source, Path(args.ir) if args.ir else None, profile="static")
         _prepare_scene_assets(ir_path, args.offline)
         with tempfile.TemporaryDirectory(prefix="rhr-preview-") as directory:
             tmp = Path(directory)
             world = tmp / "world.png"
-            effects = tmp / "effects.png"
             ui = tmp / "ui.png"
-            resolved_camera: dict = {}
             page_notes: list[str] = []
             render_scene(
                 ir_path,
@@ -552,8 +552,10 @@ def _preview(args) -> int:
                 flat_materials=args.flat_materials,
                 texture_dir=texture_dir,
                 mesh_dir=mesh_dir,
-                camera_state_out=resolved_camera if args.time is not None else None,
                 notes_out=page_notes,
+                effects=not args.no_effects,
+                effect_time=args.effect_time,
+                seed=args.seed,
             )
             screens = load_screens(
                 str(ir_path),
@@ -563,32 +565,6 @@ def _preview(args) -> int:
                 screen_gui_only=True,
             )
             with Image.open(world).convert("RGBA") as composite:
-                if args.time is not None:
-                    position = resolved_camera.get("position")
-                    quaternion = resolved_camera.get("quaternion")
-                    resolved_fov = resolved_camera.get("fov")
-                    if not (
-                        isinstance(position, list) and len(position) == 3
-                        and isinstance(quaternion, list) and len(quaternion) == 4
-                        and isinstance(resolved_fov, (int, float))
-                    ):
-                        raise RuntimeError("scene renderer did not report its resolved camera for particle composition")
-                    render_particle_sheet(
-                        ir_path,
-                        effects,
-                        width,
-                        height,
-                        [args.time],
-                        args.seed,
-                        args.burst,
-                        texture_dir,
-                        effects_only=True,
-                        camera=tuple(position),
-                        camera_quaternion=tuple(quaternion),
-                        fov=float(resolved_fov),
-                    )
-                    with Image.open(effects).convert("RGBA") as particle_layer:
-                        composite.alpha_composite(particle_layer)
                 if screens:
                     render_screens(
                         screens,
@@ -676,6 +652,14 @@ def _particles(args) -> int:
     print(f"particles {out}  {actual[0]}x{actual[1]}  {len(args.times)} frames  burst={args.burst}  {elapsed}ms", file=sys.stderr)
     print(out)
     return 0
+
+
+def _effect_arguments(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--effect-time", type=float, metavar="T",
+                        help="draw particles T seconds after the effect starts playing "
+                             "(default: the moment with the most particles on show)")
+    parser.add_argument("--no-effects", action="store_true", help="leave particles out")
+    parser.add_argument("--seed", type=int, default=0, help="particle randomness seed")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -831,6 +815,7 @@ def build_parser() -> argparse.ArgumentParser:
                          help="no-op: the fallback/experimental notes line is always printed")
     p_scene.add_argument("--offline", action="store_true",
                          help="do not download missing assets first (also: RHR_OFFLINE=1)")
+    _effect_arguments(p_scene)
     p_scene.set_defaults(func=_scene)
 
     p_scene_dump = sub.add_parser("scene-dump", help="machine-readable static 3D geometry and fallback summary")
@@ -864,12 +849,8 @@ def build_parser() -> argparse.ArgumentParser:
                            help="plain colours: no material textures (brick, wood, grass...)")
     p_preview.add_argument("--texture-dir", help="local directory containing <asset_id>.<ext> textures/decals")
     p_preview.add_argument("--mesh-dir", help="local directory containing decompressed <asset_id>.mesh files")
-    p_preview.add_argument("--time", type=float,
-                           help="compose deterministic ParticleEmitters at this time in seconds")
-    p_preview.add_argument("--seed", type=int, default=0,
-                           help="particle simulation seed for --time")
-    p_preview.add_argument("--burst", type=parse_nonnegative_int, default=0,
-                           help="emit this many particles immediately per emitter for --time")
+    _effect_arguments(p_preview)
+    p_preview.add_argument("--time", type=float, dest="effect_time", help=argparse.SUPPRESS)
     p_preview.add_argument(
         "--topbar-height",
         type=float,

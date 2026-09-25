@@ -373,8 +373,25 @@ def render_scene(
     mesh_dir: Path | None = None,
     camera_state_out: dict | None = None,
     notes_out: list[str] | None = None,
+    effects: bool = True,
+    effect_time: float | None = None,
+    seed: int = 0,
 ) -> tuple[int, int]:
+    """Render the 3D scene to a PNG through headless Chromium.
+
+    Particles are drawn frozen at one moment of the effect playing: `effect_time`
+    seconds after it starts, or the fullest moment when None. `effects=False` leaves
+    them out.
+    """
     query_values: dict[str, str | float] = {}
+    if not effects:
+        query_values["effects"] = "0"
+    if effect_time is not None:
+        if effect_time < 0:
+            raise ValueError("effect time must be non-negative")
+        query_values["effectTime"] = effect_time
+    if seed:
+        query_values["seed"] = seed
     asset_roots: list[Path] = []
     if camera is not None:
         query_values["camera"] = _vector_query(camera)

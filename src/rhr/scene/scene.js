@@ -1,5 +1,6 @@
 import * as THREE from '../vendor/three/three.module.js';
 import { SunLight } from '../vendor/three/lights/SunLight.js';
+import { flipbookLayout, hashSeed, particleLook, playEmitter, playHorizon, playSchedule } from '../particles/sim.js';
 
 const params = new URLSearchParams(location.search);
 const viewportMode = params.get('mode') === 'viewport';
@@ -474,6 +475,28 @@ function parseRobloxMesh(buffer) {
 
 const meshParseFailures = [];
 
+// Some uploaded meshes carry a stray vertex that is not a number (Roblox does not
+// mind). One is enough to make the bounds, and so the framed camera, NaN: move any
+// such vertex to the mesh's origin.
+function withoutBadVertices(geometry) {
+  const position = geometry?.getAttribute?.('position');
+  if (!position) return geometry;
+  const array = position.array;
+  let fixed = false;
+  for (let i = 0; i < array.length; i += 3) {
+    if (!Number.isFinite(array[i]) || !Number.isFinite(array[i + 1]) || !Number.isFinite(array[i + 2])) {
+      array[i] = array[i + 1] = array[i + 2] = 0;
+      fixed = true;
+    }
+  }
+  if (fixed) {
+    position.needsUpdate = true;
+    geometry.computeBoundingBox();
+    geometry.computeBoundingSphere();
+  }
+  return geometry;
+}
+
 async function loadMeshGeometry(uri) {
   const assetId = meshAssetId(uri);
   if (!assetId) return null;
@@ -484,7 +507,7 @@ async function loadMeshGeometry(uri) {
     if (!url) return null;
     const response = await fetch(url);
     if (!response.ok) return null;
-    return await parseRobloxMesh(await response.arrayBuffer());
+    return withoutBadVertices(await parseRobloxMesh(await response.arrayBuffer()));
   })().catch(error => {
     meshParseFailures.push(`${assetId}: ${error.message}`);
     return null;
@@ -1100,6 +1123,10 @@ function addPart(node, parent) {
     transparent: opacity < 1,
     opacity,
   });
+  // A fully transparent part is not drawn at all. Drawn at opacity 0 it still hides
+  // what comes after it, and effects nearly always sit in such a part. It still
+  // counts for framing.
+  if (opacity <= 0.001) material.visible = false;
   if (reflectance > 0.2 || ['Glass', 'Ice', 'Glacier', 'Foil', 'Metal', 'DiamondPlate'].includes(materialName)) {
     wantsEnvironment(material);
   }
@@ -1812,10 +1839,6 @@ async function addBeams(index, camera) {
       node.props?.Transparency,
     );
     const localTransparency = Math.max(0, Math.min(1, Number(node.props?.LocalTransparencyModifier ?? 0)));
-    const transparencyPoints = sequenceKeypoints(node.props?.Transparency);
-    const hasPerVertexTransparency = transparencyPoints.length
-      ? transparencyPoints.some(point => Number(point.value ?? 0) > 0)
-      : Number(node.props?.Transparency ?? 0) > 0;
     const materialOpacity = 1 - localTransparency;
     const brightness = Math.max(0, Number(node.props?.Brightness ?? 1));
     const texture = node.props?.Texture ? await loadSceneTexture(node.props.Texture) : null;
@@ -1824,17 +1847,11 @@ async function addBeams(index, camera) {
       texture.wrapT = THREE.ClampToEdgeWrapping;
       texture.needsUpdate = true;
     }
-    const material = new THREE.MeshBasicMaterial({
-      map: texture,
-      color: new THREE.Color(brightness, brightness, brightness),
-      vertexColors: true,
-      transparent: materialOpacity < 1 || hasPerVertexTransparency || Boolean(texture),
-      opacity: materialOpacity,
-      side: THREE.DoubleSide,
-      depthWrite: false,
-    });
+    const material = effectMaterial(texture, brightness, materialOpacity, node.props?.LightEmission);
     const mesh = new THREE.Mesh(geometry, material);
     mesh.userData.rhrDecoration = true;
+    mesh.userData.rhrEffect = true;
+    centerForSorting(mesh);
     scene.add(mesh);
   }
 }
@@ -1963,24 +1980,279 @@ async function addTrails(index, camera) {
       texture.needsUpdate = true;
     }
     const localTransparency = Math.max(0, Math.min(1, Number(node.props?.LocalTransparencyModifier ?? 0)));
-    const transparencyPoints = sequenceKeypoints(node.props?.Transparency);
-    const hasPerVertexTransparency = transparencyPoints.length
-      ? transparencyPoints.some(point => Number(point.value ?? 0) > 0)
-      : Number(node.props?.Transparency ?? 0) > 0;
     const materialOpacity = 1 - localTransparency;
     const brightness = Math.max(0, Number(node.props?.Brightness ?? 1));
-    const material = new THREE.MeshBasicMaterial({
-      map: texture,
-      color: new THREE.Color(brightness, brightness, brightness),
-      vertexColors: true,
-      transparent: materialOpacity < 1 || hasPerVertexTransparency || Boolean(texture),
-      opacity: materialOpacity,
-      side: THREE.DoubleSide,
-      depthWrite: false,
-    });
+    const material = effectMaterial(texture, brightness, materialOpacity, node.props?.LightEmission);
     const mesh = new THREE.Mesh(geometry, material);
     mesh.userData.rhrDecoration = true;
+    mesh.userData.rhrEffect = true;
+    centerForSorting(mesh);
     scene.add(mesh);
+  }
+}
+
+// Particles, Beams and Trails blend by LightEmission: 0 is ordinary transparency,
+// 1 adds the effect's light to what is behind it (it can only brighten), and values in
+// between mix the two. Written premultiplied: colour * alpha is added, and what is
+// behind is dimmed by alpha * (1 - LightEmission).
+function effectMaterial(map, brightness, opacity, lightEmission) {
+  const emission = Math.max(0, Math.min(1, Number(lightEmission ?? 0)));
+  const material = new THREE.MeshBasicMaterial({
+    map,
+    color: new THREE.Color(brightness, brightness, brightness),
+    vertexColors: true,
+    transparent: true,
+    opacity,
+    side: THREE.DoubleSide,
+    depthWrite: false,
+    blending: THREE.CustomBlending,
+    blendSrc: THREE.OneFactor,
+    blendDst: THREE.OneMinusSrcAlphaFactor,
+    blendSrcAlpha: THREE.OneFactor,
+    blendDstAlpha: THREE.OneMinusSrcAlphaFactor,
+  });
+  material.onBeforeCompile = shader => {
+    shader.uniforms.rhrLightEmission = {value: emission};
+    shader.fragmentShader = 'uniform float rhrLightEmission;\n' + shader.fragmentShader.replace(
+      '#include <premultiplied_alpha_fragment>',
+      'gl_FragColor.rgb *= gl_FragColor.a;\ngl_FragColor.a *= 1.0 - rhrLightEmission;',
+    );
+  };
+  material.customProgramCacheKey = () => 'rhr-effect';
+  return material;
+}
+
+// Transparent objects are drawn far to near by their position; effect geometry is
+// built in world coordinates, so move its origin to its middle for that sort.
+function centerForSorting(mesh) {
+  const geometry = mesh.geometry;
+  geometry.computeBoundingBox();
+  if (!geometry.boundingBox || geometry.boundingBox.isEmpty()) return;
+  const center = geometry.boundingBox.getCenter(new THREE.Vector3());
+  geometry.translate(-center.x, -center.y, -center.z);
+  mesh.position.add(center);
+}
+
+// ParticleEmitters, frozen at one moment of the effect playing (see particles/sim.js
+// for how an effect is played). The moment is --effect-time seconds after the effect
+// starts or, by default, the one with the most particle area on show.
+const particleState = {emitters: [], time: null, auto: false, idle: [], orphan: 0, missingTextures: new Set(), drawn: 0};
+
+function worldPose(object) {
+  object.updateWorldMatrix(true, false);
+  const position = new THREE.Vector3();
+  const quaternion = new THREE.Quaternion();
+  object.matrixWorld.decompose(position, quaternion, new THREE.Vector3());
+  return {position, quaternion};
+}
+
+function collectEmitters(index, seed) {
+  for (const node of nodesOfClass(index, 'ParticleEmitter')) {
+    const props = node.props || {};
+    const schedule = playSchedule(props, node.attributes);
+    if (schedule.kind === 'idle') {
+      particleState.idle.push(node.path || node.name);
+      continue;
+    }
+    const parent = index.parentByNode.get(node);
+    let pose = null;
+    let size = [0, 0, 0];
+    if (parent?.className === 'Attachment' && anchorByNode.get(parent)) {
+      pose = worldPose(anchorByNode.get(parent));
+    } else if (parent?.props?.CFrame && meshByNode.get(parent)) {
+      const matrix = cframeMatrix(parent.props.CFrame);
+      pose = {position: new THREE.Vector3(), quaternion: new THREE.Quaternion()};
+      matrix.decompose(pose.position, pose.quaternion, new THREE.Vector3());
+      size = dimensions(parent.props.Size);
+    }
+    if (!pose) {
+      particleState.orphan += 1;
+      continue;
+    }
+    const axes = [new THREE.Vector3(1, 0, 0), new THREE.Vector3(0, 1, 0), new THREE.Vector3(0, 0, 1)]
+      .map(axis => axis.applyQuaternion(pose.quaternion).toArray());
+    particleState.emitters.push({
+      node,
+      props,
+      schedule,
+      options: {origin: pose.position.toArray(), basis: axes, emitterSize: size, seed: hashSeed(node.path || node.name, seed)},
+    });
+  }
+}
+
+function chooseEffectTime(requested) {
+  if (Number.isFinite(requested)) return Math.max(0, requested);
+  const played = particleState.emitters.filter(emitter => emitter.schedule.played);
+  if (!played.length) return 0;
+  particleState.auto = true;
+  const dt = 1 / 30;
+  const horizon = Math.min(30, Math.max(...played.map(emitter => playHorizon(emitter.props, emitter.schedule))));
+  const scores = new Float64Array(Math.ceil(horizon / dt) + 2);
+  for (const emitter of particleState.emitters) {
+    playEmitter(emitter.props, emitter.schedule, {
+      ...emitter.options,
+      dt,
+      from: 0,
+      until: horizon,
+      visit: (time, particles) => {
+        let score = 0;
+        for (const particle of particles) {
+          const look = particleLook(emitter.props, particle);
+          score += look.size * look.size * Math.max(0, 1 - look.transparency);
+        }
+        scores[Math.round(time / dt)] += score;
+      },
+    });
+  }
+  // The middle of the first stretch at (nearly) the fullest: a burst is fullest the
+  // moment it is emitted too, while every particle still sits on one spot.
+  const peak = Math.max(...scores);
+  if (!(peak > 0)) return 0;
+  const first = scores.findIndex(score => score >= peak * 0.9);
+  let last = first;
+  while (last + 1 < scores.length && scores[last + 1] >= peak * 0.9) last += 1;
+  return Math.round((first + last) / 2) * dt;
+}
+
+function simulateParticles(index) {
+  const seed = Number(params.get('seed') || 0);
+  collectEmitters(index, seed);
+  const requested = params.get('effectTime') === null ? NaN : Number(params.get('effectTime'));
+  particleState.time = chooseEffectTime(requested);
+  for (const emitter of particleState.emitters) {
+    const particles = playEmitter(emitter.props, emitter.schedule, {...emitter.options, dt: 1 / 60, until: particleState.time});
+    emitter.snapshot = particles.map(particle => ({particle, look: particleLook(emitter.props, particle)}))
+      .filter(({look}) => look.size > 0 && look.transparency < 1);
+  }
+}
+
+let softDotTexture = null;
+function softDot() {
+  if (softDotTexture) return softDotTexture;
+  const n = 64;
+  const data = new Uint8Array(n * n * 4);
+  for (let y = 0; y < n; y += 1) {
+    for (let x = 0; x < n; x += 1) {
+      const r = Math.hypot(x + 0.5 - n / 2, y + 0.5 - n / 2) / (n / 2);
+      const i = (y * n + x) * 4;
+      data[i] = data[i + 1] = data[i + 2] = 255;
+      data[i + 3] = Math.round(255 * Math.max(0, 1 - r) ** 1.5);
+    }
+  }
+  softDotTexture = new THREE.DataTexture(data, n, n);
+  softDotTexture.needsUpdate = true;
+  return softDotTexture;
+}
+
+async function particleTexture(uri) {
+  if (!String(uri || '').trim()) return null;  // no texture: Roblox draws a plain square
+  const texture = await loadSceneTexture(uri);
+  if (texture) return texture;
+  particleState.missingTextures.add(String(uri));
+  return softDot();
+}
+
+async function addParticles(camera) {
+  const cameraPosition = camera.getWorldPosition(new THREE.Vector3());
+  const cameraRight = new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 0).normalize();
+  const cameraUp = new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 1).normalize();
+  const worldUp = new THREE.Vector3(0, 1, 0);
+  for (const emitter of particleState.emitters) {
+    if (!emitter.snapshot?.length) continue;
+    const props = emitter.props;
+    const orientation = props.Orientation?.name || 'FacingCamera';
+    const zOffset = Number(props.ZOffset ?? 0);
+    const brightness = Math.max(0, Number(props.Brightness ?? 1));
+    const [columns, rows] = flipbookLayout(props);
+    const quads = [];
+    for (const {particle, look} of emitter.snapshot) {
+      const position = new THREE.Vector3(...particle.position);
+      const toCamera = cameraPosition.clone().sub(position);
+      const distance = toCamera.length();
+      if (distance < 1e-4) continue;
+      toCamera.divideScalar(distance);
+      // ZOffset moves the particle toward the camera (or away) without changing its
+      // size on screen.
+      let sizeScale = 1;
+      if (zOffset) {
+        const moved = Math.max(0.06, distance - zOffset);
+        sizeScale = moved / distance;
+        position.copy(cameraPosition).addScaledVector(toCamera, -moved);
+      }
+      const velocity = new THREE.Vector3(...particle.velocity);
+      let right;
+      let up;
+      if (orientation === 'VelocityParallel' && velocity.lengthSq() > 1e-12) {
+        up = velocity.clone().normalize();
+        right = new THREE.Vector3().crossVectors(up, toCamera);
+        if (right.lengthSq() < 1e-10) right.copy(cameraRight);
+        right.normalize();
+      } else if (orientation === 'VelocityPerpendicular' && velocity.lengthSq() > 1e-12) {
+        const normal = velocity.clone().normalize();
+        right = new THREE.Vector3().crossVectors(Math.abs(normal.y) > 0.99 ? new THREE.Vector3(1, 0, 0) : worldUp, normal).normalize();
+        up = new THREE.Vector3().crossVectors(normal, right).normalize();
+      } else if (orientation === 'FacingCameraWorldUp') {
+        up = worldUp.clone();
+        right = new THREE.Vector3().crossVectors(up, toCamera);
+        if (right.lengthSq() < 1e-10) right.copy(cameraRight);
+        right.normalize();
+      } else {
+        right = cameraRight.clone();
+        up = cameraUp.clone();
+      }
+      if (orientation !== 'VelocityParallel') {
+        const angle = -THREE.MathUtils.degToRad(Number(particle.rotation || 0));
+        const c = Math.cos(angle);
+        const s = Math.sin(angle);
+        const r2 = right.clone().multiplyScalar(c).addScaledVector(up, s);
+        up = up.clone().multiplyScalar(c).addScaledVector(right, -s);
+        right = r2;
+      }
+      const tall = Math.max(0.05, 1 + Number(look.squash || 0));
+      const halfWidth = look.size * sizeScale / tall / 2;
+      const halfHeight = look.size * sizeScale * tall / 2;
+      const frame = look.frame || {index: 0};
+      const column = frame.index % columns;
+      const row = Math.floor(frame.index / columns);
+      const color = new THREE.Color().setRGB(look.color[0], look.color[1], look.color[2], THREE.SRGBColorSpace);
+      quads.push({
+        depth: cameraPosition.distanceToSquared(position),
+        position, right: right.multiplyScalar(halfWidth), up: up.multiplyScalar(halfHeight),
+        uv: [column / columns, 1 - (row + 1) / rows, (column + 1) / columns, 1 - row / rows],
+        color, alpha: 1 - look.transparency,
+      });
+    }
+    if (!quads.length) continue;
+    quads.sort((a, b) => b.depth - a.depth);
+    const positions = new Float32Array(quads.length * 12);
+    const uvs = new Float32Array(quads.length * 8);
+    const colors = new Float32Array(quads.length * 16);
+    const indices = new Uint32Array(quads.length * 6);
+    quads.forEach((quad, i) => {
+      const corners = [[-1, -1], [1, -1], [1, 1], [-1, 1]];
+      corners.forEach(([sx, sy], k) => {
+        const p = quad.position.clone().addScaledVector(quad.right, sx).addScaledVector(quad.up, sy);
+        positions.set([p.x, p.y, p.z], (i * 4 + k) * 3);
+        uvs.set([sx < 0 ? quad.uv[0] : quad.uv[2], sy < 0 ? quad.uv[1] : quad.uv[3]], (i * 4 + k) * 2);
+        colors.set([quad.color.r, quad.color.g, quad.color.b, quad.alpha], (i * 4 + k) * 4);
+      });
+      indices.set([i * 4, i * 4 + 1, i * 4 + 2, i * 4, i * 4 + 2, i * 4 + 3], i * 6);
+    });
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    geometry.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
+    geometry.setAttribute('color', new THREE.BufferAttribute(colors, 4));
+    geometry.setIndex(new THREE.BufferAttribute(indices, 1));
+    const texture = await particleTexture(props.Texture);
+    const material = effectMaterial(texture, brightness, 1, props.LightEmission);
+    const mesh = new THREE.Mesh(geometry, material);
+    mesh.userData.rhrDecoration = true;
+    mesh.userData.rhrEffect = true;
+    // The particles already moved by ZOffset, so the sort sees it too: it changes
+    // which effect is drawn over which, as in Roblox.
+    centerForSorting(mesh);
+    scene.add(mesh);
+    particleState.drawn += quads.length;
   }
 }
 
@@ -2113,6 +2385,19 @@ function withoutGround(boxes) {
 
 const framingIgnored = [];
 
+function particleBoundsWithin(allowed) {
+  const box = new THREE.Box3();
+  for (const emitter of particleState.emitters) {
+    if (allowed && !allowed.has(emitter.node)) continue;
+    for (const {particle, look} of emitter.snapshot || []) {
+      const p = new THREE.Vector3(...particle.position);
+      box.expandByPoint(p.clone().addScalar(-look.size / 2));
+      box.expandByPoint(p.clone().addScalar(look.size / 2));
+    }
+  }
+  return box.isEmpty() ? null : box;
+}
+
 function frameScene(camera, index, focusPath, view = 'iso') {
   let allowed = null;
   if (focusPath) {
@@ -2129,10 +2414,14 @@ function frameScene(camera, index, focusPath, view = 'iso') {
     const objectBox = new THREE.Box3().expandByObject(object);
     if (!objectBox.isEmpty()) boxes.push({ box: objectBox, node: object.userData.rhrNode });
   });
-  if (!boxes.length) throw new Error(`no renderable 3D geometry${focusPath ? ` under ${focusPath}` : ''}`);
+  // Effects are framed with the parts they come from (an effect's parts are often
+  // invisible, and its particles fly well past them).
+  const effectBounds = particleBoundsWithin(allowed);
+  if (!boxes.length && !effectBounds) throw new Error(`no renderable 3D geometry${focusPath ? ` under ${focusPath}` : ''}`);
   const framed = focusPath ? boxes : withoutGround(boxes);
   const box = new THREE.Box3();
   for (const entry of framed) box.union(entry.box);
+  if (effectBounds) box.union(effectBounds);
 
   const center = box.getCenter(new THREE.Vector3());
   const size = box.getSize(new THREE.Vector3());
@@ -3081,6 +3370,20 @@ async function reportNotes() {
   if (localLightsDropped) {
     notes.push(`drew the ${MAX_LOCAL_LIGHTS} most relevant local lights; ${localLightsDropped} farther ones were left out`);
   }
+  if (particleState.emitters.length || particleState.idle.length) {
+    const played = particleState.emitters.filter(emitter => emitter.schedule.played).length;
+    const when = particleState.auto ? `${particleState.time.toFixed(2)} s into the effect (the fullest moment; --effect-time T picks another)` : `${particleState.time.toFixed(2)} s into the effect`;
+    notes.push(`particles: ${particleState.drawn} drawn from ${particleState.emitters.length} emitter(s)${played ? `, ${played} played from their EmitCount/EmitDelay/EmitDuration attributes, at ${when}` : ''}`);
+  }
+  if (particleState.idle.length) {
+    notes.push(`${particleState.idle.length} ParticleEmitter(s) are disabled and have no EmitCount/EmitDuration attributes: a script plays them, so they are not drawn (${particleState.idle.slice(0, 3).join(', ')}${particleState.idle.length > 3 ? ', ...' : ''})`);
+  }
+  if (particleState.orphan) {
+    notes.push(`${particleState.orphan} ParticleEmitter(s) are not inside a part or attachment and are not drawn`);
+  }
+  if (particleState.missingTextures.size) {
+    notes.push(`${particleState.missingTextures.size} particle texture(s) could not be loaded; those particles are drawn as soft dots`);
+  }
   if (framingIgnored.length) {
     notes.push(`framing left out ground ${framingIgnored.join(', ')} (still drawn; --focus <path> frames it)`);
   }
@@ -3261,7 +3564,7 @@ function renderNeonBuffer(camera, target) {
       const peak = Math.max(glow.r, glow.g, glow.b);
       glow.multiplyScalar(THREE.MathUtils.smoothstep(peak, 0.8, 1.6) * (1 - transparency));
       object.material = new THREE.MeshBasicMaterial({color: glow});
-    } else if (object.isLineSegments || (object.material?.transparent && object.material.opacity < 0.5)) {
+    } else if (object.isLineSegments || object.userData?.rhrEffect || (object.material?.transparent && object.material.opacity < 0.5)) {
       object.visible = false;
     } else {
       object.material = black;
@@ -3434,6 +3737,7 @@ async function main() {
     await stylePlaceholderMeshes();
     await addSurfaceImages(index);
     addAttachmentAnchors(index);
+    if (params.get('effects') !== '0') simulateParticles(index);
     addLocalLights(index);
     await configureSky(index);
     configureAtmosphere(index);
@@ -3456,7 +3760,9 @@ async function main() {
     configureCamera(camera, cameraNode);
 
     const focusPath = params.get('focus');
-    const requestedView = params.get('view');
+    // A model with no Camera of its own (most .rbxm files) is framed as a whole rather
+    // than seen from a fixed spot near the origin it may be nowhere near.
+    const requestedView = params.get('view') || (!cameraNode && !parseVectorParam('camera') ? 'iso' : null);
     let framedCenter = null;
     if (focusPath || requestedView) {
       framedCenter = frameScene(camera, index, focusPath, requestedView || 'iso');
@@ -3481,6 +3787,7 @@ async function main() {
     if (modernLighting(index)) buildSkyVisibility(camera);
     await addBeams(index, camera);
     await addTrails(index, camera);
+    await addParticles(camera);
     await reportCamera(camera);
     await reportNotes();
     renderFrame(camera);

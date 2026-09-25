@@ -1,5 +1,32 @@
 # Changelog
 
+## Unreleased
+
+### VFX in the 3D scene
+
+- **Particles are drawn inside the scene** by `scene` and `preview`, by default: walls
+  hide them, glass shows them, fog fades them, and they sort with other transparent
+  things. They used to be a separate layer pasted on top, and only with `--time`.
+- **Effects are played from their attributes.** Most VFX keep their emitters disabled
+  for a script to `:Emit()`; RHR reads the community's `EmitCount` / `EmitDelay` /
+  `EmitDuration` attributes and plays the effect itself, then shows its fullest moment
+  (`--effect-time T` for another, `--no-effects` to leave particles out, `--seed` for
+  other randomness). Emitters a script plays without those attributes are listed.
+- **Glow**: `LightEmission` blends between ordinary transparency and added light, as in
+  Roblox, for particles, Beams and Trails. `ZOffset` moves particles toward the camera.
+- **Emitters follow their part's or attachment's rotation**, and `SpreadAngle` turns
+  the direction by that many degrees.
+- **A model without a Camera is framed as a whole**, particles included, instead of
+  being seen from a fixed spot near the origin.
+
+### Fixed
+
+- A fully transparent part hid whatever was drawn after it (effects usually sit in
+  one); it is no longer drawn.
+- A mesh with a vertex that is not a number made the framed camera invalid and the
+  render blank.
+- `preview --time` and `--burst` are replaced by `--effect-time`; `--time` still works.
+
 ## 0.5.0 (alpha)
 
 ### Lighting parity (fitted to Studio)

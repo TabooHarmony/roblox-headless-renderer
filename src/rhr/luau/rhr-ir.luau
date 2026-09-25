@@ -168,10 +168,13 @@ local VISUAL_XML_RECOVERY = {
 }
 
 local function profile_keeps_class(profile, className)
-  if not VISUAL_CLASSES[className] then return false end
-  if profile == "static" and className == "ParticleEmitter" then return false end
-  return true
+  return VISUAL_CLASSES[className] == true
 end
+
+-- Effects that a script plays keep how to play them in attributes (the community's
+-- EmitCount / EmitDelay / EmitDuration convention); the scene reads them to show the
+-- effect mid-play without running the script.
+local ATTRIBUTE_CLASSES = { ParticleEmitter = true, Beam = true, Trail = true }
 
 -- JSON has no infinity; UISizeConstraint.MaxSize defaults to (inf, inf). Clamp to
 -- a large finite sentinel the adapter reads as "unbounded".
@@ -714,6 +717,19 @@ local function walk(inst)
     end
   end
   local node = new_node(inst, props, refs)
+  if ATTRIBUTE_CLASSES[inst.ClassName] then
+    local okAttrs, attrs = pcall(function() return inst:GetAttributes() end)
+    if okAttrs and attrs and next(attrs) then
+      local kept = {}
+      for key, value in attrs do
+        -- Numbers and switches only: that is all the convention uses, and a string
+        -- attribute can hold raw bytes that JSON cannot carry.
+        local kind = typeof(value)
+        if kind == "number" then kept[key] = finite(value) elseif kind == "boolean" then kept[key] = value end
+      end
+      if next(kept) then node.attributes = kept end
+    end
+  end
   if #unreadable > 0 then node.unreadable = unreadable end
   if #unmapped > 0 then node.unmapped = unmapped end
   if #not_a_property > 0 then node.not_a_property = not_a_property end
