@@ -41,8 +41,8 @@ def render(ir: Path, mesh_dir: Path, out: Path, *, shadows: bool) -> None:
         "--mesh-dir", str(mesh_dir),
         "--topbar-height", "0",
     ]
-    if shadows:
-        args.append("--shadows")
+    if not shadows:
+        args.append("--no-shadows")
     args.extend(["--out", str(out)])
     proc = run(*args)
     assert proc.returncode == 0, proc.stderr
@@ -101,10 +101,10 @@ def main() -> None:
             assert red > 500, red
             assert blue > 2000, blue
             assert cyan > 1000, cyan
-            # About 100 of the old "purple" pixels were the greyish-pink wall beside the
+            # About 200 of the old "purple" pixels were the greyish-pink wall beside the
             # orange Neon lamp; its glow now lifts them out of this band. The sphere is
             # unchanged.
-            assert purple > 850, purple
+            assert purple > 750, purple
 
             # The composed ScreenGui title occupies this corner and must not vanish.
             hud_crop = image.crop((0, 0, 190, 60))

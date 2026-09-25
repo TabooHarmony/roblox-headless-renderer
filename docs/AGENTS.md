@@ -55,7 +55,7 @@ measured against Studio (tests/studio/):
 - **Text**: sizes and line breaks follow Roblox's rules; text widths are within a
   few percent. A line that only just overflows its box can wrap differently.
 - **3D part positions, sizes and rotations** (`rhr scene-dump`) match Studio exactly.
-- **3D pictures** are approximations: lighting, materials and shadows look
+- **3D pictures** are approximations: lighting, fog and shadows are fitted to Studio screenshots and look
   plausible, not identical.
 
 What RHR tells you it did not do exactly:

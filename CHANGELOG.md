@@ -2,6 +2,22 @@
 
 ## 0.5.0 (alpha)
 
+### Lighting parity (fitted to Studio)
+
+- **Lighting in modern places is fitted to Studio screenshots** of a calibration rig
+  under a Roblox template's lighting: sun with shadows, sky light taken from the sky
+  itself (shadows and shaded faces get Roblox's sky-blue colour instead of flat
+  grey), **sky visibility on a 4-stud voxel grid** as Roblox computes it (under
+  overhangs, behind pillars and inside rooms is darker), and a tone curve. Average
+  difference on the rig: 8/255 per channel, from 22. Places with
+  EnvironmentDiffuseScale 0 keep the earlier model.
+- **Shadows are on by default**, as in Studio (`--no-shadows` to turn them off).
+- **Atmosphere measured in Studio**: the fade curve at Density 0.2 / 0.375 / 0.6, and
+  Haze veiling the sky (below the horizon first, the whole sky at 5). Wide views used
+  to wash out to pale blue.
+- **Neon**: glows in its own colour, wider (Studio at high quality); transparent Neon
+  stays nearly opaque and only dims, as in Roblox (coins read as solid yellow).
+
 RHR now assumes Roblox Studio is installed and signed in on the machine (anyone
 making Roblox content has it) and uses it by default. Checked side by side with
 Studio on a swatch of materials, a union and terrain, and on real game places.

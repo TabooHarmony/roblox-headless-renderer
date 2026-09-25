@@ -367,7 +367,7 @@ def render_scene(
     fov: float | None = None,
     focus: str | None = None,
     view: str | None = None,
-    shadows: bool = False,
+    shadows: bool = True,
     flat_materials: bool = False,
     texture_dir: Path | None = None,
     mesh_dir: Path | None = None,
@@ -390,8 +390,9 @@ def render_scene(
         query_values["focus"] = focus
     if view:
         query_values["view"] = view
-    if shadows:
-        query_values["shadows"] = "1"
+    query_values["shadows"] = "1" if shadows else "0"
+    if os.environ.get("RHR_SCENE_TUNE"):
+        query_values["tune"] = os.environ["RHR_SCENE_TUNE"]
     if flat_materials:
         query_values["flatMaterials"] = "1"
     if camera_state_out is not None:

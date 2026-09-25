@@ -116,12 +116,13 @@ signed in, see below):
   1 they reflect the sky. A part's MaterialVariant uses its own maps, tinted by the
   part's Color and tiled at its StudsPerTile, once they are cached. Glass-like
   materials are see-through.
-- Neon is unlit and drawn about 3x brighter than its colour, clipped per channel, and
-  what passes white glows: a blurred quarter-resolution copy added over the picture,
-  as Roblox does it. Compared with Studio at its highest quality level: the same parts
-  glow in the same colours (bright orange glows red, grey and dim colours do not glow).
-  Studio's Neon faces are more saturated than RHR's. At low quality levels Studio
-  draws no glow at all. Unknown materials draw as Plastic and are
+- Neon is unlit and drawn about 3x brighter than its colour; bright Neon glows in its
+  own colour (a blurred quarter-resolution copy added over the picture, as Roblox
+  does it) and dim Neon does not. Transparent Neon stays nearly opaque and only dims,
+  to 3 x (1 - Transparency^2) of its colour, with less glow: in Studio a 90%
+  transparent plate still hides the wall behind it, and 80% transparent orange coins
+  read as solid yellow. Compared with Studio at its highest quality level; at low
+  quality levels Studio draws no glow at all. Unknown materials draw as Plastic and are
   counted as `materialFallbacks`. `--flat-materials` draws plain colours.
 - Plastic has Roblox's faint surface relief, and legacy surfaces (`TopSurface =
   Studs`, Inlet, Weld, Glue, Universal on block Parts of Plastic or SmoothPlastic) are
@@ -149,10 +150,29 @@ stderr says so on every 3D render.
 
 **Approximate, by eye:**
 
-- Lighting: Ambient, OutdoorAmbient, Brightness, EnvironmentDiffuseScale, ClockTime
-  and GeographicLatitude drive the sun and sky light; intensities are tuned by eye
-  against Studio screenshots. `ExposureCompensation` is applied. Shadows are off unless
-  you pass `--shadows` (Studio draws them by default).
+- Lighting in modern places (`EnvironmentDiffuseScale` above 0, as every current
+  Roblox template has) is fitted to Studio: a calibration rig (white, grey, dark and
+  coloured blocks, a pillar, an overhang, panels 25 to 800 studs away) built under a
+  Roblox template's lighting, captured in Studio at its highest quality level and
+  rendered by RHR at the same cameras; the sun strength, sky light, ambient, sky
+  brightness, fog colour, exposure and tone curve were searched to minimise the
+  difference (on average about 8/255 per channel over 35 sampled regions, from 22
+  before). The model: the sun with shadows; light from the sky as drawn (Atmosphere
+  veil included), which gives shadows and shaded faces Roblox's sky-blue colour;
+  sky visibility on a 4-stud voxel grid, as Roblox computes it, so the floor under an
+  overhang, the wall behind a pillar or the inside of a room get less sky light than
+  open ground; Ambient / OutdoorAmbient as a little flat light; and a per-channel
+  tone curve, so very bright colours drift toward white as Roblox's do. Sky
+  visibility treats a part as covering the cells it overlaps (meshes and unions by
+  their bounding box, weighted down), so thin or open meshes block more sky than they
+  should, and a room lower than about 4 studs is too coarse for the grid.
+  `ExposureCompensation` is applied.
+- Older places (`EnvironmentDiffuseScale` 0) keep the earlier model, set by eye and
+  matched against Studio's legacy lighting: ambient plus a sky-coloured hemisphere
+  light and the sun.
+- Shadows from the sun are on by default, as in Studio (`--no-shadows` turns them
+  off). One shadow map covers the area around what the camera looks at; very wide
+  views have softer or missing shadows at their far edges.
 - Post-processing (experimental): `BloomEffect` (what is brighter than its Threshold,
   blurred by its Size, added at its Intensity) and `ColorCorrectionEffect` (Brightness,
   Contrast, Saturation, TintColor) are drawn, set by eye; Studio's own at low quality
@@ -162,10 +182,15 @@ stderr says so on every 3D render.
   intensity is not calibrated. At most the 16 most relevant (nearest the camera,
   weighted by range and brightness) are drawn, because each light costs every pixel;
   a note says how many were left out.
-- Atmosphere is simple fog, set by eye against Roblox's game template, that tints
-  the horizon of the sky; `Glare` is not drawn. In an automatic view (`--view`,
-  `--focus`), which stands far back from a whole map, the fog is capped so the build
-  stays readable. A Sky whose six faces are not all cached draws the default sky.
+- Atmosphere, measured in Studio with black and white panels 25 to 800 studs away at
+  Density 0.2, 0.375 and 0.6 and Haze 0, 2 and 5: geometry fades as
+  exp(-(depth / L)^p), with L and p rising steeply with Density (at 0.2 almost
+  nothing fades, at 0.6 everything is gone by 200 studs); other densities are
+  interpolated. Haze veils the sky: everything below the horizon once Haze reaches
+  1, a band above the horizon that widens with Haze, the whole sky from Haze 5.
+  `Offset` and `Glare` are not drawn. In an automatic view (`--view`, `--focus`),
+  which stands far back from a whole map, the fog is capped so the build stays
+  readable. A Sky whose six faces are not all cached draws the default sky.
   The sun, moon and stars are not drawn. With several Sky objects the first one is
   used; which one Roblox picks has not been checked.
 - Decals and Textures need their images cached. Face orientation was checked in

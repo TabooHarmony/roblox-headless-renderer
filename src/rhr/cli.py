@@ -493,7 +493,7 @@ def _scene(args) -> int:
             fov=args.fov,
             focus=args.focus,
             view=args.view,
-            shadows=args.shadows,
+            shadows=not args.no_shadows,
             flat_materials=args.flat_materials,
             texture_dir=texture_dir,
             mesh_dir=mesh_dir,
@@ -548,7 +548,7 @@ def _preview(args) -> int:
                 fov=args.fov,
                 focus=args.focus,
                 view=args.view,
-                shadows=args.shadows,
+                shadows=not args.no_shadows,
                 flat_materials=args.flat_materials,
                 texture_dir=texture_dir,
                 mesh_dir=mesh_dir,
@@ -818,8 +818,9 @@ def build_parser() -> argparse.ArgumentParser:
                          help="auto-frame this exact IR path (use scene-dump to discover paths)")
     p_scene.add_argument("--view", choices=("iso", "front", "back", "left", "right", "top"),
                          help="auto-frame the focus target, or the whole scene when --focus is omitted")
-    p_scene.add_argument("--shadows", action="store_true",
-                         help="enable bounded directional shadows (off by default; SwiftShader cost is measured)")
+    p_scene.add_argument("--shadows", action="store_true", help=argparse.SUPPRESS)
+    p_scene.add_argument("--no-shadows", action="store_true",
+                         help="no sun shadows (they are on by default, as in Studio)")
     p_scene.add_argument("--flat-materials", action="store_true",
                          help="plain colours: no material textures (brick, wood, grass...)")
     p_scene.add_argument("--texture-dir",
@@ -856,7 +857,9 @@ def build_parser() -> argparse.ArgumentParser:
     p_preview.add_argument("--focus", metavar="PATH", help="auto-frame this exact IR path")
     p_preview.add_argument("--view", choices=("iso", "front", "back", "left", "right", "top"),
                            help="auto-frame the focus target or whole scene")
-    p_preview.add_argument("--shadows", action="store_true", help="enable bounded directional shadows")
+    p_preview.add_argument("--shadows", action="store_true", help=argparse.SUPPRESS)
+    p_preview.add_argument("--no-shadows", action="store_true",
+                           help="no sun shadows (they are on by default, as in Studio)")
     p_preview.add_argument("--flat-materials", action="store_true",
                            help="plain colours: no material textures (brick, wood, grass...)")
     p_preview.add_argument("--texture-dir", help="local directory containing <asset_id>.<ext> textures/decals")

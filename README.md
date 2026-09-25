@@ -12,7 +12,7 @@ line or in CI. No GPU or display is needed.
   <img src="docs/images/tower.png" width="52%" alt="A small 3D shop building on a grass Baseplate, with a sign, a lamp and a name tag, rendered by rhr">
 </p>
 
-<p align="center"><sub>Both images come from <code>examples/</code>, rendered by <code>rhr render</code> and <code>rhr scene --view iso --shadows</code>.</sub></p>
+<p align="center"><sub>Both images come from <code>examples/</code>, rendered by <code>rhr render</code> and <code>rhr scene --view iso</code>.</sub></p>
 
 > **Status: v0.5, an early alpha.** The UI layout numbers are solid: they match
 > Studio within 2 px on every test place. The pictures are *previews*: close enough
@@ -78,8 +78,8 @@ Every JSON output carries a `schema` name (`rhr.layout/1`, `rhr.check/1`, ...), 
 change in shape is never silent. A Rojo project works anywhere a file does: pass the
 folder with `default.project.json`, or the `*.project.json` file.
 
-**Experimental** (rough sketches, and labelled as such in the output): lights,
-shadows, Atmosphere, Decals and Textures, Beams, Trails, and particles
+**Experimental** (rough sketches, and labelled as such in the output): local lights,
+Decals and Textures, Beams, Trails, and particles
 (`rhr particles`, `rhr preview --time T`).
 
 ## For agents

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Bounded directional shadows are opt-in, deterministic, and respect GlobalShadows."""
+"""Sun shadows are on by default (--no-shadows turns them off), deterministic, and respect GlobalShadows."""
 
 from __future__ import annotations
 
@@ -56,7 +56,7 @@ def main() -> None:
         shadowed2 = tmp / "shadowed2.png"
         base = ["scene", str(ir), "--viewport", "360x240", "--view", "iso"]
 
-        proc = run(*base, "--out", str(plain))
+        proc = run(*base, "--no-shadows", "--out", str(plain))
         assert proc.returncode == 0, proc.stderr
         for output in (shadowed, shadowed2):
             proc = run(*base, "--shadows", "--out", str(output))

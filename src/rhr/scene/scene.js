@@ -10,7 +10,15 @@ const renderer = new THREE.WebGLRenderer({canvas, antialias: true, alpha: viewpo
 renderer.setPixelRatio(1);
 renderer.setSize(width, height, false);
 renderer.outputColorSpace = THREE.SRGBColorSpace;
-const shadowsRequested = !viewportMode && params.get('shadows') === '1';
+// Constants fitted against Studio (see configureAtmosphere, configureModernEnvironment).
+// The `tune` query parameter (JSON, from RHR_SCENE_TUNE) overrides them while
+// calibrating; normal renders never set it.
+const TUNE = Object.assign({
+  sunK: 1.625, skyK: 0.975, ambK: 0.25, skyBg: 1.0375, fogL: 1.0, fogDecayMix: 0.5375,
+  exposure: 1.475, tone: 3, sunR: 1.0, sunG: 0.965, sunB: 0.91, pRough: 0.72, spRough: 0.33, aoK: 0.9, aoReach: 64,
+}, (() => { try { return JSON.parse(params.get('tune') || '{}'); } catch (_) { return {}; } })());
+// Shadows are on unless the caller turns them off (Studio draws them by default).
+const shadowsRequested = !viewportMode && params.get('shadows') !== '0';
 renderer.shadowMap.enabled = shadowsRequested;
 renderer.shadowMap.type = THREE.PCFShadowMap;
 renderer.setClearColor(viewportMode ? 0x000000 : 0x20242b, viewportMode ? 0 : 1);
@@ -567,9 +575,13 @@ function shapeGeometry(node) {
 }
 
 const NEON_BRIGHTNESS = 3;
+function neonBrightness(transparency) {
+  const t = Math.max(0, Math.min(1, Number(transparency) || 0));
+  return NEON_BRIGHTNESS * (1 - t * t);
+}
 const MATERIAL_TABLE = {
-  Plastic: {roughness: 0.72, metalness: 0.0},
-  SmoothPlastic: {roughness: 0.48, metalness: 0.0},
+  Plastic: {roughness: TUNE.pRough, metalness: 0.0},
+  SmoothPlastic: {roughness: TUNE.spRough, metalness: 0.0},
   // Neon is unlit and drawn about 3x brighter than its colour, clipped per channel
   // (Studio: orange turns yellow-orange, blue turns cyan); what passes white glows.
   Neon: {roughness: 0.9, metalness: 0.0, emissiveIntensity: NEON_BRIGHTNESS, unlit: true},
@@ -1090,6 +1102,15 @@ function addPart(node, parent) {
   if (reflectance > 0.2 || ['Glass', 'Ice', 'Glacier', 'Foil', 'Metal', 'DiamondPlate'].includes(materialName)) {
     wantsEnvironment(material);
   }
+  if (materialName === 'Neon' && transparency > 0) {
+    // Transparent Neon is drawn nearly opaque, only dimmer: 3 x (1 - Transparency^2)
+    // of its colour (Studio: at 50% it is still as bright as at 0, at 90% it shows
+    // about its own colour and hides the wall behind it; 80% transparent orange
+    // coins read as solid yellow).
+    material.transparent = false;
+    material.opacity = 1;
+    material.emissiveIntensity = neonBrightness(transparency);
+  }
   const mesh = new THREE.Mesh(shapeGeometry(node), material);
   const special = specialMeshChild(node);
   let geometryReady = Promise.resolve();
@@ -1391,6 +1412,7 @@ async function addTerrain(index) {
   }
   const terrainNode = nodesOfClass(index, 'Terrain')[0];
   const solid = m => m !== 0 && m !== WATER;
+  terrainGrid = {chunks, n, voxelStuds: terrain.voxelStuds, solid};
   const ground = terrainSurface(chunks, n, terrain.voxelStuds, solid, m => !solid(m));
   const water = terrainSurface(chunks, n, terrain.voxelStuds, m => m === WATER, m => m === 0);
   const kindOf = ny => (ny > 0.5 ? 'top' : ny < -0.5 ? 'bottom' : 'side');
@@ -2226,31 +2248,377 @@ async function configureSky(index) {
   return true;
 }
 
+// Atmosphere, measured in Studio (a Roblox template's lighting; black and white
+// panels 25 to 800 studs from the camera, Density 0.2 / 0.375 / 0.6, Haze 0 / 2 / 5),
+// in linear light:
+//
+// - Geometry keeps exp(-(depth / L)^p) of its own light and takes the rest from the
+//   fog colour. L and p depend steeply on Density: about 7900 studs and 1.8 at 0.2
+//   (almost nothing fades), 512 and 1.6 at 0.375 (half gone at about 400 studs), 77
+//   and 1.25 at 0.6 (gone by 200). Between and beyond, log L and p are interpolated
+//   linearly. Haze hardly changes it.
+// - Haze veils the sky: below the horizon it is the fog colour once Haze reaches 1,
+//   above it a band about 1.5 x Haze degrees high blends in, and from Haze 5 the whole
+//   sky is fog-coloured.
+// - The fog colour lies between Color and Decay, nearer Decay.
+const FOG_KNOTS = [[0.2, Math.log(7900), 1.8], [0.375, Math.log(512), 1.6], [0.6, Math.log(77), 1.25]];
+
+function fogCurve(density) {
+  if (density <= 0.05) return null;
+  let a = FOG_KNOTS[0];
+  let b = FOG_KNOTS[1];
+  if (density > FOG_KNOTS[1][0]) { a = FOG_KNOTS[1]; b = FOG_KNOTS[2]; }
+  const t = (density - a[0]) / (b[0] - a[0]);
+  const logL = a[1] + (b[1] - a[1]) * t;
+  const power = Math.max(1.0, Math.min(2.0, a[2] + (b[2] - a[2]) * t));
+  return {length: Math.exp(Math.min(logL, 12)) * TUNE.fogL, power};
+}
+
+let atmosphereState = null;
+
 function configureAtmosphere(index) {
   const atmosphere = findLightingClass(index, 'Atmosphere');
   if (!atmosphere) return;
   const props = atmosphere.props || {};
   const color = colorValue(props.Color, 0xc7d4e4);
   const decay = colorValue(props.Decay, 0x6b7480);
-  const density = Math.max(0, Number(props.Density ?? 0.35));
+  const density = Math.max(0, Number(props.Density ?? 0.395));
   const haze = Math.max(0, Number(props.Haze ?? 0));
-  const offset = Math.max(-1, Math.min(1, Number(props.Offset ?? 0)));
+  const curve = fogCurve(density);
+  const fogColor = color.clone().lerp(decay, TUNE.fogDecayMix);
+  if (curve) {
+    // FogExp2's density carries 1 / L; the exponent is compiled into the fog chunk,
+    // before any material is compiled.
+    THREE.ShaderChunk.fog_fragment = THREE.ShaderChunk.fog_fragment.replace(
+      'float fogFactor = 1.0 - exp( - fogDensity * fogDensity * vFogDepth * vFogDepth );',
+      `float fogFactor = 1.0 - exp( - pow( fogDensity * vFogDepth, ${curve.power.toFixed(3)} ) );`,
+    );
+    scene.fog = new THREE.FogExp2(fogColor, 1 / curve.length);
+  }
+  atmosphereState = {fogColor, haze, curve};
+  // No sky image: the default gradient sky keeps the atmosphere colour at the horizon.
+  atmosphereHorizon = fogColor.clone();
+}
 
-  // Authoring approximation, not Roblox's atmospheric scattering model.
-  // Higher Density/Haze reduce visibility; positive Offset preserves stronger
-  // distant silhouettes instead of blending everything into the background.
-  // Set against a Studio screenshot of the Roblox template place (Density 0.285,
-  // Haze 2, Offset 0.65): light haze at 100 studs, buildings 300 studs out still
-  // clearly readable; it was about 4x too thick before. Density^1.5, because a
-  // dense Roblox atmosphere closes in much faster than a light one.
-  const offsetFactor = THREE.MathUtils.clamp(1 - offset * 0.45, 0.4, 1.6);
-  const fogDensity = Math.min(0.05, 0.021 * density ** 1.5 * (1 + haze * 0.06) * offsetFactor);
-  const fogColor = color.clone().lerp(decay, Math.min(0.55, haze * 0.04));
-  scene.fog = new THREE.FogExp2(fogColor, fogDensity);
+// A sky cube drawn on a dome around the camera, so the Atmosphere can veil it the
+// way Roblox does (see configureAtmosphere).
+function makeSkyDome(cube) {
+  const haze = atmosphereState ? atmosphereState.haze : 0;
+  const material = new THREE.ShaderMaterial({
+    uniforms: {
+      sky: {value: cube},
+      fogColor: {value: atmosphereState ? atmosphereState.fogColor.clone() : new THREE.Color(1, 1, 1)},
+      haze: {value: haze},
+      intensity: {value: TUNE.skyBg},
+      rotation: {value: new THREE.Matrix3()},
+    },
+    vertexShader: `
+varying vec3 vDir;
+void main() {
+  vDir = position;
+  vec4 p = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+  gl_Position = p.xyww;
+}`,
+    fragmentShader: `
+uniform samplerCube sky; uniform vec3 fogColor; uniform float haze; uniform float intensity;
+uniform mat3 rotation;
+varying vec3 vDir;
+void main() {
+  vec3 d = normalize(vDir);
+  vec3 s = rotation * d;
+  vec3 c = textureCube(sky, vec3(-s.x, s.y, s.z)).rgb * intensity;
+  float elevation = degrees(asin(clamp(d.y, -1.0, 1.0)));
+  float veil;
+  if (elevation < 0.0) veil = clamp(haze, 0.0, 1.0);
+  else veil = max(clamp((haze - 2.0) / 3.0, 0.0, 1.0), haze > 0.0 ? exp(-elevation / (1.5 * haze)) : 0.0);
+  gl_FragColor = vec4(mix(c, fogColor, veil), 1.0);
+  #include <colorspace_fragment>
+}`,
+    side: THREE.BackSide,
+    depthWrite: false,
+    depthTest: false,
+    fog: false,
+  });
+  const dome = new THREE.Mesh(new THREE.SphereGeometry(1, 48, 24), material);
+  dome.frustumCulled = false;
+  dome.renderOrder = -1000;
+  dome.userData.rhrSkyDome = true;
+  dome.onBeforeRender = (_renderer, _scene, camera) => {
+    dome.position.copy(camera.position);
+    dome.scale.setScalar(camera.far * 0.5);
+    dome.updateMatrixWorld(true);
+  };
+  return dome;
+}
 
-  // No sky image: the default sky stays blue overhead, with the atmosphere colour
-  // at the horizon (applied where the default sky is built).
-  atmosphereHorizon = color.clone().lerp(decay, THREE.MathUtils.clamp(0.18 + haze * 0.025, 0.18, 0.5));
+// Sky visibility: how much of the sky each place can see. Roblox's modern lighting
+// keeps a voxel grid of the world and lights surfaces with the sky only as far as
+// the sky is visible from them: the wall behind a pillar, the floor under an
+// overhang and the inside of a room are much darker than open ground, while the
+// sun still lights whatever it reaches. This builds the same kind of grid: parts
+// and terrain are rasterized into 4-stud cells (a fraction of each cell filled),
+// then from every open cell next to geometry, 16 directions over the upper
+// hemisphere are marched through the grid and the light that gets through is
+// averaged. Surfaces sample the grid just in front of themselves, and their sky
+// and ambient light is scaled by it (sun light is not: it has its own shadows).
+let terrainGrid = null;  // set by addTerrain: {chunks, n, voxelStuds, solid}
+let skyVisibility = null;
+
+const SKY_DIRECTIONS = (() => {
+  // Cosine-weighted directions over the upper hemisphere (golden-angle spiral).
+  const out = [];
+  const count = 16;
+  for (let i = 0; i < count; i += 1) {
+    const u = (i + 0.5) / count;
+    const r = Math.sqrt(u);
+    const phi = i * 2.399963;
+    out.push([r * Math.cos(phi), Math.sqrt(1 - u), r * Math.sin(phi)]);
+  }
+  return out;
+})();
+
+function buildSkyVisibility(camera) {
+  const boxes = [];
+  const worldBox = new THREE.Box3();
+  scene.traverse(object => {
+    const node = object.userData?.rhrNode;
+    if (!object.isMesh || !node || object.userData.rhrTerrain) return;
+    if (object.userData.rhrPlaceholder) return;
+    const material = Array.isArray(object.material) ? object.material[0] : object.material;
+    if (material.transparent && material.opacity < 0.5) return;
+    object.geometry.computeBoundingBox();
+    const local = object.geometry.boundingBox;
+    const box = local.clone().applyMatrix4(object.matrixWorld);
+    worldBox.union(box);
+    const shape = node.className === 'Part' ? (node.props?.Shape?.name || 'Block') : node.className;
+    const weight = shape === 'Block' ? 1 : (shape === 'WedgePart' || shape === 'CornerWedgePart' || shape === 'Wedge') ? 0.5
+      : (shape === 'Cylinder' || shape === 'Ball') ? 0.7 : 0.6;
+    boxes.push({matrix: object.matrixWorld.clone(), local, box, weight});
+  });
+  if (terrainGrid) {
+    for (const chunk of terrainGrid.chunks.values()) {
+      const [cx, cy, cz] = chunk.position;
+      const size = terrainGrid.n * terrainGrid.voxelStuds;
+      worldBox.union(new THREE.Box3(new THREE.Vector3(cx * size, cy * size, cz * size),
+        new THREE.Vector3((cx + 1) * size, (cy + 1) * size, (cz + 1) * size)));
+    }
+  }
+  if (!boxes.length && !terrainGrid) return;
+  // The grid covers the geometry near the camera, at most 1200 x 400 x 1200 studs.
+  const focus = camera.position;
+  const min = worldBox.min.clone().max(new THREE.Vector3(focus.x - 600, focus.y - 200, focus.z - 600));
+  const max = worldBox.max.clone().min(new THREE.Vector3(focus.x + 600, focus.y + 200, focus.z + 600));
+  if (min.x >= max.x || min.y >= max.y || min.z >= max.z) return;
+  let V = 4;
+  const cells = () => Math.ceil((max.x - min.x) / V + 2) * Math.ceil((max.y - min.y) / V + 2) * Math.ceil((max.z - min.z) / V + 2);
+  while (cells() > 3_000_000) V *= 2;
+  // Align to the terrain's 4-stud grid.
+  min.set(Math.floor(min.x / V) * V - V, Math.floor(min.y / V) * V - V, Math.floor(min.z / V) * V - V);
+  const nx = Math.ceil((max.x - min.x) / V) + 2;
+  const ny = Math.ceil((max.y - min.y) / V) + 2;
+  const nz = Math.ceil((max.z - min.z) / V) + 2;
+  const occ = new Float32Array(nx * ny * nz);
+  const at = (x, y, z) => x + nx * (y + ny * z);
+  const inverse = new THREE.Matrix4();
+  const p = new THREE.Vector3();
+  const samples = [0.25, 0.75];
+  for (const item of boxes) {
+    const x0 = Math.max(0, Math.floor((item.box.min.x - min.x) / V));
+    const x1 = Math.min(nx - 1, Math.floor((item.box.max.x - min.x) / V));
+    const y0 = Math.max(0, Math.floor((item.box.min.y - min.y) / V));
+    const y1 = Math.min(ny - 1, Math.floor((item.box.max.y - min.y) / V));
+    const z0 = Math.max(0, Math.floor((item.box.min.z - min.z) / V));
+    const z1 = Math.min(nz - 1, Math.floor((item.box.max.z - min.z) / V));
+    if (x0 > x1 || y0 > y1 || z0 > z1) continue;
+    const e = item.matrix.elements;
+    const axisAligned = [0, 1, 2, 4, 5, 6, 8, 9, 10].every(k => Math.abs(e[k]) < 1e-4 || Math.abs(Math.abs(e[k]) - 1) < 1e-4);
+    inverse.copy(item.matrix).invert();
+    // Thin rotated parts are thickened to half a cell so the samples cannot miss them.
+    const thick = item.local.clone();
+    for (const axis of ['x', 'y', 'z']) {
+      const half = (thick.max[axis] - thick.min[axis]) / 2;
+      const scale = new THREE.Vector3().setFromMatrixColumn(item.matrix, 'xyz'.indexOf(axis)).length() || 1;
+      const need = V / 4 / scale;
+      if (half < need) {
+        const mid = (thick.max[axis] + thick.min[axis]) / 2;
+        thick.min[axis] = mid - need;
+        thick.max[axis] = mid + need;
+      }
+    }
+    for (let z = z0; z <= z1; z += 1) for (let y = y0; y <= y1; y += 1) for (let x = x0; x <= x1; x += 1) {
+      let fraction;
+      if (axisAligned) {
+        const ox = Math.max(0, Math.min(item.box.max.x, min.x + (x + 1) * V) - Math.max(item.box.min.x, min.x + x * V));
+        const oy = Math.max(0, Math.min(item.box.max.y, min.y + (y + 1) * V) - Math.max(item.box.min.y, min.y + y * V));
+        const oz = Math.max(0, Math.min(item.box.max.z, min.z + (z + 1) * V) - Math.max(item.box.min.z, min.z + z * V));
+        // What blocks light through a cell is how much of it a part covers, not its
+        // volume: a 1-stud roof over a 4-stud cell blocks the sky completely.
+        fraction = Math.max(ox * oy, oy * oz, ox * oz) / (V * V);
+        if (ox <= 0 || oy <= 0 || oz <= 0) fraction = 0;
+      } else {
+        let inside = 0;
+        for (const sx of samples) for (const sy of samples) for (const sz of samples) {
+          p.set(min.x + (x + sx) * V, min.y + (y + sy) * V, min.z + (z + sz) * V).applyMatrix4(inverse);
+          if (thick.containsPoint(p)) inside += 1;
+        }
+        fraction = inside / 8;
+      }
+      if (fraction > 0) {
+        const i = at(x, y, z);
+        occ[i] = Math.min(1, occ[i] + fraction * item.weight);
+      }
+    }
+  }
+  if (terrainGrid) {
+    const {chunks, n, voxelStuds, solid} = terrainGrid;
+    for (const chunk of chunks.values()) {
+      const [cx, cy, cz] = chunk.position;
+      for (let i = 0; i < n * n * n; i += 1) {
+        const material = chunk.materials[i];
+        if (!solid(material)) continue;
+        const lx = i % n, lz = Math.floor(i / n) % n, ly = Math.floor(i / (n * n));
+        const x = Math.floor(((cx * n + lx + 0.5) * voxelStuds - min.x) / V);
+        const y = Math.floor(((cy * n + ly + 0.5) * voxelStuds - min.y) / V);
+        const z = Math.floor(((cz * n + lz + 0.5) * voxelStuds - min.z) / V);
+        if (x < 0 || y < 0 || z < 0 || x >= nx || y >= ny || z >= nz) continue;
+        const k = at(x, y, z);
+        occ[k] = Math.min(1, occ[k] + (chunk.occupancy[i] / 255) * (voxelStuds / V) ** 3);
+      }
+    }
+  }
+  const vis = new Float32Array(nx * ny * nz).fill(1);
+  const maxSteps = Math.max(8, Math.round(TUNE.aoReach / V));
+  const shell = (x, y, z) => {
+    for (const [dx, dy, dz] of [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]]) {
+      const X = x + dx, Y = y + dy, Z = z + dz;
+      if (X >= 0 && Y >= 0 && Z >= 0 && X < nx && Y < ny && Z < nz && occ[at(X, Y, Z)] > 0.05) return true;
+    }
+    return false;
+  };
+  for (let z = 0; z < nz; z += 1) for (let y = 0; y < ny; y += 1) for (let x = 0; x < nx; x += 1) {
+    const i = at(x, y, z);
+    if (occ[i] >= 0.5 || !shell(x, y, z)) continue;
+    let sum = 0;
+    for (const [dx, dy, dz] of SKY_DIRECTIONS) {
+      let transmit = 1;
+      let px = x + 0.5, py = y + 0.5, pz = z + 0.5;
+      for (let s = 0; s < maxSteps && transmit > 0.02; s += 1) {
+        px += dx; py += dy; pz += dz;
+        const X = Math.floor(px), Y = Math.floor(py), Z = Math.floor(pz);
+        if (X < 0 || Y < 0 || Z < 0 || X >= nx || Y >= ny || Z >= nz) break;
+        transmit *= 1 - occ[at(X, Y, Z)];
+      }
+      sum += transmit;
+    }
+    vis[i] = sum / SKY_DIRECTIONS.length;
+  }
+  // Filled cells take their open neighbours' value, so filtering at a surface does
+  // not mix in the "open sky" of a cell that is really inside a wall.
+  const final = new Uint8Array(nx * ny * nz);
+  for (let z = 0; z < nz; z += 1) for (let y = 0; y < ny; y += 1) for (let x = 0; x < nx; x += 1) {
+    const i = at(x, y, z);
+    let value = vis[i];
+    if (occ[i] >= 0.5) {
+      let sum = 0, count = 0;
+      for (const [dx, dy, dz] of [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]]) {
+        const X = x + dx, Y = y + dy, Z = z + dz;
+        if (X < 0 || Y < 0 || Z < 0 || X >= nx || Y >= ny || Z >= nz) continue;
+        const j = at(X, Y, Z);
+        if (occ[j] < 0.5) { sum += vis[j]; count += 1; }
+      }
+      value = count ? sum / count : 1;
+    }
+    final[i] = Math.round(Math.max(0, Math.min(1, value)) * 255);
+  }
+  const texture = new THREE.Data3DTexture(final, nx, ny, nz);
+  texture.format = THREE.RedFormat;
+  texture.type = THREE.UnsignedByteType;
+  texture.minFilter = THREE.LinearFilter;
+  texture.magFilter = THREE.LinearFilter;
+  texture.unpackAlignment = 1;
+  texture.needsUpdate = true;
+  skyVisibility = {
+    texture: {value: texture},
+    min: {value: min.clone()},
+    size: {value: new THREE.Vector3(nx * V, ny * V, nz * V)},
+    offset: {value: V * 0.6},
+    strength: {value: TUNE.aoK},
+  };
+  // Every lit material reads the grid (see withSkyVisibility).
+  scene.traverse(object => {
+    if (!object.isMesh) return;
+    for (const material of Array.isArray(object.material) ? object.material : [object.material]) {
+      if (material.isMeshStandardMaterial) withSkyVisibility(material);
+    }
+  });
+}
+
+function withSkyVisibility(material) {
+  if (material.userData.rhrSkyVisibility) return;
+  material.userData.rhrSkyVisibility = true;
+  const previous = material.onBeforeCompile;
+  const previousKey = material.customProgramCacheKey;
+  material.onBeforeCompile = (shader, renderer) => {
+    if (previous) previous.call(material, shader, renderer);
+    shader.uniforms.rhrSkyVis = skyVisibility.texture;
+    shader.uniforms.rhrSkyMin = skyVisibility.min;
+    shader.uniforms.rhrSkySize = skyVisibility.size;
+    shader.uniforms.rhrSkyOffset = skyVisibility.offset;
+    shader.uniforms.rhrSkyStrength = skyVisibility.strength;
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <lights_pars_begin>', `#include <lights_pars_begin>
+uniform highp sampler3D rhrSkyVis;
+uniform vec3 rhrSkyMin;
+uniform vec3 rhrSkySize;
+uniform float rhrSkyOffset;
+uniform float rhrSkyStrength;`)
+      .replace('#include <lights_fragment_end>', `{
+  vec3 rhrN = transformNormalByInverseViewMatrix( geometryNormal, viewMatrix );
+  vec3 rhrP = ( ( vec4( geometryPosition, 1.0 ) - viewMatrix[ 3 ] ) * viewMatrix ).xyz + rhrN * rhrSkyOffset;
+  vec3 rhrUV = ( rhrP - rhrSkyMin ) / rhrSkySize;
+  float rhrVis = 1.0;
+  if ( all( greaterThan( rhrUV, vec3( 0.0 ) ) ) && all( lessThan( rhrUV, vec3( 1.0 ) ) ) ) rhrVis = texture( rhrSkyVis, rhrUV ).r;
+  rhrVis = mix( 1.0, rhrVis, rhrSkyStrength );
+  #if defined( RE_IndirectDiffuse )
+    irradiance *= rhrVis;
+    iblIrradiance *= rhrVis;
+  #endif
+  #if defined( RE_IndirectSpecular )
+    radiance *= rhrVis;
+  #endif
+}
+#include <lights_fragment_end>`);
+  };
+  material.customProgramCacheKey = () => `${previousKey ? previousKey.call(material) : ''}|rhr-sky-visibility`;
+  material.needsUpdate = true;
+}
+
+// Modern lighting (Lighting.EnvironmentDiffuseScale above 0, as in every current
+// Roblox template): the sun, plus light from the sky itself, which is what gives
+// Roblox's shadows and shaded faces their sky-blue colour. The sky light comes from
+// the sky as it is drawn, Atmosphere veil included, prefiltered into an environment
+// map; it also gives surfaces their sky reflections (EnvironmentSpecularScale).
+// Ambient / OutdoorAmbient add a little flat light. Strengths are fitted to Studio
+// screenshots of a calibration rig under a template's lighting (tests/studio notes
+// in docs/known-approximations.md).
+function modernLighting(index) {
+  const lighting = findFirstClass(index, 'Lighting');
+  const envDiffuse = Number(lighting?.props?.EnvironmentDiffuseScale ?? 0);
+  return Boolean(lighting) && envDiffuse > 0;
+}
+
+function configureModernEnvironment(index, sky) {
+  const props = findFirstClass(index, 'Lighting')?.props || {};
+  const envDiffuse = Math.max(0, Math.min(1, Number(props.EnvironmentDiffuseScale ?? 1)));
+  const skyScene = new THREE.Scene();
+  if (sky) skyScene.add(makeSkyDome(sky));
+  else skyScene.background = scene.background;
+  const generator = new THREE.PMREMGenerator(renderer);
+  const cubeCamera = generator.fromScene(skyScene, 0, 0.1, 100);
+  generator.dispose();
+  scene.environment = cubeCamera.texture;
+  scene.environmentIntensity = TUNE.skyK * envDiffuse;
+  environmentTexture = cubeCamera.texture;
 }
 
 let atmosphereHorizon = null;
@@ -2271,9 +2639,13 @@ let sunDirection = null;
 // 512-stud Baseplate made one 1024px map blur every shadow into a smudge.
 function fitSunShadow(camera, focus) {
   if (!sunLight || !sunLight.castShadow) return;
+  // Centred on the point of the view ray nearest the scene's middle, so the same view
+  // gets the same shadows however the camera was given (authored, --look-at, --view).
   const forward = camera.getWorldDirection(new THREE.Vector3());
-  const distance = focus ? camera.position.distanceTo(focus) : 30;
-  const target = focus ? focus.clone() : camera.position.clone().addScaledVector(forward, distance);
+  const bounds = sceneGeometryBounds();
+  const middle = bounds ? bounds.getCenter(new THREE.Vector3()) : (focus || camera.position.clone().addScaledVector(forward, 30));
+  const distance = Math.max(8, middle.clone().sub(camera.position).dot(forward));
+  const target = camera.position.clone().addScaledVector(forward, distance);
   const radius = THREE.MathUtils.clamp(distance * 1.1, 8, 256);
   sunLight.target.position.copy(target);
   sunLight.position.copy(target).addScaledVector(sunDirection, radius * 2);
@@ -2380,14 +2752,21 @@ function configureSceneLights(index) {
   // ambient, as in Roblox, rather than falling to near-black. Ambient/OutdoorAmbient
   // light everything regardless of Brightness; the sky light scales with Brightness
   // like the sun, so Brightness 0 leaves only the ambient.
-  scene.add(new THREE.AmbientLight(ambient.clone().add(outdoor).multiplyScalar(0.5), hasLighting ? 2.0 : 1.6));
-  // EnvironmentDiffuseScale is Roblox's sky light (modern templates set it to 1); it
-  // lifts every surface, most visibly the faces turned away from the sun. Scale set
-  // by eye against the Roblox template place.
-  const envDiffuse = hasLighting ? Math.max(0, Math.min(1, Number(props.EnvironmentDiffuseScale ?? 0))) : 0;
-  scene.add(new THREE.HemisphereLight(0xbcd7ff, outdoor, ((hasLighting ? 0.6 : 0.7) + 0.9 * envDiffuse) * brightness));
-
+  const modern = modernLighting(index);
   const key = new THREE.DirectionalLight(0xfff6e8, 1.25 * brightness);
+  if (modern) {
+    // The sky light is the environment map (configureModernEnvironment).
+    scene.add(new THREE.AmbientLight(ambient.clone().add(outdoor).multiplyScalar(0.5), TUNE.ambK));
+    key.color.setRGB(TUNE.sunR, TUNE.sunG, TUNE.sunB);
+    key.intensity = TUNE.sunK * brightness;
+  } else {
+    scene.add(new THREE.AmbientLight(ambient.clone().add(outdoor).multiplyScalar(0.5), hasLighting ? 2.0 : 1.6));
+    // EnvironmentDiffuseScale is Roblox's sky light (modern templates set it to 1); it
+    // lifts every surface, most visibly the faces turned away from the sun. Scale set
+    // by eye against the Roblox template place.
+    const envDiffuse = hasLighting ? Math.max(0, Math.min(1, Number(props.EnvironmentDiffuseScale ?? 0))) : 0;
+    scene.add(new THREE.HemisphereLight(0xbcd7ff, outdoor, ((hasLighting ? 0.6 : 0.7) + 0.9 * envDiffuse) * brightness));
+  }
   let direction;
   const clock = clockTime(props);
   if (hasLighting && clock !== null) {
@@ -2417,7 +2796,7 @@ function configureSceneLights(index) {
     const softness = Math.max(0, Math.min(1, Number(props.ShadowSoftness ?? 0.5)));
     renderer.shadowMap.type = softness > 0.01 ? THREE.PCFSoftShadowMap : THREE.PCFShadowMap;
     key.shadow.radius = 1 + softness * 5;
-    key.shadow.mapSize.set(1024, 1024);
+    key.shadow.mapSize.set(2048, 2048);
     const radius = Math.max(4, span * 0.75);
     key.shadow.camera.left = -radius;
     key.shadow.camera.right = radius;
@@ -2796,8 +3175,8 @@ function configureCamera(camera, node) {
 // contrast, saturation and tint. The scene is drawn into a half-float buffer so
 // Neon can be brighter than white, as in Roblox's HDR renderer. Glow size and
 // strength are set by eye.
-const NEON_GLOW_STRENGTH = 1.2;
-const NEON_GLOW_RADIUS_PX = 12;  // at 1080 px screen height; scales with the height
+const NEON_GLOW_STRENGTH = 0.9;
+const NEON_GLOW_RADIUS_PX = 20;  // at 1080 px screen height; scales with the height
 let postEffects = null;
 
 function readPostEffects(index) {
@@ -2827,6 +3206,7 @@ function readPostEffects(index) {
       tint: colorValue(c.props?.TintColor, 0xffffff),
     })),
     exposure: Number.isFinite(exposure) ? Math.max(-3, Math.min(3, exposure)) : 0,
+    modern: modernLighting(index),
   };
 }
 
@@ -2904,11 +3284,12 @@ function renderNeonBuffer(camera, target) {
     swapped.push([object, object.material, object.visible]);
     if (neon) {
       const transparency = Math.max(0, Math.min(1, Number(node.props?.Transparency ?? 0)));
-      // Only the part of the colour past white glows (Studio: bright orange glows
-      // red, grey and dim colours do not glow at all).
-      const glow = colorValue(node.props?.Color).multiplyScalar(NEON_BRIGHTNESS);
-      glow.setRGB(Math.max(0, glow.r - 1), Math.max(0, glow.g - 1), Math.max(0, glow.b - 1));
-      object.material = new THREE.MeshBasicMaterial({color: glow.multiplyScalar(1 - transparency)});
+      // The glow is the Neon's own colour, faded out for dim Neon (Studio: white glows
+      // white, cyan light cyan; grey and dark colours hardly glow).
+      const glow = colorValue(node.props?.Color).multiplyScalar(neonBrightness(transparency));
+      const peak = Math.max(glow.r, glow.g, glow.b);
+      glow.multiplyScalar(THREE.MathUtils.smoothstep(peak, 0.8, 1.6) * (1 - transparency));
+      object.material = new THREE.MeshBasicMaterial({color: glow});
     } else if (object.isLineSegments || (object.material?.transparent && object.material.opacity < 0.5)) {
       object.visible = false;
     } else {
@@ -2940,7 +3321,8 @@ function compositeMaterial(effects) {
     bloom: {value: null},
     neonStrength: {value: effects.neon.length ? NEON_GLOW_STRENGTH : 0},
     bloomStrength: {value: effects.bloom ? effects.bloom.intensity : 0},
-    exposure: {value: Math.pow(2, effects.exposure)},
+    exposure: {value: Math.pow(2, effects.exposure) * (effects.modern ? TUNE.exposure : 1)},
+    tone: {value: effects.modern ? TUNE.tone : 0},
     ccBrightness: {value: corrections.reduce((sum, c) => sum + c.brightness, 0)},
     ccContrast: {value: corrections.reduce((product, c) => product * (1 + c.contrast), 1)},
     ccSaturation: {value: corrections.reduce((product, c) => product * (1 + c.saturation), 1)},
@@ -2951,7 +3333,7 @@ function compositeMaterial(effects) {
     vertexShader: FULLSCREEN_VERTEX,
     fragmentShader: `
 uniform sampler2D scene; uniform sampler2D neon; uniform sampler2D bloom;
-uniform float neonStrength; uniform float bloomStrength; uniform float exposure;
+uniform float neonStrength; uniform float bloomStrength; uniform float exposure; uniform int tone;
 uniform float ccBrightness; uniform float ccContrast; uniform float ccSaturation; uniform vec3 ccTint;
 varying vec2 vUv;
 vec3 toSRGB(vec3 c) {
@@ -2963,6 +3345,18 @@ void main() {
   color += texture2D(neon, vUv).rgb * neonStrength;
   color += texture2D(bloom, vUv).rgb * bloomStrength;
   color *= ccTint;
+  if (tone == 1) {
+    // ACES filmic (Narkowicz fit).
+    color = clamp((color * (2.51 * color + 0.03)) / (color * (2.43 * color + 0.59) + 0.14), 0.0, 1.0);
+  } else if (tone == 2) {
+    // Reinhard on luminance-preserving max channel.
+    float m = max(color.r, max(color.g, color.b));
+    color *= (1.0 + m / 4.0) / (1.0 + m);
+  } else if (tone == 3) {
+    // Reinhard per channel: very bright colours drift toward white, as Roblox's do
+    // (bright orange Neon turns yellow).
+    color = color * (1.0 + color / 4.0) / (1.0 + color);
+  }
   vec3 srgb = toSRGB(color);
   srgb += ccBrightness;
   srgb = (srgb - 0.5) * ccContrast + 0.5;
@@ -2979,7 +3373,7 @@ void main() {
 function renderFrame(camera) {
   if (!postEffects) postEffects = readPostEffects(sceneIndex);
   const effects = postEffects;
-  if (viewportMode || (!effects.neon.length && !effects.bloom && !effects.corrections.length && !effects.exposure)) {
+  if (viewportMode || (!effects.modern && !effects.neon.length && !effects.bloom && !effects.corrections.length && !effects.exposure)) {
     renderer.setRenderTarget(null);
     renderer.render(scene, camera);
     return;
@@ -3075,7 +3469,17 @@ async function main() {
     if (!scene.background && findFirstClass(index, 'Lighting')) {
       scene.background = (await studioDefaultSky()) || defaultSkyTexture(atmosphereHorizon);
     }
-    configureEnvironment(index);
+    const skyCube = scene.background?.isCubeTexture ? scene.background : null;
+    if (modernLighting(index)) {
+      configureModernEnvironment(index, skyCube);
+    } else {
+      configureEnvironment(index);
+    }
+    if (skyCube) {
+      // Drawn as a dome so the Atmosphere can veil it.
+      scene.background = null;
+      scene.add(makeSkyDome(skyCube));
+    }
     configureSceneLights(index);
     camera = new THREE.PerspectiveCamera();
     configureCamera(camera, cameraNode);
@@ -3089,8 +3493,10 @@ async function main() {
       // is hundreds of studs of fog. It exists to show the layout, so cap the fog at
       // about a quarter at the framed centre (exp(-(d*density)^2) = 0.75).
       if (scene.fog?.isFogExp2) {
+        // At most a quarter fogged at the framed centre: (d / L)^p <= -ln(0.75).
         const distance = camera.position.distanceTo(framedCenter);
-        scene.fog.density = Math.min(scene.fog.density, 0.536 / Math.max(distance, 1));
+        const power = atmosphereState?.curve?.power || 1;
+        scene.fog.density = Math.min(scene.fog.density, 0.2877 ** (1 / power) / Math.max(distance, 1));
       }
     }
     const cameraOverride = parseVectorParam('camera');
@@ -3101,6 +3507,7 @@ async function main() {
     camera.updateMatrixWorld(true);
     fitSunShadow(camera, lookAtOverride || framedCenter || null);
     pruneLocalLights(camera);
+    if (modernLighting(index)) buildSkyVisibility(camera);
     await addBeams(index, camera);
     await addTrails(index, camera);
     await reportCamera(camera);
