@@ -45,6 +45,7 @@ rhr = [
     "particles/*",
     "vendor/*.md",
     "vendor/three/*",
+    "vendor/three/lights/*",
     "vendor/draco/*",
     "vendor/licenses/*",
     "vendor/pinevex/LICENSE",

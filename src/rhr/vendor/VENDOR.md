@@ -40,7 +40,9 @@ getting an explicit yes first.
 - Version: `0.186.0`, obtained from the npm package
 - Location: `src/rhr/vendor/three/`
 - License: MIT, see `src/rhr/vendor/three/LICENSE`
-- Files used: `three.module.js` and its local `three.core.js` companion
+- Files used: `three.module.js` and its local `three.core.js` companion, and the
+  `lights/SunLight.js` / `lights/SunLightShadow.js` add-ons from `examples/jsm/lights/`
+  (cascaded sun shadows), with their `import 'three'` pointed at `../three.module.js`
 
 The browser scene uses this local bundle only. It does not load JavaScript from
 CDNs or install npm packages at render time.

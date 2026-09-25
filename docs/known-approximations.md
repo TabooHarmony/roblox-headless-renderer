@@ -118,11 +118,10 @@ signed in, see below):
   materials are see-through.
 - Neon is unlit and drawn about 3x brighter than its colour; bright Neon glows in its
   own colour (a blurred quarter-resolution copy added over the picture, as Roblox
-  does it) and dim Neon does not. Transparent Neon stays nearly opaque and only dims,
-  to 3 x (1 - Transparency^2) of its colour, with less glow: in Studio a 90%
-  transparent plate still hides the wall behind it, and 80% transparent orange coins
-  read as solid yellow. Compared with Studio at its highest quality level; at low
-  quality levels Studio draws no glow at all. Unknown materials draw as Plastic and are
+  does it) and dim Neon does not. Transparent Neon is see-through by its
+  Transparency, with less glow. (In Studio a strongly transparent Neon part reads
+  more solid than that; RHR keeps what is behind it visible.) Compared with Studio at
+  its highest quality level; at low quality levels Studio draws no glow at all. Unknown materials draw as Plastic and are
   counted as `materialFallbacks`. `--flat-materials` draws plain colours.
 - Plastic has Roblox's faint surface relief, and legacy surfaces (`TopSurface =
   Studs`, Inlet, Weld, Glue, Universal on block Parts of Plastic or SmoothPlastic) are
@@ -171,8 +170,9 @@ stderr says so on every 3D render.
   matched against Studio's legacy lighting: ambient plus a sky-coloured hemisphere
   light and the sun.
 - Shadows from the sun are on by default, as in Studio (`--no-shadows` turns them
-  off). One shadow map covers the area around what the camera looks at; very wide
-  views have softer or missing shadows at their far edges.
+  off). Two shadow cascades cover the view out to 500 studs from the camera: sharp
+  near it, coarser further away; nothing casts shadows beyond that. On the GPU they
+  cost a few percent of render time.
 - Post-processing (experimental): `BloomEffect` (what is brighter than its Threshold,
   blurred by its Size, added at its Intensity) and `ColorCorrectionEffect` (Brightness,
   Contrast, Saturation, TintColor) are drawn, set by eye; Studio's own at low quality

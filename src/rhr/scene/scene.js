@@ -1,4 +1,5 @@
 import * as THREE from '../vendor/three/three.module.js';
+import { SunLight } from '../vendor/three/lights/SunLight.js';
 
 const params = new URLSearchParams(location.search);
 const viewportMode = params.get('mode') === 'viewport';
@@ -15,7 +16,7 @@ renderer.outputColorSpace = THREE.SRGBColorSpace;
 // calibrating; normal renders never set it.
 const TUNE = Object.assign({
   sunK: 1.625, skyK: 1.175, ambK: 0.1, skyBg: 1.0375, fogL: 1.0, fogDecayMix: 0.4375,
-  exposure: 1.475, tone: 3, sunR: 1.0, sunG: 0.965, sunB: 0.91, pRough: 0.72, spRough: 0.33, aoK: 0.675, aoReach: 64,
+  exposure: 1.475, tone: 3, sunR: 1.0, sunG: 0.965, sunB: 0.91, pRough: 0.72, spRough: 0.33, aoK: 1.0, aoReach: 64,
 }, (() => { try { return JSON.parse(params.get('tune') || '{}'); } catch (_) { return {}; } })());
 // Shadows are on unless the caller turns them off (Studio draws them by default).
 const shadowsRequested = !viewportMode && params.get('shadows') !== '0';
@@ -1101,15 +1102,6 @@ function addPart(node, parent) {
   });
   if (reflectance > 0.2 || ['Glass', 'Ice', 'Glacier', 'Foil', 'Metal', 'DiamondPlate'].includes(materialName)) {
     wantsEnvironment(material);
-  }
-  if (materialName === 'Neon' && transparency > 0 && transparency < 0.98) {
-    // Transparent Neon is drawn nearly opaque, only dimmer: 3 x (1 - Transparency^2)
-    // of its colour (Studio: at 50% it is still as bright as at 0, at 90% it shows
-    // about its own colour and hides the wall behind it; 80% transparent orange
-    // coins read as solid yellow).
-    material.transparent = false;
-    material.opacity = 1;
-    material.emissiveIntensity = neonBrightness(transparency);
   }
   const mesh = new THREE.Mesh(shapeGeometry(node), material);
   const special = specialMeshChild(node);
@@ -2637,32 +2629,11 @@ let sunDirection = null;
 
 // The shadow map covers what the camera looks at, not the scene's whole bounds: a
 // 512-stud Baseplate made one 1024px map blur every shadow into a smudge.
-function fitSunShadow(camera, focus) {
-  if (!sunLight || !sunLight.castShadow) return;
-  // Centred where the middle of the view first meets geometry, so the same view gets
-  // the same shadows however the camera was given (authored, --look-at, --view).
-  const forward = camera.getWorldDirection(new THREE.Vector3());
-  const targets = [];
-  scene.traverse(object => { if (object.isMesh && object.userData?.rhrNode) targets.push(object); });
-  const hit = new THREE.Raycaster(camera.position, forward, 0.1, 2000).intersectObjects(targets, false)[0];
-  const distance = Math.max(8, hit ? hit.distance : 30);
-  const target = camera.position.clone().addScaledVector(forward, distance);
-  const radius = THREE.MathUtils.clamp(distance * 1.1, 8, 256);
-  sunLight.target.position.copy(target);
-  sunLight.position.copy(target).addScaledVector(sunDirection, radius * 2);
-  const shadowCamera = sunLight.shadow.camera;
-  shadowCamera.left = -radius;
-  shadowCamera.right = radius;
-  shadowCamera.top = radius;
-  shadowCamera.bottom = -radius;
-  shadowCamera.near = 0.1;
-  shadowCamera.far = radius * 4;
-  shadowCamera.updateProjectionMatrix();
-  sunLight.shadow.mapSize.set(2048, 2048);
-  const texel = (2 * radius) / 2048;
-  sunLight.shadow.radius = THREE.MathUtils.clamp((sunLight.userData.penumbraStuds || 0.5) / texel, 1, 16);
-  sunLight.shadow.map?.dispose();
-  sunLight.shadow.map = null;
+// Shadows reach this far from the camera; the two cascades split the distance.
+const SHADOW_DISTANCE = 500;
+
+function fitSunShadow() {
+  // The SunLight fits its cascades to the view camera on every render.
 }
 
 // Roblox draws its default sky when a place has no Sky object: the sky512 cube in
@@ -2756,7 +2727,9 @@ function configureSceneLights(index) {
   // light everything regardless of Brightness; the sky light scales with Brightness
   // like the sun, so Brightness 0 leaves only the ambient.
   const modern = modernLighting(index);
-  const key = new THREE.DirectionalLight(0xfff6e8, 1.25 * brightness);
+  // A sun with two shadow cascades over the view (three.js SunLight add-on): sharp
+  // shadows near the camera and shadows out to SHADOW_DISTANCE studs.
+  const key = new SunLight(0xfff6e8, 1.25 * brightness);
   if (modern) {
     // The sky light is the environment map (configureModernEnvironment).
     scene.add(new THREE.AmbientLight(ambient.clone().add(outdoor).multiplyScalar(0.5), TUNE.ambK));
@@ -2790,29 +2763,21 @@ function configureSceneLights(index) {
   } else {
     direction = new THREE.Vector3(6, 10, 8).normalize();
   }
-  key.position.copy(center).addScaledVector(direction, Math.max(12, span * 1.5));
-  key.target.position.copy(center);
-  scene.add(key.target);
+  // A SunLight shines from its position toward the origin.
+  key.position.copy(direction);
 
   if (shadowsRequested && props.GlobalShadows !== false) {
     key.castShadow = true;
     const softness = Math.max(0, Math.min(1, Number(props.ShadowSoftness ?? 0.5)));
     renderer.shadowMap.type = THREE.PCFShadowMap;
-    // Shadow edge width in studs (fitSunShadow turns it into shadow-map texels):
-    // Roblox's modern shadows have a soft edge of about half a stud.
-    key.userData.penumbraStuds = 0.35 + softness * 2;
-    key.shadow.radius = 1 + softness * 5;
+    // Filter radius in shadow-map texels: a soft edge about half a stud wide near the
+    // camera, as Roblox's modern shadows have.
+    key.shadow.radius = 2 + softness * 4;
     key.shadow.mapSize.set(2048, 2048);
-    const radius = Math.max(4, span * 0.75);
-    key.shadow.camera.left = -radius;
-    key.shadow.camera.right = radius;
-    key.shadow.camera.top = radius;
-    key.shadow.camera.bottom = -radius;
     key.shadow.camera.near = 0.1;
-    key.shadow.camera.far = Math.max(30, span * 4);
+    key.shadow.camera.far = SHADOW_DISTANCE;
     key.shadow.bias = -0.0005;
-    key.shadow.normalBias = 0.02;
-    key.shadow.camera.updateProjectionMatrix();
+    key.shadow.normalBias = 0.03;
   }
   scene.add(key);
   sunLight = key;
