@@ -139,26 +139,72 @@ exact visuals, Studio's own MCP is the tool for that.
    Chromium (~260 MB) instead of skia (15 MB) and mean re-writing painting that is
    tuned to Studio within 2 px, so skia stays. The vendored fonts all back Roblox font
    families, and numpy is used throughout the UI engine: nothing to trim there.
-3. **Release.** Docs brought up to date, a check on a fresh machine, tag and publish.
-
-**Not in this release (not ruled out; picked up after it):**
-
-- Animated VFX in 3D renders (GIFs, timelines). `rhr particles` still gives a
-  contact sheet over time.
-- Special effects: Clouds, SunRays, depth of field, custom shader tricks. These stay
-  reported as not drawn. (Highlight is drawn since the VFX pass.)
-- Replacing Chromium. It is the first candidate after the release if speed is still
-  the main complaint.
-- Further lighting and shadow tuning. Shadows stay on (they cost almost nothing on the
-  GPU); `--no-shadows` turns them off.
-- Particle positions that match Roblox's random ones exactly.
+3. **Release (0.6.0).** Docs brought up to date, a check on a fresh machine, CI on all
+   three systems, tag and publish. v0.5.0 was never tagged; its work ships in 0.6.0.
 
 **Out of scope for good:** running scripts, physics or animation playback (see
 "What it is not").
 
-**After the release, roughly in order:** replacing Chromium (if speed is still the
-complaint), terrain material blending and decorations, Clouds, SunRays, animated VFX,
-the VFX details listed above, other special effects.
+## Road to v1.0 (agreed 2026-09-25)
+
+**What 1.0 means: an agent can rely on RHR without a human checking.**
+
+- **A stable contract.** Commands, flags and JSON schemas do not change without a
+  major version.
+- **Installs cleanly everywhere.** One `pip install` from PyPI plus `rhr setup` works on
+  a fresh Windows, macOS and Linux machine, proven in CI.
+- **Honest.** Every approximation is reported in the output, and none of them would
+  mislead an agent into a wrong edit on common content.
+- **Covers what people actually make**: typical games' UI, places, characters and
+  effects. Not everything Roblox can draw.
+
+**Standing decisions:**
+
+- **Chromium stays**, with three.js. Playwright goes in 0.9: RHR drives Chromium's
+  headless shell itself. A native renderer (wgpu/pygfx) was investigated and is not
+  worth it before 1.0 (docs/renderer-options.md).
+- **The vendored UI engine (pinevex) stays frozen** with our patches. Upstream changes
+  are pulled in by hand, on purpose, as now (src/rhr/vendor/VENDOR.md).
+- Out of scope, as before: scripts, physics, animation playback, and pixel parity with
+  Studio.
+
+**Milestones.** Each one ends with the full suite green on all three CI systems and a
+side-by-side check against Studio for what it touched.
+
+1. **0.6: release what exists.** VFX as a still frame, the optimization pass (see
+   above).
+2. **0.7: coverage of common content.**
+   - **Characters**, audited first because nearly every game has them: R6 and R15 rigs,
+     `Shirt`, `Pants`, `ShirtGraphic`, `Accessory`, `BodyColors`, faces, and
+     `HumanoidDescription`. The aim: a character model reads as that character.
+   - **Terrain**: material blending where materials meet, and grass decoration.
+   - **Sky effects**: `Clouds` and `SunRays` (reported as not drawn today).
+   - **UI edge cases already known**: `UIPageLayout`, `FillEmptySpace` in flex and
+     table layouts, clipping of overflowing non-wrapped text, and the small-text gap.
+   - **VFX leftovers**: `TextureSpeed`, `LightInfluence` as lit or not, and Roblox's
+     built-in `rbxasset://` particle textures from the Studio install.
+3. **0.8: scale and a regression corpus.**
+   - **Large places**: time and memory on real games with tens of thousands of parts
+     (merged or instanced geometry in the page, streaming the IR), with targets set
+     from measurements.
+   - **A private regression corpus**: UI, places, characters and VFX that stay on the
+     maintainer's machine, like the VFX bench. The Studio side-by-side tooling from the
+     VFX passes moves into `scripts/` so the corpus is re-checked before every release.
+4. **0.9: contract and distribution.**
+   - **Freeze the public interface**: CLI commands and flags, and every JSON schema
+     (`rhr.layout/1`, `rhr.check/1`, ...), with tests that fail when one changes shape.
+   - **The MCP server gets the full command set**, not the current subset.
+   - **Playwright replaced by RHR's own DevTools client** and a pinned Chrome for Testing
+     headless shell downloaded by `rhr setup`: about 100 MB and a Node process fewer,
+     about 0.4 s off every cold start, same pixels.
+   - **Published on PyPI**, with versioned docs and an upgrade note per release.
+5. **1.0: release candidate**, then tag. A release candidate period with the corpus
+   green on all three systems and no open issue that misleads an agent.
+
+**After 1.0, not ruled out:** animated VFX (GIFs, timelines), other special effects
+(depth of field, custom shader tricks), further lighting tuning, particle positions
+that match Roblox's randomness, and a native renderer if Chromium ever becomes a
+blocker.
 
 ## Rules for new work
 
