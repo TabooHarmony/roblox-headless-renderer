@@ -14,8 +14,8 @@ renderer.outputColorSpace = THREE.SRGBColorSpace;
 // The `tune` query parameter (JSON, from RHR_SCENE_TUNE) overrides them while
 // calibrating; normal renders never set it.
 const TUNE = Object.assign({
-  sunK: 1.625, skyK: 0.975, ambK: 0.25, skyBg: 1.0375, fogL: 1.0, fogDecayMix: 0.5375,
-  exposure: 1.475, tone: 3, sunR: 1.0, sunG: 0.965, sunB: 0.91, pRough: 0.72, spRough: 0.33, aoK: 0.9, aoReach: 64,
+  sunK: 1.625, skyK: 1.175, ambK: 0.1, skyBg: 1.0375, fogL: 1.0, fogDecayMix: 0.4375,
+  exposure: 1.475, tone: 3, sunR: 1.0, sunG: 0.965, sunB: 0.91, pRough: 0.72, spRough: 0.33, aoK: 0.675, aoReach: 64,
 }, (() => { try { return JSON.parse(params.get('tune') || '{}'); } catch (_) { return {}; } })());
 // Shadows are on unless the caller turns them off (Studio draws them by default).
 const shadowsRequested = !viewportMode && params.get('shadows') !== '0';
@@ -1102,7 +1102,7 @@ function addPart(node, parent) {
   if (reflectance > 0.2 || ['Glass', 'Ice', 'Glacier', 'Foil', 'Metal', 'DiamondPlate'].includes(materialName)) {
     wantsEnvironment(material);
   }
-  if (materialName === 'Neon' && transparency > 0) {
+  if (materialName === 'Neon' && transparency > 0 && transparency < 0.98) {
     // Transparent Neon is drawn nearly opaque, only dimmer: 3 x (1 - Transparency^2)
     // of its colour (Studio: at 50% it is still as bright as at 0, at 90% it shows
     // about its own colour and hides the wall behind it; 80% transparent orange
@@ -2639,12 +2639,13 @@ let sunDirection = null;
 // 512-stud Baseplate made one 1024px map blur every shadow into a smudge.
 function fitSunShadow(camera, focus) {
   if (!sunLight || !sunLight.castShadow) return;
-  // Centred on the point of the view ray nearest the scene's middle, so the same view
-  // gets the same shadows however the camera was given (authored, --look-at, --view).
+  // Centred where the middle of the view first meets geometry, so the same view gets
+  // the same shadows however the camera was given (authored, --look-at, --view).
   const forward = camera.getWorldDirection(new THREE.Vector3());
-  const bounds = sceneGeometryBounds();
-  const middle = bounds ? bounds.getCenter(new THREE.Vector3()) : (focus || camera.position.clone().addScaledVector(forward, 30));
-  const distance = Math.max(8, middle.clone().sub(camera.position).dot(forward));
+  const targets = [];
+  scene.traverse(object => { if (object.isMesh && object.userData?.rhrNode) targets.push(object); });
+  const hit = new THREE.Raycaster(camera.position, forward, 0.1, 2000).intersectObjects(targets, false)[0];
+  const distance = Math.max(8, hit ? hit.distance : 30);
   const target = camera.position.clone().addScaledVector(forward, distance);
   const radius = THREE.MathUtils.clamp(distance * 1.1, 8, 256);
   sunLight.target.position.copy(target);
@@ -2658,6 +2659,8 @@ function fitSunShadow(camera, focus) {
   shadowCamera.far = radius * 4;
   shadowCamera.updateProjectionMatrix();
   sunLight.shadow.mapSize.set(2048, 2048);
+  const texel = (2 * radius) / 2048;
+  sunLight.shadow.radius = THREE.MathUtils.clamp((sunLight.userData.penumbraStuds || 0.5) / texel, 1, 16);
   sunLight.shadow.map?.dispose();
   sunLight.shadow.map = null;
 }
@@ -2794,7 +2797,10 @@ function configureSceneLights(index) {
   if (shadowsRequested && props.GlobalShadows !== false) {
     key.castShadow = true;
     const softness = Math.max(0, Math.min(1, Number(props.ShadowSoftness ?? 0.5)));
-    renderer.shadowMap.type = softness > 0.01 ? THREE.PCFSoftShadowMap : THREE.PCFShadowMap;
+    renderer.shadowMap.type = THREE.PCFShadowMap;
+    // Shadow edge width in studs (fitSunShadow turns it into shadow-map texels):
+    // Roblox's modern shadows have a soft edge of about half a stud.
+    key.userData.penumbraStuds = 0.35 + softness * 2;
     key.shadow.radius = 1 + softness * 5;
     key.shadow.mapSize.set(2048, 2048);
     const radius = Math.max(4, span * 0.75);
@@ -3280,7 +3286,7 @@ function renderNeonBuffer(camera, target) {
   scene.traverse(object => {
     if (!object.isMesh && !object.isLineSegments) return;
     const node = object.userData?.rhrNode;
-    const neon = node?.props?.Material?.name === 'Neon';
+    const neon = node?.props?.Material?.name === 'Neon' && Number(node.props?.Transparency ?? 0) < 0.98;
     swapped.push([object, object.material, object.visible]);
     if (neon) {
       const transparency = Math.max(0, Math.min(1, Number(node.props?.Transparency ?? 0)));
