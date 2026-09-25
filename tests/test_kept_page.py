@@ -57,6 +57,11 @@ def main() -> None:
                     f"{name}: not drawn on the kept page\n{proc.stderr[-800:]}"
                 with Image.open(fresh[name]).convert("RGBA") as a, Image.open(out).convert("RGBA") as b:
                     assert ImageChops.difference(a, b).getbbox() is None, f"{name} (render {i}) differs from a fresh page"
+            # A relative --out is relative to the caller, not to the worker's own folder.
+            subprocess.run([*RHR, "scene", *SCENES[0][1], "--viewport", "400x300", "--out", "relative.png"],
+                           cwd=tmp, capture_output=True, text=True, timeout=180, check=True,
+                           env=dict(os.environ, PYTHONPATH=str(ROOT / "src")))
+            assert (tmp / "relative.png").is_file(), "a relative --out was not written next to the caller"
         finally:
             run("browser", "stop")
 

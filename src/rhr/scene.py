@@ -317,6 +317,8 @@ def _render_browser(
     notes_out: list[str] | None = None,
 ) -> tuple[int, int]:
     """Render one local browser page and return its verified PNG dimensions."""
+    # Absolute: the warm worker writes the file, and its working folder is not ours.
+    out = Path(out).resolve()
     out.parent.mkdir(parents=True, exist_ok=True)
     handler = type(
         "RHRSceneHandler",

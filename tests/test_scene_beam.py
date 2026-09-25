@@ -145,7 +145,8 @@ def main() -> None:
         assert dump["unsupportedVisualClasses"] == {}
         assert dump["beams"][0]["attachment0"] == "Workspace/P0/A0"
         assert dump["beams"][0]["attachment1"] == "Workspace/P1/A1"
-        assert dump["experimental"].get("Beam") == 1, dump["experimental"]
+        # Effects are no longer "experimental": they were checked against Studio.
+        assert "Beam" not in dump["experimental"], dump["experimental"]
 
         # CurveSize control points use each attachment's local X axis. The
         # pre-fix cylinder path renders this curved and straight case identically.

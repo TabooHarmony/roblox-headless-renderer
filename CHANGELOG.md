@@ -1,6 +1,21 @@
 # Changelog
 
-## Unreleased
+## 0.6.0 (alpha)
+
+0.5.0 was never released on its own; its changes (below) ship in this release too.
+
+### When upgrading
+
+- `scene` and `preview` draw particles by default (`--no-effects` leaves them out);
+  `preview --burst` is gone and `--time` is now `--effect-time` (the old name works).
+- The first 3D render starts a warm browser worker, which stops after 10 idle minutes
+  (`RHR_PERSISTENT_BROWSER=0` turns it off). Its session files moved into the cache.
+- `rhr setup` installs only Chromium's headless shell. An existing full Chromium from
+  Playwright is no longer needed and can be deleted.
+- A model without a Camera is framed as a whole instead of seen from a fixed spot.
+- Particles, Beams, Trails and Highlights are no longer listed as `experimental` in
+  `scene-dump`: they were checked against Studio and report their own notes.
+- A particle texture that cannot be loaded draws nothing (it drew a soft dot).
 
 ### Faster, lighter, more dependable
 
@@ -75,7 +90,7 @@ Atmosphere outside Lighting no longer applies. Known difference: negative
   render blank.
 - `preview --time` and `--burst` are replaced by `--effect-time`; `--time` still works.
 
-## 0.5.0 (alpha)
+## 0.5.0 (alpha, released as part of 0.6.0)
 
 ### Lighting parity (fitted to Studio)
 

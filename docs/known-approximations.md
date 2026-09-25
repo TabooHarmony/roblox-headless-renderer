@@ -219,6 +219,11 @@ differed from a software one on 0.13% of pixels, by 0.4/255 on average.
 the tests and CI use it. A machine without a usable GPU falls back to software by
 itself.
 
+The first 3D render starts a warm worker (Chromium with the 3D page loaded), which
+later renders reuse; it stops after 10 idle minutes. A render on the kept page is
+pixel for pixel the same as one on a fresh page (tests/test_kept_page.py).
+`RHR_PROFILE=1` prints where a command's time went.
+
 ## In-world UI (BillboardGui, SurfaceGui)
 
 The GUI inside them is drawn by the same engine as screen UI, on the canvas size
@@ -288,9 +293,9 @@ whether it glows; not the exact particles Roblox would draw.
 - **Not applied**: `LightInfluence` (particles are drawn as if it were 0, which most
   VFX use), size and transparency envelopes, `LockedToPart`, wind, `VelocityInheritance`
   (parts do not move in a still frame). Built-in `rbxasset://` particle textures are not
-  read from the Studio install yet; like a texture that could not be downloaded, they
-  are drawn as soft dots, and the output says so. Fire, Smoke, Sparkles and Explosion
-  are not drawn.
+  read from the Studio install yet; like a texture that could not be loaded, those
+  particles are not drawn (as in Studio for a texture it cannot load), and the output
+  names the texture. Fire, Smoke, Sparkles and Explosion are not drawn.
 - **Beam**: curve, widths, segments, colour, texture and `LightEmission` are drawn.
   The texture's vertical axis runs along the beam; `Stretch` repeats it `TextureLength`
   times, `Wrap` every `TextureLength` studs (measured in Studio). Texture motion

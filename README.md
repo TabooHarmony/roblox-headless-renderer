@@ -8,13 +8,16 @@ their work. It also works for people who just want a quick look from the command
 line or in CI. No GPU or display is needed.
 
 <p align="center">
-  <img src="docs/images/shop.png" width="46%" alt="A shop ScreenGui rendered by rhr: item cards in a grid with gradients, rounded corners and price buttons">
-  <img src="docs/images/tower.png" width="52%" alt="A small 3D shop building on a grass Baseplate, with a sign, a lamp and a name tag, rendered by rhr">
+  <img src="docs/images/build.png" width="98%" alt="Roblox's game template rendered by rhr scene: a pastel tower of platforms and stairs with shadows, plants, a floating sphere and cube, under a cloudy sky">
+</p>
+<p align="center">
+  <img src="docs/images/shop.png" width="40%" alt="A shop ScreenGui rendered by rhr render: item cards in a grid with rarity colours, rounded corners and price buttons">
+  <img src="docs/images/vfx.png" width="57%" alt="Three glowing shooting stars, orange, green and violet, with wavy tails, rendered by rhr scene from a particle and beam effect">
 </p>
 
-<p align="center"><sub>Both images come from <code>examples/</code>, rendered by <code>rhr render</code> and <code>rhr scene --view iso</code>.</sub></p>
+<p align="center"><sub>A 3D build (<code>rhr scene</code> on Roblox's game template), a UI (<code>rhr render examples/shop.rbxmx</code>) and an effect frozen at its fullest moment (<code>rhr scene</code> on Jaxelos's open-source star VFX).</sub></p>
 
-> **Status: v0.5, an early alpha.** The UI layout numbers are solid: they match
+> **Status: v0.6, an early alpha.** The UI layout numbers are solid: they match
 > Studio within 2 px on every test place. The pictures are *previews*: close enough
 > to spot mistakes, not a copy of Studio's renderer. Anything RHR can't draw
 > faithfully, it says so in its output instead of guessing quietly. See
@@ -72,7 +75,10 @@ The shop has one deliberate mistake, and `rhr check` finds it:
 | `rhr compare a.png b.png` | How much changed between two renders, to tell a geometry change from a colour change |
 | `rhr ir <file>` | The parsed file as JSON, including properties that could not be read |
 | `rhr fetch <file>` | Download the images, meshes, unions and Roblox material textures a model uses into the local cache, as your Roblox Studio user. `scene` and `preview` do this themselves for whatever they are missing |
+| `rhr particles <file>` | A contact sheet of ParticleEmitters over time (experimental) |
 | `rhr setup` / `rhr doctor` | Install the external tools / check them |
+| `rhr cache` | What the cache holds (`--clear` to empty part of it) |
+| `rhr browser status/start/stop` | The warm 3D worker (it starts and stops by itself; this is for checking) |
 
 Every JSON output carries a `schema` name (`rhr.layout/1`, `rhr.check/1`, ...), so a
 change in shape is never silent. A Rojo project works anywhere a file does: pass the
@@ -84,6 +90,9 @@ Most VFX are played by a script; RHR runs no scripts, but reads the widely used
 `EmitCount` / `EmitDelay` / `EmitDuration` attributes and plays the effect itself,
 showing its fullest moment (`--effect-time T` for another, `--no-effects` to leave
 them out). Emitters a script plays without those attributes are listed, not guessed.
+Highlights (fill and outline) are drawn too. How particles blend and how bright they
+look is fitted to measurements in Studio; see
+[what is approximated](docs/known-approximations.md#effects).
 
 **Experimental** (rough sketches, and labelled as such in the output): local lights,
 Decals and Textures, and `rhr particles` (a contact sheet over time).
@@ -156,7 +165,7 @@ pay that again. `rhr cache` shows what the cache holds (it stays under 2 GB,
 git clone https://github.com/TabooHarmony/roblox-headless-renderer && cd roblox-headless-renderer
 python -m venv .venv && . .venv/bin/activate      # Windows: .venv\Scripts\activate
 pip install -e ".[dev,mcp]" && rhr setup
-python -m pytest                                    # -m "not browser" skips the 3D tests
+python -m pytest                                    # -m smoke: a quick check; -m "not browser": no 3D
 ```
 
 CI runs the suite on Ubuntu, Windows and macOS. [`docs/GOAL.md`](docs/GOAL.md) is the

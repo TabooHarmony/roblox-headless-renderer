@@ -63,9 +63,9 @@ measured against Studio (tests/studio/):
 What RHR tells you it did not do exactly:
 
 - `scene` / `preview` print a `notes` line: geometry fallbacks (meshes drawn as boxes),
-  unsupported visual classes, missing assets and **experimental** features (Beams,
-  Trails, particles, Atmosphere, lights, decals).
-  Treat experimental output as a rough sketch.
+  unsupported visual classes, missing assets and **experimental** features
+  (Atmosphere, post effects, local lights, decals). Treat experimental output as a
+  rough sketch.
 - `scene-dump` lists the same under `fallbacks`, `unsupportedVisualClasses` and
   `experimental`.
 - RHR expects Roblox Studio installed and signed in on the machine. `render`, `scene`
@@ -75,7 +75,7 @@ What RHR tells you it did not do exactly:
   handled by Lune and sent only to Roblox. `--offline` skips downloading. Without
   Studio, stderr says the preview will look less like Roblox (thumbnails, box
   meshes, look-alike materials).
-- Effects (particles, Beams, Trails) are one still frame: a `note` says how many
+- Effects (particles, Beams, Trails, Highlights) are one still frame: a `note` says how many
   particles were drawn and at which moment of the effect. Effects a script plays are
   played from their `EmitCount` / `EmitDelay` / `EmitDuration` attributes; an emitter
   a script plays without them is named, not drawn. Judge presence, place, size,
@@ -94,7 +94,8 @@ builds or moves at runtime is previewed as saved in the file.
 ## Setup reminders
 
 - `rhr doctor` says whether everything RHR needs is installed; `rhr setup` downloads
-  what is missing (Lune 0.10.5, Rojo 7.7.0, Chromium).
+  what is missing (Lune 0.10.5, Rojo 7.7.0, Chromium's headless shell). `rhr cache`
+  shows or clears the cache.
 - A standard `--view` frames the build, not the Baseplate: a thin ground slab much
   larger than everything else is left out of the framing (still drawn), and a `note`
   line says so. `--focus <path>` frames exactly what you name.
