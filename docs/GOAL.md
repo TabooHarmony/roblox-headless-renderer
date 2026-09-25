@@ -70,8 +70,47 @@ is clickable, and what looks broken.
    usage guide for agents, and versioned JSON output. (Third-party game files were
    removed from the test data on 2026-09-22.)
 
-**After v1:** terrain material blending, Clouds and post-processing effects, lighting
-calibrated against Studio across lighting technologies.
+## Release roadmap (agreed 2026-09-25)
+
+The aim for the release is **fast, cheap and agent-friendly**, not closer and closer
+to Studio. Lighting and shadows are "good enough" as of 0.5: when an agent needs
+exact visuals, Studio's own MCP is the tool for that.
+
+**In the release:**
+
+1. **VFX as a still frame.** Particles, Beams and Trails drawn inside `scene` and
+   `preview`, frozen at a moment where every emitter is running normally:
+   - `LightEmission`: additive blending, so effects brighten what is behind them;
+   - particles inside the 3D scene, hidden by walls and seen through glass;
+   - draw order for overlapping transparent effects, including `ZOffset`, checked
+     against a test scene in Studio;
+   - colour, size and transparency over lifetime, flipbooks, `LightInfluence`,
+     Roblox's built-in particle textures from the Studio install, and `Squash`.
+2. **Speed.** Measure where each render's time goes (Python and Lune start-up, scene
+   rebuild, texture loading, the sky-visibility grid, the frame itself), keep one warm
+   browser running automatically, cut the biggest costs, and publish the measured
+   numbers in the README. (Today, warm GPU renders take about 0.9 s for a small model
+   and about 3.5 s for a template-sized place.)
+3. **Release.** Docs brought up to date, a check on a fresh machine, tag and publish.
+
+**Not in this release (not ruled out; picked up after it):**
+
+- Animated VFX in 3D renders (GIFs, timelines). `rhr particles` still gives a
+  contact sheet over time.
+- Special effects: Highlight, Clouds, SunRays, depth of field, custom shader tricks.
+  These stay reported as not drawn.
+- Replacing Chromium. It is the first candidate after the release if speed is still
+  the main complaint.
+- Further lighting and shadow tuning. Shadows stay on (they cost almost nothing on the
+  GPU); `--no-shadows` turns them off.
+- Particle positions that match Roblox's random ones exactly.
+
+**Out of scope for good:** running scripts, physics or animation playback (see
+"What it is not").
+
+**After the release, roughly in order:** replacing Chromium (if speed is still the
+complaint), terrain material blending and decorations, Clouds, SunRays, animated VFX,
+other special effects.
 
 ## Rules for new work
 
