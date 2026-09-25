@@ -68,7 +68,7 @@ def main() -> int:
             # From the open side (-Z), low, looking at the middle of one tile.
             out = tmp / f"sky{x}.png"
             proc = subprocess.run([*RHR, "scene", str(ir), "--out", str(out), "--viewport", "320x200",
-                                   "--camera", f"{x},2.2,-9", "--look-at", f"{x},0.5,0", "--fov", "50",
+                                   f"--camera={x},2.2,-9", f"--look-at={x},0.5,0", "--fov", "50",
                                    "--no-shadows", "--flat-materials"],
                                   cwd=ROOT, capture_output=True, text=True, timeout=300)
             check(f"scene renders (tile at x={x})", proc.returncode == 0, proc.stderr[-200:])
