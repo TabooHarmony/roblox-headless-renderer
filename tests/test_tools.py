@@ -80,6 +80,11 @@ def main() -> int:
                   f"the message names the shim and both fixes ({message[:80]}...)")
             tools._runs_here = lambda path: True
             check(tools.find_tool("lune") == shim, "a Rokit shim that runs here is used")
+            # With the pinned copy present, the shim is not even started (it costs ~0.5 s).
+            pinned = Path(empty) / tools._exe("lune")
+            pinned.write_bytes(b"")
+            tools._runs_here = lambda path: (_ for _ in ()).throw(AssertionError("shim was started"))
+            check(tools.find_tool("lune") == str(pinned), "the pinned copy wins over a Rokit shim, unstarted")
     finally:
         tools.shutil.which, tools._runs_here, tools.BIN_DIR = saved
 

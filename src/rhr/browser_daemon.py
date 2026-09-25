@@ -66,7 +66,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             height = int(request["height"])
             if width <= 0 or height <= 0:
                 raise ValueError("render dimensions must be positive")
-            capture(
+            timings = capture(
                 self.server.browser,
                 url=str(request["url"]),
                 out=Path(request["out"]),
@@ -74,7 +74,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 height=height,
                 transparent=bool(request.get("transparent", False)),
             )
-            self._json(200, {"ok": True})
+            self._json(200, {"ok": True, "timings": timings})
         except Exception as exc:
             self._json(500, {"error": str(exc)})
 

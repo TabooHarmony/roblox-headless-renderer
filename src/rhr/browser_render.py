@@ -68,8 +68,39 @@ def launch(playwright):
         raise
 
 
-def capture(browser, *, url: str, out: Path, width: int, height: int, transparent: bool) -> None:
-    """Load `url` in a fresh context, wait for the page's ready signal, save a PNG."""
+def _screenshot(context, page, out: Path, transparent: bool) -> None:
+    """Save the page as a PNG: Chromium's own capture with its fast PNG encoder.
+
+    Same pixels as Playwright's screenshot, lighter compression, and about a third of
+    the time on a full-size frame. Falls back to Playwright's if the command fails.
+    """
+    import base64
+
+    try:
+        session = context.new_cdp_session(page)
+        try:
+            if transparent:
+                session.send("Emulation.setDefaultBackgroundColorOverride",
+                             {"color": {"r": 0, "g": 0, "b": 0, "a": 0}})
+            result = session.send("Page.captureScreenshot", {
+                "format": "png", "optimizeForSpeed": True, "captureBeyondViewport": False,
+            })
+        finally:
+            session.detach()
+        out.write_bytes(base64.b64decode(result["data"]))
+    except Exception:  # noqa: BLE001 - any failure: the slower, always-available path
+        page.screenshot(path=str(out), omit_background=transparent, animations="disabled", timeout=TIMEOUT_MS)
+
+
+def capture(browser, *, url: str, out: Path, width: int, height: int, transparent: bool) -> dict:
+    """Load `url` in a fresh context, wait for the page's ready signal, save a PNG.
+
+    Returns how long each step took, in seconds (for RHR_PROFILE).
+    """
+    import time
+
+    timings: dict[str, float] = {}
+    started = time.perf_counter()
     context = browser.new_context(viewport={"width": width, "height": height}, device_scale_factor=1)
     try:
         page = context.new_page()
@@ -77,7 +108,11 @@ def capture(browser, *, url: str, out: Path, width: int, height: int, transparen
         problems: list[str] = []
         page.on("pageerror", lambda error: problems.append(str(error)))
         page.on("console", lambda message: problems.append(message.text) if message.type == "error" else None)
+        timings["new page"] = time.perf_counter() - started
+        step = time.perf_counter()
         page.goto(url, wait_until="load", timeout=TIMEOUT_MS)
+        timings["page load (scripts)"] = time.perf_counter() - step
+        step = time.perf_counter()
         try:
             page.wait_for_function(_READY, timeout=TIMEOUT_MS)
         except Exception as exc:  # playwright's TimeoutError
@@ -87,19 +122,30 @@ def capture(browser, *, url: str, out: Path, width: int, height: int, transparen
         error = page.evaluate("() => document.documentElement.dataset.rhrError || null")
         if error:
             raise RuntimeError(f"browser page error: {error}")
+        timings["page work until ready"] = time.perf_counter() - step
+        step = time.perf_counter()
         out.parent.mkdir(parents=True, exist_ok=True)
-        page.screenshot(path=str(out), omit_background=transparent, animations="disabled", timeout=TIMEOUT_MS)
+        _screenshot(context, page, out, transparent)
+        timings["screenshot"] = time.perf_counter() - step
     finally:
         context.close()
+    return timings
 
 
 def render_once(*, url: str, out: Path, width: int, height: int, transparent: bool) -> None:
     """Launch Chromium, capture one page, shut Chromium down."""
     from playwright.sync_api import sync_playwright
 
+    import time
+
+    from rhr.profile import add
+
+    started = time.perf_counter()
     with sync_playwright() as playwright:
         browser = launch(playwright)
+        add("chromium launch (one-shot)", time.perf_counter() - started)
         try:
-            capture(browser, url=url, out=out, width=width, height=height, transparent=transparent)
+            for name, seconds in capture(browser, url=url, out=out, width=width, height=height, transparent=transparent).items():
+                add(f"  {name}", seconds)
         finally:
             browser.close()

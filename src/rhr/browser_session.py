@@ -224,6 +224,10 @@ def render(
         raise RuntimeError(
             "persistent browser render failed: " + str(payload.get("error", payload))
         )
+    from rhr.profile import add
+
+    for name, seconds in (payload.get("timings") or {}).items():
+        add(f"  worker: {name}", seconds)
     return started
 
 

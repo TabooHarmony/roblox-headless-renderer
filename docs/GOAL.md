@@ -97,11 +97,30 @@ exact visuals, Studio's own MCP is the tool for that.
      misleading. Left for after the release: `TextureSpeed`, `LightInfluence`,
      Roblox's built-in `rbxasset://` particle textures, fire saturation in very dense
      effects.
-2. **Speed.** Measure where each render's time goes (Python and Lune start-up, scene
-   rebuild, texture loading, the sky-visibility grid, the frame itself), keep one warm
-   browser running automatically, cut the biggest costs, and publish the measured
-   numbers in the README. (Today, warm GPU renders take about 0.9 s for a small model
-   and about 3.5 s for a template-sized place.)
+2. **Optimization: lighter, leaner, faster, more dependable** (agreed 2026-09-25).
+   Measured on the maintainer's Windows machine before starting: `rhr --version`
+   1.4-2.4 s (Python alone starts in 1.1 s there), a 2D UI render 3.4 s, a small 3D
+   scene 7.9 s with a fresh Chromium and 5.8 s with the warm worker (2.5 s of it in the
+   page, 0.6 s re-checking Lune), two Chromium builds installed (650 MB), 350 MB of
+   caches with no limit, an 18-minute test suite. In order:
+   - **Measure**: `RHR_PROFILE=1` prints the time of each phase (start-up, file
+     conversion, downloads, page load, scene build, frame, screenshot, notes); record
+     numbers here and on the three CI machines, so every change shows its gain.
+   - **Faster**: the warm worker keeps the page loaded and takes each render as a
+     message instead of reloading ~2 MB of script; it starts on the first render and
+     stops after some idle minutes; per-render overheads go (the Lune check is
+     remembered, heavy modules imported only when needed, the IR read once). A resident
+     `rhr serve` process with a thin CLI is decided after measuring. The test suite
+     shares one browser and runs in parallel (target: under 5 minutes).
+   - **More dependable**: a watchdog on every browser render (fail within ~20 s with
+     the page's own error, restart the worker once, retry); stale workers, lock files
+     and half-written cache files are cleaned up instead of failing; `rhr doctor`
+     checks more; a one-minute smoke test group for every commit.
+   - **Lighter**: `rhr setup` installs only Chromium's headless shell; caches get a
+     size limit (least recently used first) and `rhr cache`; unused vendored fonts
+     and rarely needed libraries leave the default install. Drawing the 2D UI in the
+     browser (dropping skia-python) is evaluated and written up, not done, in this
+     pass.
 3. **Release.** Docs brought up to date, a check on a fresh machine, tag and publish.
 
 **Not in this release (not ruled out; picked up after it):**

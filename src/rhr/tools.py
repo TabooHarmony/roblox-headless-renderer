@@ -59,13 +59,20 @@ def find_tool(name: str) -> str | None:
 
 
 def tool_status(name: str) -> tuple[str | None, bool]:
-    """(path, runs here) for `name`. An unusable Rokit shim is (its path, False)."""
+    """(path, runs here) for `name`. An unusable Rokit shim is (its path, False).
+
+    A Rokit shim is only tried when `rhr setup` has not put the pinned copy in
+    <cache>/bin: finding out whether a shim runs here means starting it, which costs
+    about half a second on every command.
+    """
     found = shutil.which(name)
-    if found and (not _is_rokit_shim(found) or _runs_here(found)):
-        return found, True
     local = BIN_DIR / _exe(name)
+    if found and not _is_rokit_shim(found):
+        return found, True
     if local.is_file():
         return str(local), True
+    if found and _runs_here(found):
+        return found, True
     return found, False
 
 

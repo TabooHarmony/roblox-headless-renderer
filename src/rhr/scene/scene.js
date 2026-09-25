@@ -1,8 +1,20 @@
 import * as THREE from '../vendor/three/three.module.js';
 import { SunLight } from '../vendor/three/lights/SunLight.js';
-import { flipbookLayout, hashSeed, particleLook, playEmitter, playHorizon, playSchedule } from '../particles/sim.js';
+import { flipbookLayout, hashSeed, particleLook, playEmitter, playHorizon, playSchedule, sampleNumberSequence } from '../particles/sim.js';
 
 const params = new URLSearchParams(location.search);
+
+// RHR_PROFILE: how long each step of the page takes, sent back when it is ready.
+const profiling = params.get('profile') === '1';
+const pageMarks = [];
+let lastMark = 0;
+function mark(name) {
+  if (!profiling) return;
+  const now = performance.now();
+  pageMarks.push([name, now - lastMark]);
+  lastMark = now;
+}
+mark('scripts loaded and parsed');
 const viewportMode = params.get('mode') === 'viewport';
 const canvas = document.querySelector('#rhr-scene');
 if (viewportMode) document.body.style.background = 'transparent';
@@ -2148,10 +2160,13 @@ function chooseEffectTime(requested) {
       from: 0,
       until: horizon,
       visit: (time, particles) => {
+        // Size and transparency only: the colour and flipbook frame do not count.
         let score = 0;
         for (const particle of particles) {
-          const look = particleLook(emitter.props, particle);
-          score += look.size * look.size * Math.max(0, 1 - look.transparency);
+          const alpha = particle.age / particle.lifetime;
+          const size = sampleNumberSequence(emitter.props.Size, alpha);
+          const transparency = sampleNumberSequence(emitter.props.Transparency, alpha);
+          score += size * size * Math.max(0, 1 - Math.min(1, transparency));
         }
         scores[Math.round(time / dt)] += score;
       },
@@ -3936,6 +3951,7 @@ async function main() {
   const response = await fetch(params.get('ir') || '/__rhr_ir__.json');
   if (!response.ok) throw new Error(`IR request failed: ${response.status}`);
   const ir = await response.json();
+  mark('IR fetched');
   const roots = ir.roots || [];
   const index = buildNodeIndex(roots);
   sceneIndex = index;
@@ -3965,13 +3981,19 @@ async function main() {
   } else {
     const cameraNode = findCamera(index);
     for (const root of roots) addNode(root, scene);
+    mark('parts built');
     await addTerrain(index);
+    mark('terrain');
     await Promise.all(meshGeometryJobs);
+    mark('meshes and unions loaded');
     await Promise.all(materialTextureJobs);
     await stylePlaceholderMeshes();
+    mark('material textures loaded');
     await addSurfaceImages(index);
     addAttachmentAnchors(index);
+    mark('decals and attachments');
     if (params.get('effects') !== '0') simulateParticles(index);
+    mark('particle simulation');
     addLocalLights(index);
     await configureSky(index);
     configureAtmosphere(index);
@@ -3990,6 +4012,7 @@ async function main() {
       scene.add(makeSkyDome(skyCube));
     }
     configureSceneLights(index);
+    mark('sky, atmosphere and lights');
     camera = new THREE.PerspectiveCamera();
     camera.layers.enable(PARTICLE_LAYER);
     configureCamera(camera, cameraNode);
@@ -4019,21 +4042,34 @@ async function main() {
     camera.updateMatrixWorld(true);
     fitSunShadow(camera, lookAtOverride || framedCenter || null);
     pruneLocalLights(camera);
+    mark('camera and framing');
     if (modernLighting(index)) buildSkyVisibility(camera);
+    mark('sky visibility grid');
     await addBeams(index, camera);
     await addTrails(index, camera);
     await addParticles(camera);
     addHighlights(index);
+    mark('effects built');
     await reportCamera(camera);
     await reportNotes();
     renderFrame(camera);
+    mark('first frame (shaders compiled)');
   }
   await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
   renderFrame(camera);
   await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+  mark('second frame');
   if (!viewportMode) {
     await addBillboards(index, camera);
     await addSurfaceGuis(index, camera);
+    mark('in-world UI');
+  }
+  if (profiling) {
+    try {
+      await fetch('/__rhr_timing__.json', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(pageMarks)});
+    } catch (_) {
+      // Timing is advisory.
+    }
   }
   document.documentElement.dataset.rhrReady = 'true';
 }

@@ -480,31 +480,37 @@ def _scene(args) -> int:
     texture_dir = Path(args.texture_dir) if args.texture_dir else None
     mesh_dir = Path(args.mesh_dir) if args.mesh_dir else None
     try:
-        ir_path = ir_for(source, Path(args.ir) if args.ir else None, profile="static")
-        _prepare_scene_assets(ir_path, args.offline)
+        from rhr.profile import phase
+
+        with phase("file conversion (IR)"):
+            ir_path = ir_for(source, Path(args.ir) if args.ir else None, profile="static")
+        with phase("downloads check"):
+            _prepare_scene_assets(ir_path, args.offline)
         page_notes: list[str] = []
-        actual = render_scene(
-            ir_path,
-            out,
-            width,
-            height,
-            camera=args.camera,
-            look_at=args.look_at,
-            fov=args.fov,
-            focus=args.focus,
-            view=args.view,
-            shadows=not args.no_shadows,
-            flat_materials=args.flat_materials,
-            texture_dir=texture_dir,
-            mesh_dir=mesh_dir,
-            notes_out=page_notes,
-            effects=not args.no_effects,
-            effect_time=args.effect_time,
-            seed=args.seed,
-        )
+        with phase("browser render (total)"):
+            actual = render_scene(
+                ir_path,
+                out,
+                width,
+                height,
+                camera=args.camera,
+                look_at=args.look_at,
+                fov=args.fov,
+                focus=args.focus,
+                view=args.view,
+                shadows=not args.no_shadows,
+                flat_materials=args.flat_materials,
+                texture_dir=texture_dir,
+                mesh_dir=mesh_dir,
+                notes_out=page_notes,
+                effects=not args.no_effects,
+                effect_time=args.effect_time,
+                seed=args.seed,
+            )
         from rhr.scene_dump import build_scene_dump, notes_line
 
-        notes = notes_line(build_scene_dump(ir_path, texture_dir=texture_dir, mesh_dir=mesh_dir))
+        with phase("notes (scene dump)"):
+            notes = notes_line(build_scene_dump(ir_path, texture_dir=texture_dir, mesh_dir=mesh_dir))
     except (ValueError, RuntimeError, OSError) as exc:
         return _die(str(exc))
     elapsed = int((time.perf_counter() - t0) * 1000)

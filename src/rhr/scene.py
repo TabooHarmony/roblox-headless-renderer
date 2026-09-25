@@ -114,6 +114,19 @@ class _SceneHandler(http.server.SimpleHTTPRequestHandler):
             except (ValueError, TypeError, json.JSONDecodeError):
                 self.send_error(400)
             return
+        if urlparse(self.path).path == "/__rhr_timing__.json":
+            # Steps of the page itself, for RHR_PROFILE: [[name, milliseconds], ...].
+            try:
+                from rhr.profile import add
+
+                length = int(self.headers.get("Content-Length", "0"))
+                for name, ms in json.loads(self.rfile.read(length) or b"[]"):
+                    add(f"    page: {name}", float(ms) / 1000)
+                self.send_response(204)
+                self.end_headers()
+            except (ValueError, TypeError, json.JSONDecodeError):
+                self.send_error(400)
+            return
         if urlparse(self.path).path == "/__rhr_camera__.json" and self.metadata_sink is not None:
             try:
                 length = int(self.headers.get("Content-Length", "0"))
@@ -416,6 +429,10 @@ def render_scene(
         query_values["flatMaterials"] = "1"
     if camera_state_out is not None:
         query_values["reportCamera"] = "1"
+    from rhr.profile import ENABLED as profiling
+
+    if profiling:
+        query_values["profile"] = "1"
     if texture_dir is not None:
         resolved = texture_dir.resolve()
         if not resolved.is_dir():

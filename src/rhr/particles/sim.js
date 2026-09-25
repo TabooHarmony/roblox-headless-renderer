@@ -431,12 +431,18 @@ export function playEmitter(props, schedule, options = {}) {
         spawn();
       }
     }
+    // In place: thousands of particles over hundreds of steps.
+    const decay = Math.exp(-drag * step);
     let alive = 0;
     for (const particle of particles) {
       particle.age += step;
       if (particle.age >= particle.lifetime) continue;
-      particle.velocity = add(scale(particle.velocity, Math.exp(-drag * step)), scale(acceleration, step));
-      particle.position = add(particle.position, scale(particle.velocity, step));
+      const v = particle.velocity;
+      const p = particle.position;
+      for (let axis = 0; axis < 3; axis += 1) {
+        v[axis] = v[axis] * decay + acceleration[axis] * step;
+        p[axis] += v[axis] * step;
+      }
       particle.rotation += particle.rotSpeed * step;
       particles[alive] = particle;
       alive += 1;
