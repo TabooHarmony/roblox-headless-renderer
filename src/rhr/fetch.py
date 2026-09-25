@@ -31,6 +31,7 @@ Only fetch assets you have the right to use.
 from __future__ import annotations
 
 import gzip
+import hashlib
 import json
 import os
 import re
@@ -206,9 +207,27 @@ def _destination(kind: str, asset: str) -> Path:
     }[kind]
 
 
+# Roblox's thumbnail service answers an image it will not show (deleted, private,
+# moderated) with a grey "image unavailable" icon on white, marked Completed like any
+# other. Drawn as a texture it becomes a white square; Studio draws nothing there.
+UNAVAILABLE_THUMBNAILS = {"e5bef3179d5ce82a42fdc8ddc83a2ba9"}
+
+
+def _is_unavailable(path: Path) -> bool:
+    try:
+        return hashlib.md5(path.read_bytes()).hexdigest() in UNAVAILABLE_THUMBNAILS
+    except OSError:
+        return False
+
+
 def _cached(kind: str, asset: str) -> bool:
     path = _destination(kind, asset)
-    return path.is_file() and path.stat().st_size > 0
+    if not (path.is_file() and path.stat().st_size > 0):
+        return False
+    if kind == "images" and _is_unavailable(path):
+        path.unlink(missing_ok=True)  # a placeholder cached by an earlier RHR
+        return False
+    return True
 
 
 def _load_json(path: Path) -> dict:
@@ -353,8 +372,15 @@ def _thumbnails(ids: set[str], log) -> dict[str, str]:
     cache_dir = _asset_cache_dir(ICONS_DIR)
     for message in fetch_icons(ids, cache_dir):
         log(f"  {message}")
-    have = {p.stem for p in cache_dir.glob("*.png")}
-    return {i: ("fetched" if i in have else "missing (no thumbnail)") for i in ids}
+    results = {}
+    for asset in ids:
+        path = cache_dir / f"{asset}.png"
+        if path.is_file() and _is_unavailable(path):
+            path.unlink(missing_ok=True)
+            results[asset] = "missing (Roblox shows it as unavailable)"
+        else:
+            results[asset] = "fetched" if path.is_file() else "missing (no thumbnail)"
+    return results
 
 
 def ensure(refs: dict[str, set[str]], *, login: bool = True, log=None) -> dict[str, dict[str, str]]:

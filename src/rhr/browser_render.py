@@ -73,8 +73,17 @@ def capture(browser, *, url: str, out: Path, width: int, height: int, transparen
     context = browser.new_context(viewport={"width": width, "height": height}, device_scale_factor=1)
     try:
         page = context.new_page()
+        # What the page complained about, so a page that never gets ready says why.
+        problems: list[str] = []
+        page.on("pageerror", lambda error: problems.append(str(error)))
+        page.on("console", lambda message: problems.append(message.text) if message.type == "error" else None)
         page.goto(url, wait_until="load", timeout=TIMEOUT_MS)
-        page.wait_for_function(_READY, timeout=TIMEOUT_MS)
+        try:
+            page.wait_for_function(_READY, timeout=TIMEOUT_MS)
+        except Exception as exc:  # playwright's TimeoutError
+            if not problems:
+                raise
+            raise RuntimeError("browser page never got ready: " + " | ".join(problems[-3:])[:2000]) from exc
         error = page.evaluate("() => document.documentElement.dataset.rhrError || null")
         if error:
             raise RuntimeError(f"browser page error: {error}")

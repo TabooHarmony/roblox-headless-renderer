@@ -88,6 +88,8 @@ local PROPS = {
   "Texture", "StudsPerTileU", "StudsPerTileV", "OffsetStudsU", "OffsetStudsV",
   "TimeScale", "Transparency", "VelocityInheritance", "VelocitySpread", "WindAffectsDrag",
   "ZOffset",
+  -- Highlight
+  "FillColor", "FillTransparency", "OutlineColor", "OutlineTransparency", "DepthMode",
   -- SurfaceAppearance and MaterialVariant images; a part's MaterialVariant by name
   "ColorMap", "StudsPerTile", "BaseMaterial", "MaterialVariant", "AlphaMode",
   "NormalMap", "RoughnessMap", "MetalnessMap",

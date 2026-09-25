@@ -171,7 +171,9 @@ function shapeOffset(emitter, random, size) {
   if (shape === "Cylinder" || shape === "Disc") {
     const angle = random() * Math.PI * 2;
     if (shape === "Disc") {
-      const inner = partial;
+      // ShapePartial is how much of the radius emits, from the rim inward: 0.15 is a
+      // thin ring, 1 the whole disc (measured in Studio).
+      const inner = 1 - partial;
       const radius = surface ? 1 : Math.sqrt(inner * inner + random() * (1 - inner * inner));
       return [Math.cos(angle) * radius * sx / 2, 0, Math.sin(angle) * radius * sz / 2];
     }
@@ -341,17 +343,19 @@ function rotateAbout(v, axis, angle) {
   return [0, 1, 2].map(i => v[i] * c + x[i] * s + axis[i] * d * (1 - c));
 }
 
-// SpreadAngle (X, Y) turns the direction by up to that many degrees about the two
-// axes across it.
+// SpreadAngle (X, Y) turns the direction by up to that many degrees: X about the part's
+// own X axis, Y about the axis across both X and the direction (Z for Top, Y for Back).
+// Measured in Studio: a Back emitter with SpreadAngle (0, 60) fans out flat, (60, 0)
+// upright. For Left and Right, where turning about X does nothing, X turns about Z.
 function spreadDirection(direction, spread, random) {
-  const reference = Math.abs(direction[1]) > 0.9 ? [0, 0, 1] : [0, 1, 0];
-  const across = normalize(cross(reference, direction));
-  const other = normalize(cross(direction, across));
+  const alongX = Math.abs(direction[0]) > 0.9;
+  const first = alongX ? [0, 0, 1] : [1, 0, 0];
+  const second = normalize(cross(first, direction));
   let result = direction;
   const a = (random() * 2 - 1) * spread[0] * Math.PI / 180;
   const b = (random() * 2 - 1) * spread[1] * Math.PI / 180;
-  if (a) result = rotateAbout(result, other, a);
-  if (b) result = rotateAbout(result, across, b);
+  if (a) result = rotateAbout(result, first, a);
+  if (b) result = rotateAbout(result, second, b);
   return normalize(result);
 }
 

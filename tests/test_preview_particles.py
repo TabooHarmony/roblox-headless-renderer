@@ -28,6 +28,8 @@ def main() -> None:
             "--camera", "0,4,14",
             "--look-at", "0,1,0",
             "--fov", "70",
+            # The fixture's particle texture (a texture that cannot be loaded draws nothing).
+            "--texture-dir", str(ROOT / "tests" / "fixtures" / "particle-textures"),
         ]
         plain = tmp / "plain.png"
         effects = tmp / "effects.png"

@@ -511,7 +511,7 @@ def build_scene_dump(
 # are not listed: they are compared with Studio, and a missing mesh or union is a
 # geometry fallback instead.
 EXPERIMENTAL_CLASSES = (
-    "Atmosphere", "Beam", "BloomEffect", "ColorCorrectionEffect", "Decal", "ParticleEmitter",
+    "Atmosphere", "Beam", "BloomEffect", "ColorCorrectionEffect", "Decal", "Highlight", "ParticleEmitter",
     "PointLight", "SpotLight", "SurfaceLight", "Texture", "Trail",
 )
 # Present in Lighting but not drawn at all.

@@ -21,7 +21,8 @@ from PIL import Image
 ROOT = Path(__file__).resolve().parents[1]
 RHR = [sys.executable, "-m", "rhr"]
 FIXTURE = ROOT / "tests" / "fixtures" / "vfx_played.rbxm"
-CAMERA = ["--viewport", "480x320", "--camera", "0,5,30", "--look-at", "0,8,0"]
+TEXTURES = ROOT / "tests" / "fixtures" / "particle-textures"  # 1.png: a white disc
+CAMERA = ["--viewport", "480x320", "--camera", "0,5,30", "--look-at", "0,8,0", "--texture-dir", str(TEXTURES)]
 
 
 def run(*args: str) -> subprocess.CompletedProcess:

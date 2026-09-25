@@ -29,6 +29,22 @@ to 0..1; framing ignores invisible holder parts and stray far particles; a Sky o
 Atmosphere outside Lighting no longer applies. Known difference: negative
 `LightEmission` with a very high `Brightness` looks more solid than in Studio.
 
+### Second pass against Studio
+
+- **Particle brightness and blending fitted to Studio** (a measured sweep; 9/255 RMS):
+  soft per-channel cap, alpha^1.45, negative `LightEmission` darkens behind, and
+  Studio's tone curve, which turns very bright colours toward white. Megumin's glow is
+  a translucent shell now, not solid red.
+- **Beam and Trail textures run along their length**, repeating `TextureLength` times
+  in Stretch mode (they were sideways and stretched once): Jaxelos's tails wave.
+- **Highlight** is drawn: fill and outline, in Studio's order.
+- **SpreadAngle axes** follow Roblox (Megumin's mushroom cloud spreads flat, not up).
+- **Disc ShapePartial** emits from the rim inward (ColorOrb's smoke is a ring).
+- **Roblox's "image unavailable" thumbnail** is no longer cached as a texture (it drew
+  white squares); a particle texture that cannot be loaded draws nothing, as in Studio.
+- A page that never gets ready now says why (the browser's own error) instead of only
+  timing out.
+
 ### Fixed
 
 - A fully transparent part hid whatever was drawn after it (effects usually sit in

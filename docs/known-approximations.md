@@ -257,15 +257,23 @@ whether it glows; not the exact particles Roblox would draw.
   picture, but particle positions are not the ones Roblox would pick.
 - **Size and shape**, measured in Studio: a particle is 2 x `Size` across; `Squash` s
   stretches one axis by 1 + |s| and shrinks the other as much (taller for s > 0,
-  wider for s < 0). An emitter without a `Texture` draws nothing, and a particle
-  aligned to its velocity (`VelocityParallel` / `VelocityPerpendicular`) draws nothing
-  while it has none, as in Roblox. Transparency sequences are clamped to 0..1.
-- **Blending**: `LightEmission` mixes ordinary transparency (0) with adding light (1),
-  as in Roblox. Values outside 0..1 are clamped: effects that use a negative
-  `LightEmission` with a very high `Brightness` (a trick for dense glows) come out
-  more solid and more saturated than in Studio, which tone-maps them. `ZOffset` moves
-  particles toward the camera, keeping their size on screen. `Brightness` multiplies
-  the colour.
+  wider for s < 0). `SpreadAngle` X turns the direction about the part's X axis and Y
+  about the axis across X and the direction (a Back emitter with (0, 60) fans out
+  flat). A Disc's `ShapePartial` is how much of the radius emits, from the rim in. An
+  emitter without a `Texture`, or whose texture cannot be loaded, draws nothing, and a
+  particle aligned to its velocity (`VelocityParallel` / `VelocityPerpendicular`) draws
+  nothing while it has none, as in Roblox. Transparency sequences are clamped to 0..1.
+- **Blending and brightness**, fitted to a sweep of flat particles in Studio
+  (`LightEmission` -2..1, `Brightness` 1/5/25, transparency 0/0.5/0.75, over black and
+  white; 9/255 RMS end to end): each colour channel is capped softly near 2.5, alpha
+  acts as alpha^1.45, `LightEmission` 1 adds light and below 0 darkens what is behind
+  hard, and the result goes through Studio's tone curve, which turns very bright
+  colours toward white (bright orange turns yellow, then white). In a scene without
+  Lighting, the particles alone are blended this way and put back over the picture.
+  The fit is to a default Baseplate in Studio; other Lighting shifts it. `ZOffset`
+  moves particles toward the camera, keeping their size on screen.
+- **LightInfluence** is not applied. In Studio's default daylight it brightens a
+  particle by 10-30% at most.
 - **Framing**: without a Camera or `--view`, the view covers visible parts and the
   bulk of the particles (5th to 95th percentile), not invisible holder parts or a few
   sparks flung far away.
@@ -280,7 +288,14 @@ whether it glows; not the exact particles Roblox would draw.
   are drawn as soft dots, and the output says so. Fire, Smoke, Sparkles and Explosion
   are not drawn.
 - **Beam**: curve, widths, segments, colour, texture and `LightEmission` are drawn.
-  Texture motion and `LightInfluence` are not.
+  The texture's vertical axis runs along the beam; `Stretch` repeats it `TextureLength`
+  times, `Wrap` every `TextureLength` studs (measured in Studio). Texture motion
+  (`TextureSpeed`) and `LightInfluence` are not drawn, so a still frame shows the
+  texture at its starting offset.
+- **Highlight**: the fill and the outline (about 3 px) are drawn, over everything
+  (`AlwaysOnTop`) or only where seen (`Occluded`); fills first in order, then every
+  outline, as Studio does. Only the front faces make the shape, so holes in a mesh get
+  their own outline. The first four Highlights are exact; later ones get a plain fill.
 - **Trail**: built from the parent part's saved velocity. A trail with no saved
   motion is reported as unsupported rather than guessed.
 

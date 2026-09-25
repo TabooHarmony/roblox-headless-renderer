@@ -8,7 +8,7 @@ const canvas = document.querySelector('#rhr-scene');
 if (viewportMode) document.body.style.background = 'transparent';
 const width = Math.max(1, window.innerWidth);
 const height = Math.max(1, window.innerHeight);
-const renderer = new THREE.WebGLRenderer({canvas, antialias: true, alpha: viewportMode});
+const renderer = new THREE.WebGLRenderer({canvas, antialias: true, alpha: viewportMode, stencil: true});
 renderer.setPixelRatio(1);
 renderer.setSize(width, height, false);
 renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -1771,8 +1771,13 @@ function beamRibbonGeometry(points, tangents, widths, camera, faceCamera, normal
     const left = point.clone().sub(side);
     const right = point.clone().add(side);
     positions.push(left.x, left.y, left.z, right.x, right.y, right.z);
-    const u = textureMode === 'Stretch' ? distances[index] / totalLength : distances[index] / Math.max(1e-6, textureLength);
-    uvs.push(u, 0, u, 1);
+    // The texture's vertical axis runs along the beam and its horizontal axis across
+    // it. Stretch repeats it TextureLength times over the whole beam; Wrap and Static
+    // repeat it every TextureLength studs (measured in Studio).
+    const v = textureMode === 'Stretch'
+      ? distances[index] / totalLength * Math.max(1e-6, textureLength)
+      : distances[index] / Math.max(1e-6, textureLength);
+    uvs.push(0, v, 1, v);
     const color = sequenceColorAt(colorSequence, index / Math.max(1, points.length - 1));
     const alpha = 1 - Math.max(0, Math.min(1, sequenceValue(transparencySequence, index / Math.max(1, points.length - 1), 0)));
     colors.push(color.r, color.g, color.b, alpha, color.r, color.g, color.b, alpha);
@@ -1841,12 +1846,7 @@ async function addBeams(index, camera) {
     const localTransparency = Math.max(0, Math.min(1, Number(node.props?.LocalTransparencyModifier ?? 0)));
     const materialOpacity = 1 - localTransparency;
     const brightness = Math.max(0, Number(node.props?.Brightness ?? 1));
-    const texture = node.props?.Texture ? await loadSceneTexture(node.props.Texture) : null;
-    if (texture) {
-      texture.wrapS = THREE.RepeatWrapping;
-      texture.wrapT = THREE.ClampToEdgeWrapping;
-      texture.needsUpdate = true;
-    }
+    const texture = ribbonTexture(node.props?.Texture ? await loadSceneTexture(node.props.Texture) : null);
     const material = effectMaterial(texture, brightness, materialOpacity, node.props?.LightEmission);
     const mesh = new THREE.Mesh(geometry, material);
     mesh.userData.rhrDecoration = true;
@@ -1906,10 +1906,11 @@ function trailRibbonGeometry(positions0, positions1, ages, widthScale, colorSequ
     const edge0 = center.clone().sub(side);
     const edge1 = center.clone().add(side);
     positions.push(edge0.x, edge0.y, edge0.z, edge1.x, edge1.y, edge1.z);
-    const u = textureMode === 'Stretch'
+    // As for Beams: the texture's vertical axis runs along the trail.
+    const v = textureMode === 'Stretch'
       ? (1 - ages[index]) * textureLength
       : distances[index] / Math.max(1e-6, textureLength);
-    uvs.push(u, 0, u, 1);
+    uvs.push(0, v, 1, v);
     const color = sequenceColorAt(colorSequence, ages[index]);
     const alpha = 1 - Math.max(0, Math.min(1, sequenceValue(transparencySequence, ages[index], 0)));
     colors.push(color.r, color.g, color.b, alpha, color.r, color.g, color.b, alpha);
@@ -1973,12 +1974,7 @@ async function addTrails(index, camera) {
       camera,
       node.props?.FaceCamera === true,
     );
-    const texture = node.props?.Texture ? await loadSceneTexture(node.props.Texture) : null;
-    if (texture) {
-      texture.wrapS = THREE.RepeatWrapping;
-      texture.wrapT = THREE.ClampToEdgeWrapping;
-      texture.needsUpdate = true;
-    }
+    const texture = ribbonTexture(node.props?.Texture ? await loadSceneTexture(node.props.Texture) : null);
     const localTransparency = Math.max(0, Math.min(1, Number(node.props?.LocalTransparencyModifier ?? 0)));
     const materialOpacity = 1 - localTransparency;
     const brightness = Math.max(0, Number(node.props?.Brightness ?? 1));
@@ -1989,6 +1985,60 @@ async function addTrails(index, camera) {
     centerForSorting(mesh);
     scene.add(mesh);
   }
+}
+
+// How Roblox draws a particle, fitted to a sweep of flat particles in Studio (LightEmission
+// -2..1, Brightness 1/5/25, transparency 0/0.5/0.75, over black and white, plus an
+// orange at Brightness 1/5/25; 8/255 RMS): each channel of the colour (texture x Color x
+// Brightness) is capped softly near 2.5; alpha acts as alpha^1.45; what is behind is kept
+// by 1 - a (1 - LE) for LightEmission 0..1 (all of it at 1: added light) and by
+// 1 - a (1 + 2.47 |LE|) below 0, which darkens it hard; then Studio's tone curve, on the brightest channel,
+// with each channel pulled toward white as it gets bright (bright orange turns yellow,
+// then white). Blended in HDR: see compositeParticles.
+const PARTICLE_FIT = {q: 1.4543, cap: 2.4633, sPos: 0.1052, sNeg: 0.0517, kNeg: 2.4655,
+  g: 2.1935, c: 0.2196, p: 1.8966, m0: 0.8305, n: 2.5407, t: 0.5301};
+const PARTICLE_LAYER = 1;
+function particleMaterial(map, brightness, lightEmission) {
+  const material = new THREE.MeshBasicMaterial({
+    map,
+    color: new THREE.Color(brightness, brightness, brightness),
+    vertexColors: true,
+    transparent: true,
+    side: THREE.DoubleSide,
+    depthWrite: false,
+    blending: THREE.CustomBlending,
+    blendSrc: THREE.OneFactor,
+    blendDst: THREE.OneMinusSrcAlphaFactor,
+    blendSrcAlpha: THREE.OneFactor,
+    blendDstAlpha: THREE.OneMinusSrcAlphaFactor,
+  });
+  const f = PARTICLE_FIT;
+  material.onBeforeCompile = shader => {
+    shader.uniforms.rhrLightEmission = {value: Number(lightEmission ?? 0)};
+    shader.fragmentShader = 'uniform float rhrLightEmission;\n' + shader.fragmentShader.replace(
+      '#include <premultiplied_alpha_fragment>',
+      `float rhrA = pow(clamp(gl_FragColor.a, 0.0, 1.0), ${f.q.toFixed(4)});
+      vec3 rhrCol = ${f.cap.toFixed(4)} * tanh(max(gl_FragColor.rgb, vec3(0.0)) / ${f.cap.toFixed(4)});
+      float rhrLE = rhrLightEmission;
+      gl_FragColor.rgb = rhrCol * rhrA * (1.0 + ${f.sPos.toFixed(4)} * max(rhrLE, 0.0) + ${f.sNeg.toFixed(4)} * min(rhrLE, 0.0));
+      // What stays of the background: at most all of it, never less than nothing.
+      float rhrKept = rhrLE >= 0.0 ? min(rhrLE, 1.0) : ${f.kNeg.toFixed(4)} * rhrLE;
+      gl_FragColor.a = min(1.0, rhrA * (1.0 - rhrKept));`,
+    );
+  };
+  material.customProgramCacheKey = () => 'rhr-particle';
+  return material;
+}
+
+// A Beam or Trail repeats its texture along its length: its own copy (the image may be
+// shared with a decal), repeating vertically and clamped across.
+function ribbonTexture(texture) {
+  if (!texture) return null;
+  const copy = texture.clone();
+  copy.wrapS = THREE.ClampToEdgeWrapping;
+  copy.wrapT = THREE.RepeatWrapping;
+  copy.needsUpdate = true;
+  return copy;
 }
 
 // Particles, Beams and Trails blend by LightEmission: 0 is ordinary transparency,
@@ -2133,29 +2183,12 @@ function simulateParticles(index) {
   }
 }
 
-let softDotTexture = null;
-function softDot() {
-  if (softDotTexture) return softDotTexture;
-  const n = 64;
-  const data = new Uint8Array(n * n * 4);
-  for (let y = 0; y < n; y += 1) {
-    for (let x = 0; x < n; x += 1) {
-      const r = Math.hypot(x + 0.5 - n / 2, y + 0.5 - n / 2) / (n / 2);
-      const i = (y * n + x) * 4;
-      data[i] = data[i + 1] = data[i + 2] = 255;
-      data[i + 3] = Math.round(255 * Math.max(0, 1 - r) ** 1.5);
-    }
-  }
-  softDotTexture = new THREE.DataTexture(data, n, n);
-  softDotTexture.needsUpdate = true;
-  return softDotTexture;
-}
-
+// A texture that cannot be loaded draws nothing, as in Studio (its particles are
+// reported instead).
 async function particleTexture(uri) {
   const texture = await loadSceneTexture(uri);
-  if (texture) return texture;
-  particleState.missingTextures.add(String(uri));
-  return softDot();
+  if (!texture) particleState.missingTextures.add(String(uri));
+  return texture;
 }
 
 async function addParticles(camera) {
@@ -2257,16 +2290,95 @@ async function addParticles(camera) {
     geometry.setAttribute('color', new THREE.BufferAttribute(colors, 4));
     geometry.setIndex(new THREE.BufferAttribute(indices, 1));
     const texture = await particleTexture(props.Texture);
-    const material = effectMaterial(texture, brightness, 1, props.LightEmission);
+    if (!texture) continue;
+    const material = particleMaterial(texture, brightness, props.LightEmission);
     const mesh = new THREE.Mesh(geometry, material);
     mesh.userData.rhrDecoration = true;
     mesh.userData.rhrEffect = true;
+    mesh.layers.set(PARTICLE_LAYER);
     // The particles already moved by ZOffset, so the sort sees it too: it changes
     // which effect is drawn over which, as in Roblox.
     centerForSorting(mesh);
     scene.add(mesh);
     particleState.drawn += quads.length;
   }
+}
+
+// Highlight: the parts' shape filled with FillColor and edged with OutlineColor, drawn
+// over the scene (AlwaysOnTop) or only where the parts are seen (Occluded), before the
+// effects. Every fill is drawn first, in order, then every outline (in Studio a later
+// Highlight's fill does not cover an earlier one's outline). Through the stencil
+// buffer, each of the first four Highlights gets two bits: "inside the shape", so its
+// outline (the shape pushed out a few pixels) only shows outside it, and "not filled
+// yet", so its fill is laid down once per pixel. Later ones get a plain fill.
+const OUTLINE_PX = 3;  // at 1080 px screen height
+const highlightState = {drawn: 0, skipped: 0};
+function addHighlights(index) {
+  const highlights = nodesOfClass(index, 'Highlight').filter(node => node.props?.Enabled !== false);
+  highlights.slice(0, 31).forEach((node, i) => {
+    const target = findNodeByReference(index, node, 'Adornee') || index.parentByNode.get(node);
+    if (!target) return;
+    const meshes = [];
+    walk(target, child => {
+      const mesh = meshByNode.get(child);
+      if (mesh?.isMesh && Number(child.props?.Transparency ?? 0) < 1) meshes.push(mesh);
+    });
+    if (!meshes.length) return;
+    const onTop = (node.props?.DepthMode?.name || 'AlwaysOnTop') === 'AlwaysOnTop';
+    const fillOpacity = 1 - Math.max(0, Math.min(1, Number(node.props?.FillTransparency ?? 0.5)));
+    const outlineOpacity = 1 - Math.max(0, Math.min(1, Number(node.props?.OutlineTransparency ?? 0)));
+    // Front faces only, as in Roblox: the holes in a cracked shell stay holes, and get
+    // their own outline.
+    const common = {depthTest: !onTop, depthWrite: false, transparent: true, side: THREE.FrontSide};
+    const passes = [];
+    if (i < 4) {
+      const shapeBit = 1 << (2 * i);
+      const fillBit = 1 << (2 * i + 1);
+      passes.push([-1000 + i * 2, new THREE.MeshBasicMaterial({...common, colorWrite: false, stencilWrite: true,
+        stencilRef: shapeBit | fillBit, stencilWriteMask: shapeBit | fillBit,
+        stencilFunc: THREE.AlwaysStencilFunc, stencilZPass: THREE.ReplaceStencilOp})]);
+      if (fillOpacity > 0) {
+        passes.push([-999 + i * 2, new THREE.MeshBasicMaterial({...common, stencilWrite: true,
+          color: colorValue(node.props?.FillColor, 0xffffff), opacity: fillOpacity,
+          stencilRef: fillBit, stencilFuncMask: fillBit, stencilWriteMask: fillBit,
+          stencilFunc: THREE.EqualStencilFunc, stencilZPass: THREE.ZeroStencilOp})]);
+      }
+      if (outlineOpacity > 0) {
+        const outline = new THREE.MeshBasicMaterial({...common, side: THREE.BackSide, stencilWrite: true,
+          color: colorValue(node.props?.OutlineColor, 0xffffff), opacity: outlineOpacity,
+          stencilRef: shapeBit, stencilFuncMask: shapeBit, stencilWriteMask: 0,
+          stencilFunc: THREE.NotEqualStencilFunc, stencilZPass: THREE.KeepStencilOp});
+        outline.onBeforeCompile = shader => {
+          shader.uniforms.rhrOutline = {value: 2 * OUTLINE_PX / 1080};
+          shader.vertexShader = 'uniform float rhrOutline;\n' + shader.vertexShader.replace(
+            '#include <project_vertex>',
+            `#include <project_vertex>
+            vec2 rhrDir = (projectionMatrix * vec4(normalize(normalMatrix * normal), 0.0)).xy;
+            if (dot(rhrDir, rhrDir) > 1e-12) gl_Position.xy += normalize(rhrDir) * rhrOutline * gl_Position.w;`,
+          );
+        };
+        outline.customProgramCacheKey = () => 'rhr-highlight-outline';
+        passes.push([-500 + i, outline]);
+      }
+    } else if (fillOpacity > 0) {
+      passes.push([-999 + i * 2, new THREE.MeshBasicMaterial({...common, side: THREE.FrontSide,
+        color: colorValue(node.props?.FillColor, 0xffffff), opacity: fillOpacity})]);
+    }
+    for (const mesh of meshes) {
+      mesh.updateWorldMatrix(true, false);
+      for (const [order, material] of passes) {
+        const copy = new THREE.Mesh(mesh.geometry, material);
+        copy.matrixAutoUpdate = false;
+        copy.matrix.copy(mesh.matrixWorld);
+        copy.renderOrder = order;
+        copy.castShadow = false;
+        copy.userData.rhrEffect = true;
+        scene.add(copy);
+      }
+    }
+    highlightState.drawn += 1;
+  });
+  highlightState.skipped = Math.max(0, highlights.length - 31);
 }
 
 function faceDirection(face) {
@@ -3411,7 +3523,7 @@ async function reportNotes() {
     notes.push(`${particleState.orphan} ParticleEmitter(s) are not inside a part or attachment and are not drawn`);
   }
   if (particleState.missingTextures.size) {
-    notes.push(`${particleState.missingTextures.size} particle texture(s) could not be loaded; those particles are drawn as soft dots`);
+    notes.push(`${particleState.missingTextures.size} particle texture(s) could not be loaded, so those particles are not drawn (as in Studio): ${[...particleState.missingTextures].slice(0, 3).join(', ')}`);
   }
   if (framingIgnored.length) {
     notes.push(`framing left out ground ${framingIgnored.join(', ')} (still drawn; --focus <path> frames it)`);
@@ -3556,6 +3668,7 @@ function makeTarget(w, h) {
     type: THREE.HalfFloatType,
     colorSpace: THREE.LinearSRGBColorSpace,
     depthBuffer: true,
+    stencilBuffer: true,  // Highlights mark their shape in it
   });
 }
 
@@ -3672,20 +3785,112 @@ void main() {
   });
 }
 
+const TONE_GLSL = (() => {
+  const f = PARTICLE_FIT;
+  return `
+vec3 rbxTone(vec3 pre) {
+  pre = max(pre, vec3(1e-6));
+  float m = max(pre.r, max(pre.g, pre.b));
+  float mg = pow(m, ${f.g.toFixed(4)});
+  float M = mg / (mg + ${f.c.toFixed(4)});
+  vec3 r = pow(pre / m, vec3(${f.p.toFixed(4)}));
+  vec3 x = pow(m, ${(1 - f.t).toFixed(4)}) * pow(pre, vec3(${f.t.toFixed(4)}));
+  vec3 w = 1.0 - exp(-pow(x / ${f.m0.toFixed(4)}, vec3(${f.n.toFixed(4)})));
+  return M * (r * (1.0 - w) + w);
+}
+vec3 rbxUntone(vec3 y) {
+  y = clamp(y, 0.0, 0.999);
+  return pow(${f.c.toFixed(4)} * y / (1.0 - y), vec3(1.0 / ${f.g.toFixed(4)}));
+}`;
+})();
+
+// Particles in a scene that is not tone-mapped (no Lighting, or legacy lighting): the
+// picture without them is taken back to Studio's HDR values (the inverse of its tone
+// curve), the particles are blended there as Studio blends them, and the result is
+// tone-mapped again. Only what the particles add is kept, so every pixel without a
+// particle stays exactly as it was.
+function compositeParticles(sceneTarget, camera) {
+  const size = renderer.getSize(new THREE.Vector2());
+  const hdr = makeTarget(size.x, size.y);
+  const autoClear = renderer.autoClear;
+  const clearColor = renderer.getClearColor(new THREE.Color());
+  const clearAlpha = renderer.getClearAlpha();
+  const background = scene.background;
+  // Depth of what can hide particles: the opaque scene.
+  const hidden = [];
+  scene.traverse(object => {
+    if ((object.isMesh || object.isLineSegments) && object.visible && (object.material?.transparent || object.userData?.rhrEffect)) {
+      hidden.push(object);
+      object.visible = false;
+    }
+  });
+  const depthOnly = new THREE.MeshBasicMaterial({colorWrite: false});
+  scene.overrideMaterial = depthOnly;
+  scene.background = null;
+  camera.layers.set(0);
+  renderer.setRenderTarget(hdr);
+  renderer.setClearColor(0x000000, 0);
+  renderer.clear();
+  renderer.render(scene, camera);
+  scene.overrideMaterial = null;
+  scene.background = background;
+  for (const object of hidden) object.visible = true;
+  renderer.autoClear = false;
+  const untone = new THREE.ShaderMaterial({
+    uniforms: {source: {value: sceneTarget.texture}},
+    vertexShader: FULLSCREEN_VERTEX,
+    fragmentShader: `uniform sampler2D source; varying vec2 vUv; ${TONE_GLSL}
+void main() { gl_FragColor = vec4(rbxUntone(texture2D(source, vUv).rgb), 1.0); }`,
+    depthTest: false,
+    depthWrite: false,
+  });
+  drawFullscreen(untone, hdr);
+  camera.layers.set(PARTICLE_LAYER);
+  renderer.setRenderTarget(hdr);
+  renderer.render(scene, camera);
+  camera.layers.enable(0);
+  renderer.autoClear = autoClear;
+  renderer.setClearColor(clearColor, clearAlpha);
+  const out = makeTarget(size.x, size.y);
+  const combine = new THREE.ShaderMaterial({
+    uniforms: {source: {value: sceneTarget.texture}, hdr: {value: hdr.texture}},
+    vertexShader: FULLSCREEN_VERTEX,
+    fragmentShader: `uniform sampler2D source; uniform sampler2D hdr; varying vec2 vUv; ${TONE_GLSL}
+void main() {
+  vec3 base = texture2D(source, vUv).rgb;
+  vec3 shown = rbxTone(texture2D(hdr, vUv).rgb) - rbxTone(rbxUntone(base));
+  gl_FragColor = vec4(max(base + shown, 0.0), 1.0);
+}`,
+    depthTest: false,
+    depthWrite: false,
+  });
+  drawFullscreen(combine, out);
+  for (const material of [depthOnly, untone, combine]) material.dispose();
+  hdr.dispose();
+  return out;
+}
+
 // Draw the frame: straight to the canvas when there is nothing to post-process.
 function renderFrame(camera) {
   if (!postEffects) postEffects = readPostEffects(sceneIndex);
   const effects = postEffects;
-  if (viewportMode || (!effects.modern && !effects.neon.length && !effects.bloom && !effects.corrections.length && !effects.exposure)) {
+  const separateParticles = !viewportMode && !effects.modern && particleState.drawn > 0;
+  if (viewportMode || (!separateParticles && !effects.modern && !effects.neon.length && !effects.bloom && !effects.corrections.length && !effects.exposure)) {
     renderer.setRenderTarget(null);
     renderer.render(scene, camera);
     return;
   }
   const size = renderer.getSize(new THREE.Vector2());
-  const main = makeTarget(size.x, size.y);
+  let main = makeTarget(size.x, size.y);
   main.samples = 4;
   renderer.setRenderTarget(main);
+  if (separateParticles) camera.layers.disable(PARTICLE_LAYER);
   renderer.render(scene, camera);
+  if (separateParticles) {
+    const withParticles = compositeParticles(main, camera);
+    main.dispose();
+    main = withParticles;
+  }
 
   const scale = size.y / 1080;
   const quarter = [Math.ceil(size.x / 4), Math.ceil(size.y / 4)];
@@ -3786,6 +3991,7 @@ async function main() {
     }
     configureSceneLights(index);
     camera = new THREE.PerspectiveCamera();
+    camera.layers.enable(PARTICLE_LAYER);
     configureCamera(camera, cameraNode);
 
     const focusPath = params.get('focus');
@@ -3817,6 +4023,7 @@ async function main() {
     await addBeams(index, camera);
     await addTrails(index, camera);
     await addParticles(camera);
+    addHighlights(index);
     await reportCamera(camera);
     await reportNotes();
     renderFrame(camera);

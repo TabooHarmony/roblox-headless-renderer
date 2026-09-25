@@ -38,8 +38,8 @@ end
 local function emitter(parent, name, color)
 	local e = Instance.new("ParticleEmitter")
 	e.Name = name
-	-- Not downloadable in the offline tests, so drawn as RHR's soft dot. (An emitter
-	-- without a texture draws nothing, in Roblox and in RHR.)
+	-- tests/fixtures/particle-textures/1.png (a white disc), passed with --texture-dir.
+	-- (An emitter without a texture, or one that cannot be loaded, draws nothing.)
 	e.Texture = "rbxassetid://1"
 	e.Color = ColorSequence.new(color)
 	e.Size = NumberSequence.new(1.5)
