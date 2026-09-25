@@ -9,7 +9,12 @@
 
 from __future__ import annotations
 
+import atexit
 import os
+import shutil
+import subprocess
+import sys
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -25,9 +30,34 @@ os.environ["RHR_STUDIO_DIR"] = "0"
 os.environ["RHR_WEBGL"] = "software"
 os.environ.pop("PINEVEX_RENDERER_ROBLOX_FONT_DIRS", None)
 
+
+# Hermetic caches: the suite gets an empty cache of its own, so images, meshes and
+# Roblox material maps the machine downloaded earlier cannot change results, and its
+# warm browser worker (whose session lives in the cache) is not the user's. Only the
+# pinned tools are copied in (<cache>/bin: Lune and Rojo), so nothing is downloaded.
+def _real_cache() -> Path:
+    from rhr.paths import CACHE
+
+    return CACHE
+
+
+if not os.environ.get("RHR_TEST_KEEP_CACHE"):
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+    _bin = _real_cache() / "bin"
+    _test_cache = Path(tempfile.mkdtemp(prefix="rhr-test-cache-"))
+    if _bin.is_dir():
+        shutil.copytree(_bin, _test_cache / "bin")
+    os.environ["RHR_CACHE_DIR"] = str(_test_cache)
+
+    def _cleanup_test_cache() -> None:
+        subprocess.run([sys.executable, "-m", "rhr", "browser", "stop"], capture_output=True, timeout=60)
+        shutil.rmtree(_test_cache, ignore_errors=True)
+
+    atexit.register(_cleanup_test_cache)
+
 BROWSER = {
     "test_billboard", "test_browser_session", "test_mcp_adapter", "test_particles",
-    "test_preview", "test_preview_particles", "test_surface", "test_viewport_frame",
+    "test_preview", "test_preview_particles", "test_surface", "test_viewport_frame", "test_kept_page",
     "test_visual_gallery", "test_place_realism", "test_terrain",
 }
 NOT_LUNE = {

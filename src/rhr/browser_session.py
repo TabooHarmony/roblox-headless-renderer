@@ -10,18 +10,44 @@ import signal
 import shutil
 import subprocess
 import sys
-import tempfile
 import time
 from pathlib import Path
 
 # The directory that contains the `rhr` package, so the worker imports this copy.
 IMPORT_ROOT = Path(__file__).resolve().parents[1]
-SESSION_ROOT = Path(tempfile.gettempdir()) / "rhr-browser-session"
+# In the cache, so a separate cache (RHR_CACHE_DIR, as the tests use) has its own worker.
+from rhr.paths import CACHE  # noqa: E402
+
+SESSION_ROOT = CACHE / "browser-session"
 PID_FILE = SESSION_ROOT / "pid"
 PORT_FILE = SESSION_ROOT / "port"
 STARTUP_TIMEOUT_S = 60
 TOKEN_FILE = SESSION_ROOT / "token"
 LOG_FILE = SESSION_ROOT / "daemon.log"
+
+
+def code_stamp() -> str:
+    """What the worker's code is: RHR's version and the files its page and worker run.
+
+    A worker keeps its page loaded between renders, so one started before RHR was
+    updated (or edited) would keep drawing with the old code; a client that sees another
+    stamp replaces the worker.
+    """
+    import hashlib
+
+    from rhr import __version__
+
+    digest = hashlib.sha1(__version__.encode())
+    package = Path(__file__).resolve().parent
+    files = [*sorted((package / "scene").glob("*.js")), *sorted((package / "particles").glob("*.js")),
+             package / "browser_render.py", package / "browser_daemon.py"]
+    for path in files:
+        try:
+            info = path.stat()
+        except OSError:
+            continue
+        digest.update(f"{path.name}:{info.st_size}:{info.st_mtime_ns}".encode())
+    return digest.hexdigest()[:16]
 
 
 def _pid_alive(pid: int) -> bool:
@@ -106,7 +132,35 @@ def status() -> dict:
         # How the worker draws WebGL (rhr.browser_render.webgl_mode); a worker from
         # before this field existed drew in software.
         "webgl": payload.get("webgl", "software"),
+        "code": payload.get("code"),
     }
+
+
+def usable_worker() -> bool:
+    """Whether renders should go to the warm worker, starting it when none runs.
+
+    RHR_PERSISTENT_BROWSER=0 never uses it, =1 always does (starting it as needed).
+    Unset: a running worker drawing in this WebGL mode with this code is used; one
+    running older code is replaced; one drawing in the other WebGL mode is left alone
+    (a fresh Chromium draws this render); with none running, one is started.
+    """
+    from rhr.browser_render import webgl_mode
+
+    setting = os.environ.get("RHR_PERSISTENT_BROWSER", "").strip().lower()
+    if setting in {"0", "false", "no", "off"}:
+        return False
+    current = status()
+    if current.get("running"):
+        if current.get("webgl") != webgl_mode():
+            return setting in {"1", "true", "yes", "on"}
+        if current.get("code") == code_stamp():
+            return True
+        stop()  # older code: replace it
+    try:
+        ensure()
+    except (RuntimeError, OSError):
+        return False  # the one-shot path still works without it
+    return True
 
 
 def _cleanup_stale() -> None:
@@ -136,8 +190,8 @@ def ensure() -> tuple[dict, bool]:
     current = status()
     from rhr.browser_render import webgl_mode
 
-    if current.get("running") and current.get("webgl") != webgl_mode():
-        stop()  # started with the other WebGL mode: restart it in this one
+    if current.get("running") and (current.get("webgl") != webgl_mode() or current.get("code") != code_stamp()):
+        stop()  # another WebGL mode, or older code: restart it
         current = status()
     if current.get("running"):
         state = _read_state()
@@ -204,8 +258,13 @@ def render(
     width: int,
     height: int,
     transparent: bool,
+    reuse: dict | None = None,
 ) -> bool:
-    """Render via the shared worker. Returns whether the worker was newly started."""
+    """Render via the shared worker. Returns whether the worker was newly started.
+
+    With `reuse` ({query, base}), a 3D scene is drawn on the worker's kept page;
+    otherwise (or if that fails) `url` is loaded in a page of its own.
+    """
     state, started = ensure()
     code, payload = _request(
         int(state["port"]),
@@ -218,6 +277,7 @@ def render(
             "width": width,
             "height": height,
             "transparent": transparent,
+            "reuse": reuse,
         },
     )
     if code != 200 or not payload.get("ok"):

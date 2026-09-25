@@ -31,6 +31,18 @@ class _SceneHandler(http.server.SimpleHTTPRequestHandler):
         kwargs["directory"] = str(PACKAGE)
         super().__init__(*args, **kwargs)
 
+    def end_headers(self):
+        # The warm worker's page is on another local address (see rhr.browser_daemon)
+        # and fetches this render's data from here.
+        self.send_header("Access-Control-Allow-Origin", "*")
+        super().end_headers()
+
+    def do_OPTIONS(self):  # noqa: N802 - CORS preflight for the page's JSON POSTs
+        self.send_response(204)
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        self.end_headers()
+
     def do_GET(self):  # noqa: N802, required by SimpleHTTPRequestHandler
         request_path = urlparse(self.path).path
         if request_path == "/__rhr_ir__.json":
@@ -260,9 +272,9 @@ def _extras(ir_path: Path | None = None) -> dict:
     materials = by_stem(MATERIAL_CACHE, ".png")
     studio = studio_textures()
     manifest = {
-        "unions": {k: f"/__rhr_union__/{k}" for k in unions},
-        "materials": {k: f"/__rhr_material__/{k}" for k in materials},
-        "studio": {k: f"/__rhr_studio__/{k}" for k in studio},
+        "unions": {k: _versioned("/__rhr_union__/", k, v) for k, v in unions.items()},
+        "materials": {k: _versioned("/__rhr_material__/", k, v) for k, v in materials.items()},
+        "studio": {k: _versioned("/__rhr_studio__/", k, v) for k, v in studio.items()},
         "studioInstalled": studio_install() is not None,
     }
     return {
@@ -271,6 +283,16 @@ def _extras(ir_path: Path | None = None) -> dict:
         "studio_files": studio,
         "extras_manifest_payload": json.dumps(manifest).encode(),
     }
+
+
+def _versioned(prefix: str, key: str, path: Path) -> str:
+    """`prefix/key?v=<size>-<mtime>`: the page keeps what it loaded from an address
+    between renders, so a file that changed must get another address."""
+    try:
+        info = path.stat()
+        return f"{prefix}{key}?v={info.st_size}-{info.st_mtime_ns}"
+    except OSError:
+        return f"{prefix}{key}"
 
 
 def _png_size(path: Path) -> tuple[int, int]:
@@ -302,13 +324,13 @@ def _render_browser(
             "metadata_sink": metadata_sink,
             "page_notes": notes_out if notes_out is not None else [],
             "asset_manifest_payload": json.dumps({
-                asset_id: f"/__rhr_asset__/{asset_id}"
-                for asset_id in (asset_files or {})
+                asset_id: _versioned("/__rhr_asset__/", asset_id, path)
+                for asset_id, path in (asset_files or {}).items()
             }).encode(),
             "asset_files": asset_files or {},
             "mesh_manifest_payload": json.dumps({
-                asset_id: f"/__rhr_mesh__/{asset_id}"
-                for asset_id in (mesh_files or {})
+                asset_id: _versioned("/__rhr_mesh__/", asset_id, path)
+                for asset_id, path in (mesh_files or {}).items()
             }).encode(),
             "mesh_files": mesh_files or {},
             **_extras(ir_path),
@@ -325,21 +347,19 @@ def _render_browser(
         url += "?" + query
     transparent = "mode=viewport" in query or "effectsOnly=1" in query
     try:
-        persistent_setting = os.environ.get("RHR_PERSISTENT_BROWSER")
-        if persistent_setting is None:
-            from rhr.browser_session import status as browser_status
+        from rhr.browser_session import usable_worker
 
-            from rhr.browser_render import webgl_mode
-
-            # A worker drawing in the other WebGL mode is not used (RHR_WEBGL).
-            worker = browser_status()
-            persistent = bool(worker.get("running")) and worker.get("webgl") == webgl_mode()
-        else:
-            persistent = persistent_setting.lower() in {"1", "true", "yes", "on"}
+        # The warm worker, started on first use (see usable_worker).
+        persistent = usable_worker()
         if persistent:
             from rhr.browser_session import render as render_persistent
 
-            render_persistent(url=url, out=out, width=width, height=height, transparent=transparent)
+            # A 3D scene can go to the worker's kept page; ViewportFrames and the particle
+            # contact sheet always load a page of their own.
+            reuse = None
+            if page == "scene/index.html" and not transparent:
+                reuse = {"query": query, "base": f"http://127.0.0.1:{server.server_port}"}
+            render_persistent(url=url, out=out, width=width, height=height, transparent=transparent, reuse=reuse)
         else:
             from rhr.browser_render import render_once
 

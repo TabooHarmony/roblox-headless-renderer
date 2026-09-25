@@ -2,11 +2,25 @@ import * as THREE from '../vendor/three/three.module.js';
 import { SunLight } from '../vendor/three/lights/SunLight.js';
 import { flipbookLayout, hashSeed, particleLook, playEmitter, playHorizon, playSchedule, sampleNumberSequence } from '../particles/sim.js';
 
-const params = new URLSearchParams(location.search);
+// The page draws one scene per load, or, in the warm worker, one per rhrRender() call
+// on a page that stays loaded (scripts, compiled shaders and decoded textures are kept;
+// everything about the scene is reset). `persistent=1` in the address picks the second.
+const pageParams = new URLSearchParams(location.search);
+const persistentPage = pageParams.get('persistent') === '1';
+let params = pageParams;
+
+// Data (the IR, images, meshes, notes) comes from the command's own local server. On a
+// persistent page that is another address for every render: `/__rhr_...` paths are
+// sent there, for fetch() and for three.js's loaders alike.
+let dataBase = '';
+const dataUrl = url => (typeof url === 'string' && url.startsWith('/__rhr_') ? dataBase + url : url);
+const nativeFetch = window.fetch.bind(window);
+window.fetch = (url, options) => nativeFetch(dataUrl(url), options);
+THREE.DefaultLoadingManager.setURLModifier(dataUrl);
 
 // RHR_PROFILE: how long each step of the page takes, sent back when it is ready.
-const profiling = params.get('profile') === '1';
-const pageMarks = [];
+let profiling = params.get('profile') === '1';
+let pageMarks = [];
 let lastMark = 0;
 function mark(name) {
   if (!profiling) return;
@@ -15,42 +29,77 @@ function mark(name) {
   lastMark = now;
 }
 mark('scripts loaded and parsed');
-const viewportMode = params.get('mode') === 'viewport';
+const viewportMode = pageParams.get('mode') === 'viewport';  // never on a persistent page
 const canvas = document.querySelector('#rhr-scene');
 if (viewportMode) document.body.style.background = 'transparent';
-const width = Math.max(1, window.innerWidth);
-const height = Math.max(1, window.innerHeight);
+let width = Math.max(1, window.innerWidth);
+let height = Math.max(1, window.innerHeight);
 const renderer = new THREE.WebGLRenderer({canvas, antialias: true, alpha: viewportMode, stencil: true});
 renderer.setPixelRatio(1);
 renderer.setSize(width, height, false);
 renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.shadowMap.type = THREE.PCFShadowMap;
+renderer.setClearColor(viewportMode ? 0x000000 : 0x20242b, viewportMode ? 0 : 1);
 // Constants fitted against Studio (see configureAtmosphere, configureModernEnvironment).
 // The `tune` query parameter (JSON, from RHR_SCENE_TUNE) overrides them while
 // calibrating; normal renders never set it.
-const TUNE = Object.assign({
+const TUNE_DEFAULTS = {
   sunK: 1.625, skyK: 1.175, ambK: 0.1, skyBg: 1.0375, fogL: 1.0, fogDecayMix: 0.4375,
   exposure: 1.475, tone: 3, sunR: 1.0, sunG: 0.965, sunB: 0.91, pRough: 0.72, spRough: 0.33, aoK: 1.0, aoReach: 64,
-}, (() => { try { return JSON.parse(params.get('tune') || '{}'); } catch (_) { return {}; } })());
-// Shadows are on unless the caller turns them off (Studio draws them by default).
-const shadowsRequested = !viewportMode && params.get('shadows') !== '0';
-renderer.shadowMap.enabled = shadowsRequested;
-renderer.shadowMap.type = THREE.PCFShadowMap;
-renderer.setClearColor(viewportMode ? 0x000000 : 0x20242b, viewportMode ? 0 : 1);
+};
+let TUNE = {...TUNE_DEFAULTS};
+let shadowsRequested = true;
+let flatMaterials = false;
 
-const scene = new THREE.Scene();
+let scene = new THREE.Scene();
 const meshByNode = new Map();
 const anchorByNode = new Map();
 const sceneTextureCache = new Map();
 const sceneMeshGeometryCache = new Map();
 const meshGeometryJobs = [];
 const materialTextureJobs = [];
-const flatMaterials = params.get('flatMaterials') === '1';
-const sceneAssetManifest = fetch('/__rhr_assets__.json')
-  .then(response => response.ok ? response.json() : {})
-  .catch(() => ({}));
-const sceneMeshManifest = fetch('/__rhr_meshes__.json')
-  .then(response => response.ok ? response.json() : {})
-  .catch(() => ({}));
+const jsonOrEmpty = url => fetch(url).then(response => (response.ok ? response.json() : {})).catch(() => ({}));
+let sceneAssetManifest = null;
+let sceneMeshManifest = null;
+let extrasManifest = null;
+let robloxMaterialTable = null;
+let materialCredits = null;
+
+// What survives between renders on a persistent page, keyed by a file's address and
+// version (the server adds `?v=<size>-<mtime>`), so a changed file is read again:
+// decoded images and parsed meshes.
+const keptLoads = new Map();
+function keep(kind, url, load) {
+  const key = `${kind}|${url}`;
+  if (!keptLoads.has(key)) {
+    const promise = load();
+    keptLoads.set(key, promise);
+    promise.then(value => { if (value == null) keptLoads.delete(key); }, () => keptLoads.delete(key));
+  }
+  return keptLoads.get(key);
+}
+
+function configure(query) {
+  params = new URLSearchParams(query);
+  profiling = params.get('profile') === '1';
+  pageMarks = [];
+  lastMark = performance.now();
+  TUNE = Object.assign({...TUNE_DEFAULTS}, (() => { try { return JSON.parse(params.get('tune') || '{}'); } catch (_) { return {}; } })());
+  // Shadows are on unless the caller turns them off (Studio draws them by default).
+  shadowsRequested = !viewportMode && params.get('shadows') !== '0';
+  renderer.shadowMap.enabled = shadowsRequested;
+  flatMaterials = params.get('flatMaterials') === '1';
+  sceneAssetManifest = jsonOrEmpty('/__rhr_assets__.json');
+  sceneMeshManifest = jsonOrEmpty('/__rhr_meshes__.json');
+  extrasManifest = jsonOrEmpty('/__rhr_extras__.json');
+  robloxMaterialTable = flatMaterials
+    ? Promise.resolve(null)
+    : fetch('./roblox_materials.json').then(r => (r.ok ? r.json() : null)).catch(() => null);
+  materialCredits = flatMaterials
+    ? Promise.resolve({})
+    : fetch('./materials/credits.json').then(r => (r.ok ? r.json() : {})).then(j => j.materials || {}).catch(() => ({}));
+}
+configure(location.search);
 
 function walk(node, visit) {
   visit(node);
@@ -517,9 +566,11 @@ async function loadMeshGeometry(uri) {
     const manifest = await sceneMeshManifest;
     const url = manifest[assetId];
     if (!url) return null;
-    const response = await fetch(url);
-    if (!response.ok) return null;
-    return withoutBadVertices(await parseRobloxMesh(await response.arrayBuffer()));
+    return keep('mesh', url, async () => {
+      const response = await fetch(url);
+      if (!response.ok) return null;
+      return withoutBadVertices(await parseRobloxMesh(await response.arrayBuffer()));
+    });
   })().catch(error => {
     meshParseFailures.push(`${assetId}: ${error.message}`);
     return null;
@@ -676,12 +727,6 @@ const MATERIAL_TABLE = {
 // Without them (no Studio login, or --flat-materials off but nothing cached) the
 // CC0 look-alikes below stand in: a greyscale detail tile the part's Color tints,
 // plus a normal map for relief.
-const extrasManifest = fetch('/__rhr_extras__.json')
-  .then(response => (response.ok ? response.json() : {}))
-  .catch(() => ({}));
-const robloxMaterialTable = flatMaterials
-  ? Promise.resolve(null)
-  : fetch('./roblox_materials.json').then(r => (r.ok ? r.json() : null)).catch(() => null);
 // Roblox tiles its built-in material textures once per 10 studs (the same default
 // MaterialVariant.StudsPerTile has).
 const ROBLOX_TILE_STUDS = 10;
@@ -707,12 +752,12 @@ function loadRobloxMap(id, color) {
   const promise = extrasManifest.then(extras => {
     const url = id ? extras.materials?.[id] : null;
     if (!url) return null;
-    return new Promise(resolve => new THREE.TextureLoader().load(url, texture => {
+    return keep(color ? 'material-colour' : 'material-data', url, () => new Promise(resolve => new THREE.TextureLoader().load(url, texture => {
       texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
       texture.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
       texture.colorSpace = color ? THREE.SRGBColorSpace : THREE.NoColorSpace;
       resolve(texture);
-    }, undefined, () => resolve(null)));
+    }, undefined, () => resolve(null))));
   });
   robloxMapCache.set(key, promise);
   return promise;
@@ -774,9 +819,6 @@ const LOOKALIKE_TILE_STUDS = {
   WoodPlanks: 8, Wood: 8, DiamondPlate: 4, Fabric: 4, Carpet: 4, Foil: 6,
 };
 const DEFAULT_TILE_STUDS = 10;
-const materialCredits = flatMaterials
-  ? Promise.resolve({})
-  : fetch('./materials/credits.json').then(r => (r.ok ? r.json() : {})).then(j => j.materials || {}).catch(() => ({}));
 const materialTextureCache = new Map();
 
 function loadMaterialTextures(name) {
@@ -785,7 +827,7 @@ function loadMaterialTextures(name) {
     const entry = credits[name];
     if (!entry) return null;
     const loader = new THREE.TextureLoader();
-    const load = url => new Promise(resolve => loader.load(url, resolve, undefined, () => resolve(null)));
+    const load = url => keep('lookalike', url, () => new Promise(resolve => loader.load(url, resolve, undefined, () => resolve(null))));
     const [map, normalMap] = await Promise.all([
       load(`./materials/${name}.jpg`),
       entry.normalMap ? load(`./materials/${name}_n.jpg`) : Promise.resolve(null),
@@ -1010,13 +1052,13 @@ function loadStudioTexture(name, repeat) {
     studioTextureCache.set(name, extrasManifest.then(extras => {
       const url = extras.studio?.[name];
       if (!url) return null;
-      return new Promise(resolve => new THREE.TextureLoader().load(url, texture => {
+      return keep(`studio-${repeat}`, url, () => new Promise(resolve => new THREE.TextureLoader().load(url, texture => {
         texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
         texture.colorSpace = THREE.NoColorSpace;
         texture.repeat.set(1 / repeat, 1 / repeat);
         texture.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
         resolve(texture);
-      }, undefined, () => resolve(null)));
+      }, undefined, () => resolve(null))));
     }));
   }
   return studioTextureCache.get(name);
@@ -1537,10 +1579,11 @@ async function loadSceneTexture(uri) {
     const manifest = await sceneAssetManifest;
     const url = manifest[assetId];
     if (!url) return null;
-    const loader = new THREE.TextureLoader();
-    const texture = await new Promise(resolve => loader.load(url, resolve, undefined, () => resolve(null)));
-    if (texture) texture.colorSpace = THREE.SRGBColorSpace;
-    return texture;
+    return keep('image', url, async () => {
+      const texture = await new Promise(resolve => new THREE.TextureLoader().load(url, resolve, undefined, () => resolve(null)));
+      if (texture) texture.colorSpace = THREE.SRGBColorSpace;
+      return texture;
+    });
   })();
   sceneTextureCache.set(assetId, promise);
   return promise;
@@ -1556,12 +1599,14 @@ async function loadSceneDataTexture(uri) {
     const manifest = await sceneAssetManifest;
     const url = manifest[assetId];
     if (!url) return null;
-    const texture = await new Promise(resolve => new THREE.TextureLoader().load(url, resolve, undefined, () => resolve(null)));
-    if (texture) {
-      texture.colorSpace = THREE.NoColorSpace;
-      texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
-    }
-    return texture;
+    return keep('image-data', url, async () => {
+      const texture = await new Promise(resolve => new THREE.TextureLoader().load(url, resolve, undefined, () => resolve(null)));
+      if (texture) {
+        texture.colorSpace = THREE.NoColorSpace;
+        texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
+      }
+      return texture;
+    });
   })();
   sceneDataTextureCache.set(assetId, promise);
   return promise;
@@ -2626,9 +2671,10 @@ function sceneGeometryBounds() {
 async function loadSquareCube(urls) {
   const images = await Promise.all(urls.map(url => new Promise(resolve => {
     const image = new Image();
+    image.crossOrigin = 'anonymous';  // from this render's data server; drawn to a canvas below
     image.onload = () => resolve(image);
     image.onerror = () => resolve(null);
-    image.src = url;
+    image.src = dataUrl(url);
   })));
   if (images.some(image => !image)) return null;
   const largest = Math.max(...images.map(image => Math.max(image.naturalWidth, image.naturalHeight)));
@@ -2712,6 +2758,7 @@ function fogCurve(density) {
 }
 
 let atmosphereState = null;
+let fogPowerCompiled = null;  // the exponent in the shared fog shader code, once set
 
 function configureAtmosphere(index) {
   const atmosphere = findLightingClass(index, 'Atmosphere');
@@ -2726,9 +2773,16 @@ function configureAtmosphere(index) {
   if (curve) {
     // FogExp2's density carries 1 / L; the exponent is compiled into the fog chunk,
     // before any material is compiled.
+    const power = curve.power.toFixed(3);
+    if (fogPowerCompiled !== null && fogPowerCompiled !== power) {
+      // Shaders compiled for another exponent would be reused: this page cannot draw
+      // this scene. The worker loads a fresh page and draws it there.
+      throw new Error('RHR_NEEDS_FRESH_PAGE: fog exponent changed');
+    }
+    fogPowerCompiled = power;
     THREE.ShaderChunk.fog_fragment = THREE.ShaderChunk.fog_fragment.replace(
       'float fogFactor = 1.0 - exp( - fogDensity * fogDensity * vFogDepth * vFogDepth );',
-      `float fogFactor = 1.0 - exp( - pow( fogDensity * vFogDepth, ${curve.power.toFixed(3)} ) );`,
+      `float fogFactor = 1.0 - exp( - pow( fogDensity * vFogDepth, ${power} ) );`,
     );
     scene.fog = new THREE.FogExp2(fogColor, 1 / curve.length);
   }
@@ -4074,9 +4128,73 @@ async function main() {
   document.documentElement.dataset.rhrReady = 'true';
 }
 
-try {
-  await main();
-} catch (error) {
-  document.documentElement.dataset.rhrError = String(error);
-  throw error;
+// Everything one render leaves behind, back to how a fresh page starts. Kept: the
+// renderer and its compiled shaders, keptLoads, the Draco decoder, static files.
+function resetScene() {
+  // Scene meshes hold copies of kept geometry (fitted, scaled), never the kept one
+  // itself, and disposing a material leaves its textures alone.
+  scene.traverse(object => {
+    if (object.geometry) object.geometry.dispose();
+    const materials = Array.isArray(object.material) ? object.material : [object.material];
+    for (const material of materials) material?.dispose?.();
+  });
+  environmentTexture?.dispose?.();
+  scene = new THREE.Scene();
+  meshByNode.clear();
+  anchorByNode.clear();
+  for (const cache of [sceneTextureCache, sceneMeshGeometryCache, sceneDataTextureCache, sceneUnionCache,
+    robloxMapCache, studioTextureCache, materialTextureCache]) cache.clear();
+  meshGeometryJobs.length = 0;
+  materialTextureJobs.length = 0;
+  meshParseFailures.length = 0;
+  robloxMaterialsUsed.clear();
+  lookAlikeMaterialsUsed.clear();
+  environmentMaterials.clear();
+  framingIgnored.length = 0;
+  use2022Materials = true;
+  environmentTexture = null;
+  environmentSpecularScale = 1;
+  materialVariantsByName = null;
+  sceneIndex = null;
+  terrainSummary = null;
+  terrainGrid = null;
+  skyVisibility = null;
+  atmosphereState = null;
+  atmosphereHorizon = null;
+  sunLight = null;
+  sunDirection = null;
+  postEffects = null;
+  localLightsDropped = 0;
+  Object.assign(particleState, {emitters: [], time: null, auto: false, idle: [], orphan: 0, missingTextures: new Set(), drawn: 0});
+  Object.assign(highlightState, {drawn: 0, skipped: 0});
+  document.querySelector('#rhr-overlay').replaceChildren();
+  delete document.documentElement.dataset.rhrReady;
+  delete document.documentElement.dataset.rhrError;
+}
+
+if (persistentPage) {
+  // Called by the warm worker: draw one scene, resolve with {ok} or {error}.
+  window.rhrRender = async ({query, base, width: w, height: h}) => {
+    try {
+      resetScene();
+      dataBase = base || '';
+      width = Math.max(1, w);
+      height = Math.max(1, h);
+      renderer.setSize(width, height, false);
+      configure(query);
+      await main();
+      return {ok: true};
+    } catch (error) {
+      document.documentElement.dataset.rhrError = String(error);
+      return {error: String(error)};
+    }
+  };
+  document.documentElement.dataset.rhrPersistent = 'ready';
+} else {
+  try {
+    await main();
+  } catch (error) {
+    document.documentElement.dataset.rhrError = String(error);
+    throw error;
+  }
 }

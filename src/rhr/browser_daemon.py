@@ -14,13 +14,17 @@ import json
 import os
 import signal
 import threading
+import time
 from pathlib import Path
 
-from rhr.browser_render import capture, launch, webgl_mode
+from rhr.browser_render import KeptScenePage, capture, launch, webgl_mode
 
 
 class RenderServer(http.server.HTTPServer):
     browser = None
+    code = ""
+    last_used = 0.0
+    kept: KeptScenePage | None = None
     token: str
     port_file: Path
 
@@ -41,7 +45,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
     def do_GET(self):  # noqa: N802
         if self.path == "/health":
-            self._json(200, {"ok": True, "pid": os.getpid(), "webgl": webgl_mode()})
+            self._json(200, {"ok": True, "pid": os.getpid(), "webgl": webgl_mode(), "code": self.server.code})
             return
         self._json(404, {"error": "not found"})
 
@@ -51,6 +55,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return
         if self.path == "/render":
             self._render()
+            self.server.last_used = time.monotonic()
             return
         if self.path == "/shutdown":
             self._json(200, {"ok": True})
@@ -66,14 +71,32 @@ class Handler(http.server.BaseHTTPRequestHandler):
             height = int(request["height"])
             if width <= 0 or height <= 0:
                 raise ValueError("render dimensions must be positive")
-            timings = capture(
-                self.server.browser,
-                url=str(request["url"]),
-                out=Path(request["out"]),
-                width=width,
-                height=height,
-                transparent=bool(request.get("transparent", False)),
-            )
+            timings = None
+            reuse = request.get("reuse")
+            if reuse:
+                # The kept page first; any failure there (including a scene it cannot
+                # draw after the last one) falls back to a page of its own.
+                try:
+                    timings = self.server.kept.render(
+                        query=str(reuse["query"]), base=str(reuse["base"]),
+                        out=Path(request["out"]), width=width, height=height,
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    self.server.kept.close()
+                    fallback_reason = str(exc)[:300]
+                    timings = None
+            if timings is None:
+                timings = capture(
+                    self.server.browser,
+                    url=str(request["url"]),
+                    out=Path(request["out"]),
+                    width=width,
+                    height=height,
+                    transparent=bool(request.get("transparent", False)),
+                )
+                if reuse:
+                    timings = {"kept page failed, fresh page used": 0.0, **timings}
+                    print(f"rhr worker: kept page failed ({fallback_reason}); used a fresh page", flush=True)
             self._json(200, {"ok": True, "timings": timings})
         except Exception as exc:
             self._json(500, {"error": str(exc)})
@@ -94,6 +117,24 @@ def main() -> int:
     browser = launch(playwright)
     server = RenderServer(("127.0.0.1", 0), Handler)
     server.browser = browser
+    server.kept = KeptScenePage(browser)
+    from rhr.browser_session import code_stamp
+
+    server.code = code_stamp()
+    server.last_used = time.monotonic()
+    # Stops itself after a while without renders, so an auto-started worker does not
+    # stay around for good (RHR_BROWSER_IDLE_S, default 10 minutes; 0 = never).
+    idle_limit = float(os.environ.get("RHR_BROWSER_IDLE_S", "600") or 0)
+
+    def watch_idle():
+        while idle_limit > 0:
+            time.sleep(min(30.0, idle_limit))
+            if time.monotonic() - server.last_used > idle_limit:
+                print("rhr worker: idle, stopping", flush=True)
+                server.shutdown()
+                return
+
+    threading.Thread(target=watch_idle, daemon=True).start()
     server.token = args.token
     server.port_file = args.port_file
     args.port_file.parent.mkdir(parents=True, exist_ok=True)
