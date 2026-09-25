@@ -408,6 +408,8 @@ def render_scene(
     if view:
         query_values["view"] = view
     query_values["shadows"] = "1" if shadows else "0"
+    if os.environ.get("RHR_EFFECTS_UNDER"):
+        query_values["effectsUnder"] = os.environ["RHR_EFFECTS_UNDER"]
     if os.environ.get("RHR_SCENE_TUNE"):
         query_values["tune"] = os.environ["RHR_SCENE_TUNE"]
     if flat_materials:

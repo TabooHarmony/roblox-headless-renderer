@@ -6,7 +6,8 @@
 -- one each side of the origin, with a black wall in front of the left one when seen
 -- from (0, 5, 30). A green emitter that is simply running, above them, on an
 -- attachment turned to fire sideways (+X). A disabled emitter without attributes,
--- which is not drawn and is reported.
+-- which is not drawn and is reported. A running blue emitter without a texture, which
+-- Roblox does not draw either.
 local fs = require("@lune/fs")
 local roblox = require("@lune/roblox")
 local Instance = roblox.Instance
@@ -37,7 +38,9 @@ end
 local function emitter(parent, name, color)
 	local e = Instance.new("ParticleEmitter")
 	e.Name = name
-	e.Texture = ""
+	-- Not downloadable in the offline tests, so drawn as RHR's soft dot. (An emitter
+	-- without a texture draws nothing, in Roblox and in RHR.)
+	e.Texture = "rbxassetid://1"
 	e.Color = ColorSequence.new(color)
 	e.Size = NumberSequence.new(1.5)
 	e.Transparency = NumberSequence.new(0)
@@ -72,6 +75,9 @@ stream.Speed = NumberRange.new(6, 6)
 
 local idle = emitter(holder, "PlayedByScript", Color3.new(0.1, 0.1, 1))
 idle.Enabled = false
+
+local bare = emitter(holder, "NoTexture", Color3.new(0.1, 0.1, 1))
+bare.Texture = ""
 
 fs.writeFile("tests/fixtures/vfx_played.rbxm", roblox.serializeModel({ model }))
 print("wrote tests/fixtures/vfx_played.rbxm")

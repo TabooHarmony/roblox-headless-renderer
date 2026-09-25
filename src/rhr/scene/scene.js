@@ -2047,7 +2047,10 @@ function worldPose(object) {
 }
 
 function collectEmitters(index, seed) {
+  // Calibration only (RHR_EFFECTS_UNDER): draw just the emitters under one path.
+  const under = params.get('effectsUnder');
   for (const node of nodesOfClass(index, 'ParticleEmitter')) {
+    if (under && !String(node.path || '').startsWith(under)) continue;
     const props = node.props || {};
     const schedule = playSchedule(props, node.attributes);
     if (schedule.kind === 'idle') {
@@ -2121,8 +2124,12 @@ function simulateParticles(index) {
   particleState.time = chooseEffectTime(requested);
   for (const emitter of particleState.emitters) {
     const particles = playEmitter(emitter.props, emitter.schedule, {...emitter.options, dt: 1 / 60, until: particleState.time});
+    // A particle aligned to its velocity that has none is not drawn (Studio: VelocityParallel
+    // at Speed 0 shows nothing, where Speed 0.001 does).
+    const aligned = /^Velocity/.test(emitter.props.Orientation?.name || '');
     emitter.snapshot = particles.map(particle => ({particle, look: particleLook(emitter.props, particle)}))
-      .filter(({look}) => look.size > 0 && look.transparency < 1);
+      .filter(({particle, look}) => look.size > 0 && look.transparency < 1
+        && !(aligned && Math.hypot(...particle.velocity) < 1e-9));
   }
 }
 
@@ -2145,7 +2152,6 @@ function softDot() {
 }
 
 async function particleTexture(uri) {
-  if (!String(uri || '').trim()) return null;  // no texture: Roblox draws a plain square
   const texture = await loadSceneTexture(uri);
   if (texture) return texture;
   particleState.missingTextures.add(String(uri));
@@ -2160,6 +2166,8 @@ async function addParticles(camera) {
   for (const emitter of particleState.emitters) {
     if (!emitter.snapshot?.length) continue;
     const props = emitter.props;
+    // An emitter without a texture draws nothing in Roblox.
+    if (!String(props.Texture || '').trim()) continue;
     const orientation = props.Orientation?.name || 'FacingCamera';
     const zOffset = Number(props.ZOffset ?? 0);
     const brightness = Math.max(0, Number(props.Brightness ?? 1));
@@ -2208,9 +2216,14 @@ async function addParticles(camera) {
         up = up.clone().multiplyScalar(c).addScaledVector(right, -s);
         right = r2;
       }
-      const tall = Math.max(0.05, 1 + Number(look.squash || 0));
-      const halfWidth = look.size * sizeScale / tall / 2;
-      const halfHeight = look.size * sizeScale * tall / 2;
+      // Squash s stretches one axis by 1 + |s| and shrinks the other as much: taller
+      // for s > 0, wider for s < 0 (measured in Studio at -3, -1, 1 and 3).
+      const squash = Number(look.squash || 0);
+      const tall = squash >= 0 ? 1 + squash : 1 / (1 - squash);
+      // Size is half the particle's width: a Size 4 particle is 8 studs across
+      // (measured in Studio against a 4-stud cube).
+      const halfWidth = look.size * sizeScale / tall;
+      const halfHeight = look.size * sizeScale * tall;
       const frame = look.frame || {index: 0};
       const column = frame.index % columns;
       const row = Math.floor(frame.index / columns);
@@ -2385,17 +2398,27 @@ function withoutGround(boxes) {
 
 const framingIgnored = [];
 
+// Where the particles are, for framing: the 5th to 95th percentile on each axis, so a
+// few sparks flung far away do not push the camera back.
 function particleBoundsWithin(allowed) {
-  const box = new THREE.Box3();
+  const points = [];
   for (const emitter of particleState.emitters) {
     if (allowed && !allowed.has(emitter.node)) continue;
-    for (const {particle, look} of emitter.snapshot || []) {
-      const p = new THREE.Vector3(...particle.position);
-      box.expandByPoint(p.clone().addScalar(-look.size / 2));
-      box.expandByPoint(p.clone().addScalar(look.size / 2));
-    }
+    if (!String(emitter.props.Texture || '').trim()) continue;
+    for (const {particle, look} of emitter.snapshot || []) points.push([...particle.position, look.size]);
   }
-  return box.isEmpty() ? null : box;
+  if (!points.length) return null;
+  const pick = (axis, q) => {
+    const values = points.map(point => point[axis]).sort((a, b) => a - b);
+    return values[Math.min(values.length - 1, Math.max(0, Math.round(q * (values.length - 1))))];
+  };
+  const size = pick(3, 0.5);
+  const lo = points.length >= 20 ? 0.05 : 0;
+  const hi = points.length >= 20 ? 0.95 : 1;
+  return new THREE.Box3(
+    new THREE.Vector3(pick(0, lo) - size, pick(1, lo) - size, pick(2, lo) - size),
+    new THREE.Vector3(pick(0, hi) + size, pick(1, hi) + size, pick(2, hi) + size),
+  );
 }
 
 function frameScene(camera, index, focusPath, view = 'iso') {
@@ -2418,7 +2441,11 @@ function frameScene(camera, index, focusPath, view = 'iso') {
   // invisible, and its particles fly well past them).
   const effectBounds = particleBoundsWithin(allowed);
   if (!boxes.length && !effectBounds) throw new Error(`no renderable 3D geometry${focusPath ? ` under ${focusPath}` : ''}`);
-  const framed = focusPath ? boxes : withoutGround(boxes);
+  // Frame what can be seen: fully transparent parts (effect holders, often huge) only
+  // count when there is nothing else.
+  const seen = boxes.filter(entry => Number(entry.node.props?.Transparency ?? 0) < 1);
+  const candidates = seen.length || effectBounds ? seen : boxes;
+  const framed = focusPath ? candidates : withoutGround(candidates);
   const box = new THREE.Box3();
   for (const entry of framed) box.union(entry.box);
   if (effectBounds) box.union(effectBounds);
@@ -2448,9 +2475,11 @@ function findFirstClass(index, className) {
   return nodesOfClass(index, className)[0] || null;
 }
 
+// A Sky or Atmosphere only counts inside Lighting, as in Roblox: one saved in a model
+// (which lands in Workspace when inserted) changes nothing.
 function findLightingClass(index, className) {
   const nodes = nodesOfClass(index, className);
-  return nodes.find(node => index.rootByNode.get(node)?.className === 'Lighting') || nodes[0] || null;
+  return nodes.find(node => index.rootByNode.get(node)?.className === 'Lighting') || null;
 }
 
 function sceneGeometryBounds() {

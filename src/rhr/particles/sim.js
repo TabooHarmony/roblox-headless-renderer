@@ -449,7 +449,8 @@ export function particleLook(props, particle) {
   return {
     size: sampleNumberSequence(props?.Size, alpha),
     squash: sampleNumberSequence(props?.Squash, alpha),
-    transparency: sampleNumberSequence(props?.Transparency, alpha),
+    // Saved sequences can go past 0 and 1 (Roblox clamps them when drawing).
+    transparency: Math.max(0, Math.min(1, sampleNumberSequence(props?.Transparency, alpha))),
     color: sampleColorSequence(props?.Color, alpha),
     frame: flipbookFrame(props, particle.age, particle.lifetime, particle.startFrame),
   };

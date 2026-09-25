@@ -19,6 +19,16 @@
 - **A model without a Camera is framed as a whole**, particles included, instead of
   being seen from a fixed spot near the origin.
 
+### Checked against Studio
+
+Ten community effects, frozen at the same moment from the same camera in Studio and
+RHR, led to these fixes: particles are 2 x `Size` across (they were half size);
+negative `Squash` widens by 1 + |s| (it was up to 20x); emitters without a texture
+and velocity-aligned particles with no velocity draw nothing; transparency is clamped
+to 0..1; framing ignores invisible holder parts and stray far particles; a Sky or
+Atmosphere outside Lighting no longer applies. Known difference: negative
+`LightEmission` with a very high `Brightness` looks more solid than in Studio.
+
 ### Fixed
 
 - A fully transparent part hid whatever was drawn after it (effects usually sit in

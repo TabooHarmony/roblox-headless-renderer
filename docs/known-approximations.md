@@ -255,9 +255,20 @@ whether it glows; not the exact particles Roblox would draw.
   is on show (the output says which moment); `--effect-time T` picks another.
 - **Randomness** is seeded per emitter (`--seed`), so the same file gives the same
   picture, but particle positions are not the ones Roblox would pick.
+- **Size and shape**, measured in Studio: a particle is 2 x `Size` across; `Squash` s
+  stretches one axis by 1 + |s| and shrinks the other as much (taller for s > 0,
+  wider for s < 0). An emitter without a `Texture` draws nothing, and a particle
+  aligned to its velocity (`VelocityParallel` / `VelocityPerpendicular`) draws nothing
+  while it has none, as in Roblox. Transparency sequences are clamped to 0..1.
 - **Blending**: `LightEmission` mixes ordinary transparency (0) with adding light (1),
-  as in Roblox. `ZOffset` moves particles toward the camera, keeping their size on
-  screen. `Brightness` multiplies the colour.
+  as in Roblox. Values outside 0..1 are clamped: effects that use a negative
+  `LightEmission` with a very high `Brightness` (a trick for dense glows) come out
+  more solid and more saturated than in Studio, which tone-maps them. `ZOffset` moves
+  particles toward the camera, keeping their size on screen. `Brightness` multiplies
+  the colour.
+- **Framing**: without a Camera or `--view`, the view covers visible parts and the
+  bulk of the particles (5th to 95th percentile), not invisible holder parts or a few
+  sparks flung far away.
 - **Drawn**: emission from parts (Box, Sphere, Cylinder, Disc shapes) and attachments
   (a point), following their rotation; `EmissionDirection`, `SpreadAngle`, `Speed`,
   `Acceleration`, `Drag`, `TimeScale`, rotation, size, colour, transparency and
@@ -282,8 +293,9 @@ such as UDim2 and Color3 are listed in that node's `unreadable` list, so the ele
 may draw without its size or colour and the output says which properties are
 missing.
 
-A part that is fully transparent (Transparency 1) is not drawn at all, so it no
-longer hides effects behind or inside it; it still counts when framing the view.
+A part that is fully transparent (Transparency 1) is not drawn at all, so it does not
+hide effects behind or inside it. A Sky or Atmosphere counts only inside Lighting, as
+in Roblox; one saved elsewhere in a model changes nothing.
 
 ## Not done at all
 

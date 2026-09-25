@@ -4,7 +4,8 @@
 Fixture (scripts/make_vfx_fixture.luau): two disabled red emitters that a script would
 play (EmitCount 40 at EmitDelay 0.5), the left one behind a black wall; a running green
 emitter on an attachment turned to fire along +X; a disabled emitter with no
-attributes, which is reported and not drawn.
+attributes, which is reported and not drawn; a running blue emitter without a texture,
+which Roblox does not draw either.
 """
 
 from __future__ import annotations
@@ -44,6 +45,10 @@ def green(r, g, b):
     return g > 150 and r < 150 and b < 150
 
 
+def blue(r, g, b):
+    return b > 150 and r < 120 and g < 120
+
+
 def walk(node: dict):
     yield node
     for child in node.get("children", []):
@@ -80,6 +85,8 @@ def main() -> None:
         ys = [p[1] for p in greens]
         assert max(xs) - min(xs) > 3 * (max(ys) - min(ys)), "the stream does not run sideways"
         assert sum(xs) / len(xs) > 240, "the stream does not follow its attachment's turn toward +X"
+
+        assert not pixels(auto, blue), "an emitter without a texture is drawn (Roblox draws nothing)"
 
         early = tmp / "early.png"
         run("scene", str(FIXTURE), *CAMERA, "--effect-time", "0.2", "--out", str(early))
