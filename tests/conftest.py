@@ -21,6 +21,8 @@ os.environ["RHR_SYSTEM_FONT_FALLBACK"] = "0"
 # Hermetic 3D: no downloads (and never the Studio login), no Studio install textures.
 os.environ["RHR_OFFLINE"] = "1"
 os.environ["RHR_STUDIO_DIR"] = "0"
+# Software WebGL: the same pixels on every machine, whatever its GPU.
+os.environ["RHR_WEBGL"] = "software"
 os.environ.pop("PINEVEX_RENDERER_ROBLOX_FONT_DIRS", None)
 
 BROWSER = {

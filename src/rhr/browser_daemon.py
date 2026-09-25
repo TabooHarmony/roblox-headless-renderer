@@ -16,7 +16,7 @@ import signal
 import threading
 from pathlib import Path
 
-from rhr.browser_render import capture, launch
+from rhr.browser_render import capture, launch, webgl_mode
 
 
 class RenderServer(http.server.HTTPServer):
@@ -41,7 +41,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
     def do_GET(self):  # noqa: N802
         if self.path == "/health":
-            self._json(200, {"ok": True, "pid": os.getpid()})
+            self._json(200, {"ok": True, "pid": os.getpid(), "webgl": webgl_mode()})
             return
         self._json(404, {"error": "not found"})
 

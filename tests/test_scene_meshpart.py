@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
-"""Cached Roblox MeshPart geometry: v1/v2/v4 decode and fallback contract."""
+"""Cached Roblox MeshPart geometry: v1-v6 decode, only the first level of detail
+drawn, and the fallback contract. (Version 7 is v6 with Draco-compressed geometry,
+decoded by the vendored Draco decoder; checked on real meshes, not here.)"""
 
 from __future__ import annotations
 
@@ -200,6 +202,38 @@ def iou(a: set[tuple[int, int]], b: set[tuple[int, int]]) -> float:
     return len(a & b) / max(1, len(a | b))
 
 
+# A second level of detail: a triangle in the top-left corner of the mesh's bounds,
+# which the first level leaves empty. (Levels share the mesh's bounds, which the part
+# is fitted to.) Drawing it would change the silhouette, so a render matching v1's
+# proves only the first level is drawn.
+LOD1_VERTICES = [(-1.0, 1.0, -0.5), (-0.4, 1.0, -0.5), (-1.0, 0.4, -0.5)]
+
+
+def mesh_v4_two_lods() -> bytes:
+    vertices = VERTICES + LOD1_VERTICES
+    faces = FACES + [(4, 5, 6)]
+    header = struct.pack("<HHIIHHIHBB", 24, 0, len(vertices), len(faces), 3, 0, 0, 0, 1, 0)
+    body = b"".join(vertex_record(p) for p in vertices)
+    body += b"".join(struct.pack("<III", *face) for face in faces)
+    body += struct.pack("<III", 0, len(FACES), len(faces))
+    return b"version 4.01\n" + header + body
+
+
+def mesh_v6() -> bytes:
+    # Chunks: 8-byte name, u32 version, u32 size, data. COREMESH v1 holds 40-byte
+    # vertices then faces; LODS holds the first face of each level.
+    vertices = VERTICES + LOD1_VERTICES
+    faces = FACES + [(4, 5, 6)]
+    core = struct.pack("<I", len(vertices)) + b"".join(vertex_record(p) for p in vertices)
+    core += struct.pack("<I", len(faces)) + b"".join(struct.pack("<III", *face) for face in faces)
+    lods = struct.pack("<HBI", 0, 1, 3) + struct.pack("<III", 0, len(FACES), len(faces))
+
+    def chunk(name: bytes, version: int, data: bytes) -> bytes:
+        return name.ljust(8, bytes(1)) + struct.pack("<II", version, len(data)) + data
+
+    return b"version 6.00\n" + chunk(b"COREMESH", 1, core) + chunk(b"LODS", 1, lods)
+
+
 def main() -> None:
     with tempfile.TemporaryDirectory(prefix="rhr-meshpart-") as directory:
         tmp = Path(directory)
@@ -211,6 +245,8 @@ def main() -> None:
             "1003": mesh_v3(),
             "1004": mesh_v4(),
             "1005": mesh_v5(),
+            "1006": mesh_v6(),
+            "1007": mesh_v4_two_lods(),
         }
         images = {}
         for asset_id, payload in payloads.items():
@@ -238,6 +274,10 @@ def main() -> None:
         assert iou(v1, v3) > 0.98, iou(v1, v3)
         assert iou(v1, v4) > 0.98, iou(v1, v4)
         assert iou(v1, v5) > 0.98, iou(v1, v5)
+        v6 = silhouette(images["1006"])
+        lod = silhouette(images["1007"])
+        assert iou(v1, v6) > 0.98, iou(v1, v6)
+        assert iou(v1, lod) > 0.98, ("a lower level of detail was drawn", iou(v1, lod))
         assert iou(v1, missing_shape) < 0.75, iou(v1, missing_shape)
         delta = mean_delta(images["1002"], missing)
         assert delta > 3.0, delta

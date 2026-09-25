@@ -249,12 +249,26 @@ function geometryFromBinary(bytes, headerOffset, spec) {
   geometry.setAttribute('position', new THREE.BufferAttribute(attrs.positions, 3));
   geometry.setAttribute('normal', new THREE.BufferAttribute(attrs.normals, 3));
   geometry.setAttribute('uv', new THREE.BufferAttribute(attrs.uvs, 2));
-  const indices = new Uint32Array(spec.faceCount * 3);
-  for (let i = 0; i < spec.faceCount; i += 1) {
+  // Meshes from version 3 on list every level of detail's faces one after another,
+  // with the offsets after the faces; only the most detailed level is drawn.
+  let firstFace = 0;
+  let lastFace = spec.faceCount;
+  const lodOffset = faceOffset + spec.faceCount * spec.faceSize;
+  if (spec.lodCount >= 2 && lodOffset + spec.lodCount * 4 <= view.byteLength) {
+    const start = view.getUint32(lodOffset, true);
+    const end = view.getUint32(lodOffset + 4, true);
+    if (start < end && end <= spec.faceCount) {
+      firstFace = start;
+      lastFace = end;
+    }
+  }
+  const indices = new Uint32Array((lastFace - firstFace) * 3);
+  for (let i = firstFace; i < lastFace; i += 1) {
     const base = faceOffset + i * spec.faceSize;
-    indices[i * 3] = view.getUint32(base, true);
-    indices[i * 3 + 1] = view.getUint32(base + 4, true);
-    indices[i * 3 + 2] = view.getUint32(base + 8, true);
+    const k = (i - firstFace) * 3;
+    indices[k] = view.getUint32(base, true);
+    indices[k + 1] = view.getUint32(base + 4, true);
+    indices[k + 2] = view.getUint32(base + 8, true);
   }
   geometry.setIndex(new THREE.BufferAttribute(indices, 1));
   geometry.computeBoundingBox();
@@ -280,10 +294,11 @@ function parseMeshV3(bytes, offset) {
   const vertexSize = view.getUint8(offset + 2);
   const faceSize = view.getUint8(offset + 3);
   if (headerSize < 16) throw new Error(`unsupported v3 mesh header size ${headerSize}`);
+  const lodCount = view.getUint16(offset + 6, true);
   const vertexCount = view.getUint32(offset + 8, true);
   const faceCount = view.getUint32(offset + 12, true);
   return geometryFromBinary(bytes, offset, {
-    headerSize, vertexSize, faceSize, vertexCount, faceCount,
+    headerSize, vertexSize, faceSize, vertexCount, faceCount, lodCount,
   });
 }
 
@@ -292,6 +307,7 @@ function parseMeshV4(bytes, offset) {
   const headerSize = view.getUint16(offset, true);
   const vertexCount = view.getUint32(offset + 4, true);
   const faceCount = view.getUint32(offset + 8, true);
+  const lodCount = view.getUint16(offset + 12, true);
   const boneCount = view.getUint16(offset + 14, true);
   return geometryFromBinary(bytes, offset, {
     headerSize,
@@ -299,9 +315,142 @@ function parseMeshV4(bytes, offset) {
     faceSize: 12,
     vertexCount,
     faceCount,
+    lodCount,
     skinningBytes: boneCount > 0 ? vertexCount * 8 : 0,
   });
 }
+
+// Google's Draco decoder (vendor/draco, Apache-2.0), for version 7 meshes.
+let dracoModule = null;
+function loadDraco() {
+  if (!dracoModule) {
+    dracoModule = (async () => {
+      await new Promise((resolve, reject) => {
+        const script = document.createElement('script');
+        script.src = '../vendor/draco/draco_wasm_wrapper.js';
+        script.onload = resolve;
+        script.onerror = () => reject(new Error('could not load the Draco decoder'));
+        document.head.appendChild(script);
+      });
+      const wasmBinary = await (await fetch('../vendor/draco/draco_decoder.wasm')).arrayBuffer();
+      // DracoDecoderModule is the global the wrapper script defines.
+      return new Promise(resolve => window.DracoDecoderModule({wasmBinary, onModuleLoaded: resolve}));
+    })();
+  }
+  return dracoModule;
+}
+
+async function decodeDraco(bytes) {
+  const draco = await loadDraco();
+  const decoder = new draco.Decoder();
+  const mesh = new draco.Mesh();
+  try {
+    const input = new Int8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    const status = decoder.DecodeArrayToMesh(input, bytes.byteLength, mesh);
+    if (!status.ok() || mesh.ptr === 0) throw new Error(`Draco: ${status.error_msg()}`);
+    const points = mesh.num_points();
+    const attributes = [];
+    for (let i = 0; i < mesh.num_attributes(); i += 1) {
+      const attribute = decoder.GetAttribute(mesh, i);
+      const components = attribute.num_components();
+      const float = attribute.data_type() === draco.DT_FLOAT32;
+      const length = points * components;
+      const byteLength = length * (float ? 4 : 1);
+      const ptr = draco._malloc(byteLength);
+      decoder.GetAttributeDataArrayForAllPoints(mesh, attribute, float ? draco.DT_FLOAT32 : draco.DT_UINT8, byteLength, ptr);
+      const values = float
+        ? new Float32Array(draco.HEAPF32.buffer, ptr, length).slice()
+        : new Uint8Array(draco.HEAPU8.buffer, ptr, length).slice();
+      draco._free(ptr);
+      attributes.push({components, float, values});
+    }
+    const faces = mesh.num_faces();
+    const indexBytes = faces * 12;
+    const ptr = draco._malloc(indexBytes);
+    decoder.GetTrianglesUInt32Array(mesh, indexBytes, ptr);
+    const indices = new Uint32Array(draco.HEAPU32.buffer, ptr, faces * 3).slice();
+    draco._free(ptr);
+    return {points, attributes, indices};
+  } finally {
+    draco.destroy(mesh);
+    draco.destroy(decoder);
+  }
+}
+
+// Version 6 and 7 meshes are a list of chunks: an 8-byte name, a u32 version, a u32
+// size and the data. COREMESH holds the geometry (version 1: 40-byte vertices then
+// faces; version 2: a Draco bitstream whose float attributes are position, normal
+// and uv), LODS the first face of each level of detail.
+async function parseMeshChunks(bytes, offset) {
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const chunks = {};
+  while (offset + 16 <= bytes.length) {
+    const name = dataViewString(bytes, offset, offset + 8).split('\u0000')[0];
+    const version = view.getUint32(offset + 8, true);
+    const size = view.getUint32(offset + 12, true);
+    offset += 16;
+    if (offset + size > bytes.length) throw new Error(`truncated ${name} mesh chunk`);
+    chunks[name] = {version, data: bytes.subarray(offset, offset + size)};
+    offset += size;
+  }
+  const core = chunks.COREMESH;
+  if (!core) throw new Error('mesh has no COREMESH chunk');
+  let positions;
+  let normals = null;
+  let uvs = null;
+  let indices;
+  const coreView = new DataView(core.data.buffer, core.data.byteOffset, core.data.byteLength);
+  if (core.version === 1) {
+    const count = coreView.getUint32(0, true);
+    const attrs = readBinaryVertices(coreView, 4, 40, count);
+    positions = attrs.positions;
+    normals = attrs.normals;
+    uvs = attrs.uvs;
+    const faceStart = 8 + count * 40;
+    const faceCount = coreView.getUint32(4 + count * 40, true);
+    indices = new Uint32Array(faceCount * 3);
+    for (let i = 0; i < faceCount * 3; i += 1) indices[i] = coreView.getUint32(faceStart + i * 4, true);
+  } else if (core.version === 2) {
+    const size = coreView.getUint32(0, true);
+    const decoded = await decodeDraco(core.data.subarray(4, 4 + size));
+    const floats = decoded.attributes.filter(a => a.float);
+    const vec3 = floats.filter(a => a.components === 3);
+    positions = vec3[0]?.values;
+    normals = vec3[1]?.values || null;
+    const uv = floats.find(a => a.components === 2)?.values;
+    if (uv) {
+      uvs = new Float32Array(uv.length);
+      for (let i = 0; i < uv.length; i += 2) {
+        uvs[i] = uv[i];
+        uvs[i + 1] = 1 - uv[i + 1];
+      }
+    }
+    indices = decoded.indices;
+  } else {
+    throw new Error(`unsupported COREMESH version ${core.version}`);
+  }
+  if (!positions) throw new Error('mesh has no positions');
+  const lods = chunks.LODS;
+  if (lods && lods.data.length >= 7) {
+    const lodView = new DataView(lods.data.buffer, lods.data.byteOffset, lods.data.byteLength);
+    const count = lodView.getUint32(3, true);
+    if (count >= 2 && 7 + count * 4 <= lods.data.length) {
+      const start = lodView.getUint32(7, true);
+      const end = lodView.getUint32(11, true);
+      if (start < end && end * 3 <= indices.length) indices = indices.slice(start * 3, end * 3);
+    }
+  }
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  if (normals && normals.length === positions.length) geometry.setAttribute('normal', new THREE.BufferAttribute(normals, 3));
+  if (uvs && uvs.length * 3 === positions.length * 2) geometry.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
+  geometry.setIndex(new THREE.BufferAttribute(indices, 1));
+  if (!geometry.attributes.normal) geometry.computeVertexNormals();
+  geometry.computeBoundingBox();
+  geometry.computeBoundingSphere();
+  return geometry;
+}
+
 
 function parseRobloxMesh(buffer) {
   const bytes = new Uint8Array(buffer);
@@ -310,8 +459,11 @@ function parseRobloxMesh(buffer) {
   if (version.startsWith('version 2.')) return parseMeshV2(bytes, offset);
   if (version.startsWith('version 3.')) return parseMeshV3(bytes, offset);
   if (version.startsWith('version 4.') || version.startsWith('version 5.')) return parseMeshV4(bytes, offset);
+  if (version.startsWith('version 6.') || version.startsWith('version 7.')) return parseMeshChunks(bytes, offset);
   throw new Error(`unsupported Roblox mesh ${version}`);
 }
+
+const meshParseFailures = [];
 
 async function loadMeshGeometry(uri) {
   const assetId = meshAssetId(uri);
@@ -323,8 +475,11 @@ async function loadMeshGeometry(uri) {
     if (!url) return null;
     const response = await fetch(url);
     if (!response.ok) return null;
-    return parseRobloxMesh(await response.arrayBuffer());
-  })().catch(() => null);
+    return await parseRobloxMesh(await response.arrayBuffer());
+  })().catch(error => {
+    meshParseFailures.push(`${assetId}: ${error.message}`);
+    return null;
+  });
   sceneMeshGeometryCache.set(assetId, promise);
   return promise;
 }
@@ -411,10 +566,13 @@ function shapeGeometry(node) {
   return new THREE.BoxGeometry(x, y, z);
 }
 
+const NEON_BRIGHTNESS = 3;
 const MATERIAL_TABLE = {
   Plastic: {roughness: 0.72, metalness: 0.0},
   SmoothPlastic: {roughness: 0.48, metalness: 0.0},
-  Neon: {roughness: 0.9, metalness: 0.0, emissiveIntensity: 1.0},
+  // Neon is unlit and drawn about 3x brighter than its colour, clipped per channel
+  // (Studio: orange turns yellow-orange, blue turns cyan); what passes white glows.
+  Neon: {roughness: 0.9, metalness: 0.0, emissiveIntensity: NEON_BRIGHTNESS, unlit: true},
   Glass: {roughness: 0.12, metalness: 0.0, opacityScale: 0.72},
   // No environment map to reflect, so high metalness renders near-black; Studio's
   // metals read as their own colour with a sheen (screenshot comparison).
@@ -921,7 +1079,7 @@ function addPart(node, parent) {
   const color = colorValue(node.props?.Color);
   const opacity = Math.max(0, Math.min(1, (1 - transparency) * Number(materialSpec.opacityScale ?? 1)));
   const material = new THREE.MeshStandardMaterial({
-    color,
+    color: materialSpec.unlit ? new THREE.Color(0x000000) : color,
     roughness: materialSpec.roughness,
     metalness: Math.max(materialSpec.metalness, reflectance),
     emissive: materialSpec.emissiveIntensity ? color.clone() : new THREE.Color(0x000000),
@@ -2567,6 +2725,9 @@ async function reportNotes() {
   if (terrainSummary) {
     notes.push(`terrain drawn smooth (${terrainSummary.materials.join(', ')}); materials meet with a hard edge where Roblox blends them`);
   }
+  if (meshParseFailures.length) {
+    notes.push(`${meshParseFailures.length} cached mesh file(s) could not be read and are drawn as boxes (${meshParseFailures.slice(0, 3).join('; ')})`);
+  }
   if (localLightsDropped) {
     notes.push(`drew the ${MAX_LOCAL_LIGHTS} most relevant local lights; ${localLightsDropped} farther ones were left out`);
   }
@@ -2620,6 +2781,253 @@ function configureCamera(camera, node) {
   camera.far = 10000;
   camera.updateProjectionMatrix();
   camera.updateMatrixWorld(true);
+}
+
+// Post-processing: Neon glow, Lighting's BloomEffect and ColorCorrectionEffect.
+//
+// Neon glows in Roblox whatever the place's effects: its parts are drawn again into
+// a separate buffer at a fraction of the screen's resolution (half or quarter,
+// depending on the graphics level), blurred, and added over the picture. Here that
+// buffer is a quarter-resolution copy of the scene with Neon's brightness past white
+// and everything else black (so geometry in front hides the glow), blurred with a
+// separable Gaussian and added. Checked against Studio at its highest quality level,
+// where Neon glows (at low quality levels Studio draws no glow and no post effects). BloomEffect adds the blurred parts of the picture
+// brighter than its Threshold; ColorCorrectionEffect then adjusts brightness,
+// contrast, saturation and tint. The scene is drawn into a half-float buffer so
+// Neon can be brighter than white, as in Roblox's HDR renderer. Glow size and
+// strength are set by eye.
+const NEON_GLOW_STRENGTH = 1.2;
+const NEON_GLOW_RADIUS_PX = 12;  // at 1080 px screen height; scales with the height
+let postEffects = null;
+
+function readPostEffects(index) {
+  const lighting = nodesOfClass(index, 'Lighting')[0];
+  const lightingIndex = lighting ? index : null;
+  const children = lighting ? Object.values(lighting.children || {}) : [];
+  const enabled = node => node.props?.Enabled !== false;
+  const bloom = children.find(c => c.className === 'BloomEffect' && enabled(c)) || null;
+  const corrections = children.filter(c => c.className === 'ColorCorrectionEffect' && enabled(c));
+  const neon = [];
+  scene.traverse(object => {
+    if (object.isMesh && object.userData?.rhrNode?.props?.Material?.name === 'Neon') neon.push(object);
+  });
+  const exposure = Number(lighting?.props?.ExposureCompensation ?? 0);
+  return {
+    lighting: lightingIndex,
+    neon,
+    bloom: bloom ? {
+      intensity: Math.max(0, Number(bloom.props?.Intensity ?? 1)),
+      size: Math.max(0, Number(bloom.props?.Size ?? 24)),
+      threshold: Math.max(0, Number(bloom.props?.Threshold ?? 2)),
+    } : null,
+    corrections: corrections.map(c => ({
+      brightness: Number(c.props?.Brightness ?? 0),
+      contrast: Number(c.props?.Contrast ?? 0),
+      saturation: Number(c.props?.Saturation ?? 0),
+      tint: colorValue(c.props?.TintColor, 0xffffff),
+    })),
+    exposure: Number.isFinite(exposure) ? Math.max(-3, Math.min(3, exposure)) : 0,
+  };
+}
+
+const fullscreenCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+const fullscreenQuad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2));
+const fullscreenScene = new THREE.Scene();
+fullscreenScene.add(fullscreenQuad);
+
+function drawFullscreen(material, target) {
+  fullscreenQuad.material = material;
+  renderer.setRenderTarget(target);
+  renderer.render(fullscreenScene, fullscreenCamera);
+}
+
+const FULLSCREEN_VERTEX = `
+varying vec2 vUv;
+void main() { vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }`;
+
+function blurMaterial() {
+  return new THREE.ShaderMaterial({
+    uniforms: {source: {value: null}, direction: {value: new THREE.Vector2()}, sigma: {value: 4}},
+    vertexShader: FULLSCREEN_VERTEX,
+    fragmentShader: `
+uniform sampler2D source; uniform vec2 direction; uniform float sigma;
+varying vec2 vUv;
+void main() {
+  vec4 sum = vec4(0.0); float total = 0.0;
+  for (int i = -24; i <= 24; i++) {
+    float x = float(i);
+    if (abs(x) > 3.0 * sigma + 1.0) continue;
+    float w = exp(-0.5 * x * x / (sigma * sigma));
+    sum += texture2D(source, vUv + direction * x) * w;
+    total += w;
+  }
+  gl_FragColor = sum / total;
+}`,
+    depthTest: false,
+    depthWrite: false,
+  });
+}
+
+function makeTarget(w, h) {
+  return new THREE.WebGLRenderTarget(Math.max(1, w), Math.max(1, h), {
+    type: THREE.HalfFloatType,
+    colorSpace: THREE.LinearSRGBColorSpace,
+    depthBuffer: true,
+  });
+}
+
+// Blur `source` into `out` (same size) with a Gaussian of `sigma` texels.
+function gaussian(source, scratch, out, sigma) {
+  const material = blurMaterial();
+  material.uniforms.sigma.value = Math.max(0.5, Math.min(16, sigma));
+  material.uniforms.source.value = source.texture;
+  material.uniforms.direction.value.set(1 / source.width, 0);
+  drawFullscreen(material, scratch);
+  material.uniforms.source.value = scratch.texture;
+  material.uniforms.direction.value.set(0, 1 / source.height);
+  drawFullscreen(material, out);
+  material.dispose();
+}
+
+// Draw Neon parts only, in their colour; everything else black so it hides glow behind it.
+function renderNeonBuffer(camera, target) {
+  const black = new THREE.MeshBasicMaterial({color: 0x000000});
+  const swapped = [];
+  const background = scene.background;
+  const fog = scene.fog;
+  scene.background = null;
+  scene.fog = null;
+  scene.traverse(object => {
+    if (!object.isMesh && !object.isLineSegments) return;
+    const node = object.userData?.rhrNode;
+    const neon = node?.props?.Material?.name === 'Neon';
+    swapped.push([object, object.material, object.visible]);
+    if (neon) {
+      const transparency = Math.max(0, Math.min(1, Number(node.props?.Transparency ?? 0)));
+      // Only the part of the colour past white glows (Studio: bright orange glows
+      // red, grey and dim colours do not glow at all).
+      const glow = colorValue(node.props?.Color).multiplyScalar(NEON_BRIGHTNESS);
+      glow.setRGB(Math.max(0, glow.r - 1), Math.max(0, glow.g - 1), Math.max(0, glow.b - 1));
+      object.material = new THREE.MeshBasicMaterial({color: glow.multiplyScalar(1 - transparency)});
+    } else if (object.isLineSegments || (object.material?.transparent && object.material.opacity < 0.5)) {
+      object.visible = false;
+    } else {
+      object.material = black;
+    }
+  });
+  const clearColor = renderer.getClearColor(new THREE.Color());
+  const clearAlpha = renderer.getClearAlpha();
+  renderer.setRenderTarget(target);
+  renderer.setClearColor(0x000000, 1);
+  renderer.clear();
+  renderer.render(scene, camera);
+  renderer.setClearColor(clearColor, clearAlpha);
+  for (const [object, material, visible] of swapped) {
+    if (object.material !== material && object.material !== black) object.material.dispose();
+    object.material = material;
+    object.visible = visible;
+  }
+  black.dispose();
+  scene.background = background;
+  scene.fog = fog;
+}
+
+function compositeMaterial(effects) {
+  const corrections = effects.corrections;
+  const uniforms = {
+    scene: {value: null},
+    neon: {value: null},
+    bloom: {value: null},
+    neonStrength: {value: effects.neon.length ? NEON_GLOW_STRENGTH : 0},
+    bloomStrength: {value: effects.bloom ? effects.bloom.intensity : 0},
+    exposure: {value: Math.pow(2, effects.exposure)},
+    ccBrightness: {value: corrections.reduce((sum, c) => sum + c.brightness, 0)},
+    ccContrast: {value: corrections.reduce((product, c) => product * (1 + c.contrast), 1)},
+    ccSaturation: {value: corrections.reduce((product, c) => product * (1 + c.saturation), 1)},
+    ccTint: {value: corrections.reduce((tint, c) => tint.multiply(c.tint), new THREE.Color(1, 1, 1))},
+  };
+  return new THREE.ShaderMaterial({
+    uniforms,
+    vertexShader: FULLSCREEN_VERTEX,
+    fragmentShader: `
+uniform sampler2D scene; uniform sampler2D neon; uniform sampler2D bloom;
+uniform float neonStrength; uniform float bloomStrength; uniform float exposure;
+uniform float ccBrightness; uniform float ccContrast; uniform float ccSaturation; uniform vec3 ccTint;
+varying vec2 vUv;
+vec3 toSRGB(vec3 c) {
+  c = clamp(c, 0.0, 1.0);
+  return mix(c * 12.92, 1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055, step(0.0031308, c));
+}
+void main() {
+  vec3 color = texture2D(scene, vUv).rgb * exposure;
+  color += texture2D(neon, vUv).rgb * neonStrength;
+  color += texture2D(bloom, vUv).rgb * bloomStrength;
+  color *= ccTint;
+  vec3 srgb = toSRGB(color);
+  srgb += ccBrightness;
+  srgb = (srgb - 0.5) * ccContrast + 0.5;
+  float grey = dot(srgb, vec3(0.2126, 0.7152, 0.0722));
+  srgb = mix(vec3(grey), srgb, ccSaturation);
+  gl_FragColor = vec4(clamp(srgb, 0.0, 1.0), 1.0);
+}`,
+    depthTest: false,
+    depthWrite: false,
+  });
+}
+
+// Draw the frame: straight to the canvas when there is nothing to post-process.
+function renderFrame(camera) {
+  if (!postEffects) postEffects = readPostEffects(sceneIndex);
+  const effects = postEffects;
+  if (viewportMode || (!effects.neon.length && !effects.bloom && !effects.corrections.length && !effects.exposure)) {
+    renderer.setRenderTarget(null);
+    renderer.render(scene, camera);
+    return;
+  }
+  const size = renderer.getSize(new THREE.Vector2());
+  const main = makeTarget(size.x, size.y);
+  main.samples = 4;
+  renderer.setRenderTarget(main);
+  renderer.render(scene, camera);
+
+  const scale = size.y / 1080;
+  const quarter = [Math.ceil(size.x / 4), Math.ceil(size.y / 4)];
+  const neonRaw = makeTarget(...quarter);
+  const neonScratch = makeTarget(...quarter);
+  const neonBlur = makeTarget(...quarter);
+  if (effects.neon.length) {
+    renderNeonBuffer(camera, neonRaw);
+    gaussian(neonRaw, neonScratch, neonBlur, (NEON_GLOW_RADIUS_PX * scale) / 4);
+  }
+  const bloomBlur = makeTarget(...quarter);
+  if (effects.bloom) {
+    // Bright pass at quarter resolution: what is brighter than the threshold.
+    const bright = new THREE.ShaderMaterial({
+      uniforms: {source: {value: main.texture}, threshold: {value: effects.bloom.threshold * 0.5}},
+      vertexShader: FULLSCREEN_VERTEX,
+      fragmentShader: `
+uniform sampler2D source; uniform float threshold; varying vec2 vUv;
+void main() {
+  vec3 c = texture2D(source, vUv).rgb;
+  float l = max(c.r, max(c.g, c.b));
+  gl_FragColor = vec4(c * max(0.0, l - threshold) / max(l, 1e-4), 1.0);
+}`,
+      depthTest: false,
+      depthWrite: false,
+    });
+    drawFullscreen(bright, neonScratch);
+    bright.dispose();
+    const scratch = makeTarget(...quarter);
+    gaussian(neonScratch, scratch, bloomBlur, (effects.bloom.size * scale) / 8);
+    scratch.dispose();
+  }
+  const composite = compositeMaterial(effects);
+  composite.uniforms.scene.value = main.texture;
+  composite.uniforms.neon.value = neonBlur.texture;
+  composite.uniforms.bloom.value = bloomBlur.texture;
+  drawFullscreen(composite, null);
+  composite.dispose();
+  for (const target of [main, neonRaw, neonScratch, neonBlur, bloomBlur]) target.dispose();
 }
 
 async function main() {
@@ -2697,10 +3105,10 @@ async function main() {
     await addTrails(index, camera);
     await reportCamera(camera);
     await reportNotes();
-    renderer.render(scene, camera);
+    renderFrame(camera);
   }
   await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-  renderer.render(scene, camera);
+  renderFrame(camera);
   await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
   if (!viewportMode) {
     await addBillboards(index, camera);

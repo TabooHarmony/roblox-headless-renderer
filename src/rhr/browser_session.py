@@ -103,6 +103,9 @@ def status() -> dict:
         "running": code == 200 and bool(payload.get("ok")),
         "pid": pid,
         "port": port,
+        # How the worker draws WebGL (rhr.browser_render.webgl_mode); a worker from
+        # before this field existed drew in software.
+        "webgl": payload.get("webgl", "software"),
     }
 
 
@@ -131,6 +134,11 @@ def _detached() -> dict:
 
 def ensure() -> tuple[dict, bool]:
     current = status()
+    from rhr.browser_render import webgl_mode
+
+    if current.get("running") and current.get("webgl") != webgl_mode():
+        stop()  # started with the other WebGL mode: restart it in this one
+        current = status()
     if current.get("running"):
         state = _read_state()
         assert state is not None

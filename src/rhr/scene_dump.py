@@ -225,6 +225,8 @@ def build_scene_dump(
         props = node.get("props") or {}
         in_lighting = in_lighting or class_name == "Lighting"
         class_counts[class_name] = class_counts.get(class_name, 0) + 1
+        if class_name in NOT_DRAWN_CLASSES and props.get("Enabled") is not False:
+            unsupported_counts[class_name] = unsupported_counts.get(class_name, 0) + 1
 
         # Model.Scale is not applied: saved parts already carry their scaled
         # CFrames and Sizes (ScaleTo rewrites them; Scale only records the factor).
@@ -509,9 +511,11 @@ def build_scene_dump(
 # are not listed: they are compared with Studio, and a missing mesh or union is a
 # geometry fallback instead.
 EXPERIMENTAL_CLASSES = (
-    "Atmosphere", "Beam", "Decal", "ParticleEmitter", "PointLight",
-    "SpotLight", "SurfaceLight", "Texture", "Trail",
+    "Atmosphere", "Beam", "BloomEffect", "ColorCorrectionEffect", "Decal", "ParticleEmitter",
+    "PointLight", "SpotLight", "SurfaceLight", "Texture", "Trail",
 )
+# Present in Lighting but not drawn at all.
+NOT_DRAWN_CLASSES = ("Clouds", "SunRaysEffect", "DepthOfFieldEffect", "BlurEffect")
 
 
 def _experimental(class_counts: dict[str, int], materials: int) -> dict[str, int]:

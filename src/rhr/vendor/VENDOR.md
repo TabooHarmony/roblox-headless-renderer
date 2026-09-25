@@ -44,3 +44,12 @@ getting an explicit yes first.
 
 The browser scene uses this local bundle only. It does not load JavaScript from
 CDNs or install npm packages at render time.
+
+## Draco decoder
+
+- Upstream: https://github.com/google/draco, the WebAssembly build three.js `0.186.0`
+  ships in `examples/jsm/libs/draco/` (fetched from that npm package, unmodified)
+- Location: `src/rhr/vendor/draco/`
+- License: Apache License 2.0, see `src/rhr/vendor/draco/LICENSE`
+- Files used: `draco_wasm_wrapper.js` and `draco_decoder.wasm`, loaded by the scene
+  page only when a version 7 Roblox mesh (Draco-compressed geometry) is drawn

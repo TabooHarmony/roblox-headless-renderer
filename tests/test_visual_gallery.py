@@ -101,7 +101,10 @@ def main() -> None:
             assert red > 500, red
             assert blue > 2000, blue
             assert cyan > 1000, cyan
-            assert purple > 1000, purple
+            # About 100 of the old "purple" pixels were the greyish-pink wall beside the
+            # orange Neon lamp; its glow now lifts them out of this band. The sphere is
+            # unchanged.
+            assert purple > 850, purple
 
             # The composed ScreenGui title occupies this corner and must not vanish.
             hud_crop = image.crop((0, 0, 190, 60))

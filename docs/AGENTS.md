@@ -34,7 +34,7 @@ it: a different version means the shape changed.
    change moved.
 
 For repeated 3D renders, `rhr browser start` once keeps Chromium warm; renders then
-take well under a second. `rhr browser stop` when done.
+take a second or two on a machine with a GPU. `rhr browser stop` when done.
 
 ## Reading paths
 

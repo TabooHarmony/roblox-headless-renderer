@@ -6,8 +6,8 @@ differ in how long Chromium lives, never in how a page is drawn or captured.
 
 A page is captured once it sets `data-rhr-ready` (or fails with `data-rhr-error`),
 not after a fixed time budget, so a slow machine waits instead of screenshotting a
-half-built scene. WebGL always runs on SwiftShader (software) so pixels do not
-depend on the host GPU or driver.
+half-built scene. WebGL runs on the machine's GPU, or on SwiftShader (software)
+with `RHR_WEBGL=software` so pixels do not depend on the host GPU or driver.
 """
 
 from __future__ import annotations
@@ -15,15 +15,33 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-LAUNCH_ARGS = [
+_COMMON_ARGS = [
     "--no-sandbox",
     "--disable-dev-shm-usage",
     "--disable-background-networking",
     "--hide-scrollbars",
-    "--use-angle=swiftshader",
-    "--enable-unsafe-swiftshader",
     "--ignore-gpu-blocklist",
+    # Lets WebGL fall back to software on a machine without a usable GPU.
+    "--enable-unsafe-swiftshader",
 ]
+
+
+def webgl_mode() -> str:
+    """'gpu' (default: the machine's GPU, about 8x faster) or 'software' (SwiftShader).
+
+    `RHR_WEBGL=software` draws on the CPU, so pixels do not depend on the GPU or its
+    driver; tests and CI use it. A GPU render differs from a software one by well under
+    1% of pixels, by a shade or two.
+    """
+    value = os.environ.get("RHR_WEBGL", "").strip().lower()
+    return "software" if value in {"software", "swiftshader", "cpu"} else "gpu"
+
+
+def launch_args() -> list[str]:
+    if webgl_mode() == "software":
+        return [*_COMMON_ARGS, "--use-angle=swiftshader"]
+    return [*_COMMON_ARGS, "--enable-gpu"]
+
 
 # A slow machine drawing WebGL in software needs well over the old 45 s.
 TIMEOUT_MS = 150_000
@@ -39,7 +57,7 @@ def launch(playwright):
         return playwright.chromium.launch(
             executable_path=executable,
             headless=True,
-            args=LAUNCH_ARGS,
+            args=launch_args(),
         )
     except Exception as exc:  # playwright raises its own Error type
         if executable is None and "Executable doesn't exist" in str(exc):

@@ -90,8 +90,10 @@ MCP server with a subset of the commands (scene inspection, preview, compare) fo
 hosts that prefer tools to a shell. Install it with
 `pip install "roblox-headless-renderer[mcp] @ git+https://github.com/TabooHarmony/roblox-headless-renderer"`.
 
-For repeated 3D renders, `rhr browser start` keeps one Chromium running in the
-background, which makes each render much faster. RHR also remembers the last
+3D renders use the GPU (about 8x faster than software rendering; set
+`RHR_WEBGL=software` for identical pixels on every machine, as the tests do). For
+repeated 3D renders, `rhr browser start` keeps one Chromium running in the
+background, which makes each render faster still. RHR also remembers the last
 conversion of each file, so running several commands on an unchanged file only reads
 it once.
 

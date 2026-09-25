@@ -14,6 +14,7 @@ import os
 # the Studio login, no textures from a local Studio install.
 os.environ.setdefault("RHR_OFFLINE", "1")
 os.environ.setdefault("RHR_STUDIO_DIR", "0")
+os.environ.setdefault("RHR_WEBGL", "software")
 
 
 def run_main(main) -> None:

@@ -114,8 +114,14 @@ signed in, see below):
   pre-2022 set; a model file (no MaterialService) uses the current one. Metals follow
   `Lighting.EnvironmentSpecularScale`: at 0 they read as their colour, as in Studio; at
   1 they reflect the sky. A part's MaterialVariant uses its own maps, tinted by the
-  part's Color and tiled at its StudsPerTile, once they are cached. Neon glows;
-  glass-like materials are see-through. Unknown materials draw as Plastic and are
+  part's Color and tiled at its StudsPerTile, once they are cached. Glass-like
+  materials are see-through.
+- Neon is unlit and drawn about 3x brighter than its colour, clipped per channel, and
+  what passes white glows: a blurred quarter-resolution copy added over the picture,
+  as Roblox does it. Compared with Studio at its highest quality level: the same parts
+  glow in the same colours (bright orange glows red, grey and dim colours do not glow).
+  Studio's Neon faces are more saturated than RHR's. At low quality levels Studio
+  draws no glow at all. Unknown materials draw as Plastic and are
   counted as `materialFallbacks`. `--flat-materials` draws plain colours.
 - Plastic has Roblox's faint surface relief, and legacy surfaces (`TopSurface =
   Studs`, Inlet, Weld, Glue, Universal on block Parts of Plastic or SmoothPlastic) are
@@ -145,9 +151,13 @@ stderr says so on every 3D render.
 
 - Lighting: Ambient, OutdoorAmbient, Brightness, EnvironmentDiffuseScale, ClockTime
   and GeographicLatitude drive the sun and sky light; intensities are tuned by eye
-  against Studio screenshots. Post-processing (Bloom, ColorCorrection, SunRays,
-  DepthOfField) and Clouds are not drawn. Shadows are off unless
+  against Studio screenshots. `ExposureCompensation` is applied. Shadows are off unless
   you pass `--shadows` (Studio draws them by default).
+- Post-processing (experimental): `BloomEffect` (what is brighter than its Threshold,
+  blurred by its Size, added at its Intensity) and `ColorCorrectionEffect` (Brightness,
+  Contrast, Saturation, TintColor) are drawn, set by eye; Studio's own at low quality
+  levels draws neither. `SunRaysEffect`, `DepthOfFieldEffect`, `BlurEffect` and
+  `Clouds` are not drawn and are listed under `unsupportedVisualClasses`.
 - Point, Spot and Surface lights: colour, brightness, range and angle are used;
   intensity is not calibrated. At most the 16 most relevant (nearest the camera,
   weighted by range and brightness) are drawn, because each light costs every pixel;
@@ -164,12 +174,25 @@ stderr says so on every 3D render.
 **Drawn as stand-ins, and reported as such:**
 
 - MeshParts and FileMeshes use cached mesh files, downloaded before a render with
-  the Studio login (Roblox serves most meshes only to a signed-in account). A MeshPart
+  the Studio login (Roblox serves most meshes only to a signed-in account). Every mesh
+  format is read, including versions 6 and 7 (version 7 is Draco-compressed; RHR
+  ships Google's decoder); only the most detailed level of detail is drawn. A mesh file
+  that cannot be read is drawn as a box and a note says so. A MeshPart
   with its mesh is drawn with its SurfaceAppearance maps through the mesh's UVs
   (AlphaMode Transparency cuts out, Overlay shows the part colour through; normal,
   roughness and metalness maps are used). Without the mesh it is a placeholder: its
   bounding box with an outline, no shadow, coloured from the SurfaceAppearance image,
   counted as a geometry fallback. Skinned meshes, bones and LOD are not modelled.
+
+## Rendering speed and the GPU
+
+3D renders use the machine's GPU through Chromium's WebGL, which is about eight
+times faster than software rendering (a textured test scene: 2 s instead of 17 s).
+Pixels can then differ slightly between GPUs: on the development machine a GPU render
+differed from a software one on 0.13% of pixels, by 0.4/255 on average.
+`RHR_WEBGL=software` draws on the CPU (SwiftShader) for identical pixels everywhere;
+the tests and CI use it. A machine without a usable GPU falls back to software by
+itself.
 
 ## In-world UI (BillboardGui, SurfaceGui)
 

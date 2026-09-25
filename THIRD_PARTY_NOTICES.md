@@ -71,3 +71,11 @@ metadata on redistribution.
 documented by rbx_mesh (https://github.com/krakow10/rbx_mesh, MIT OR Apache-2.0).
 No rbx_mesh code is included; the decoder is an independent implementation.
 
+## Draco decoder (vendored)
+
+- Location: `src/rhr/vendor/draco/` (`draco_wasm_wrapper.js`, `draco_decoder.wasm`)
+- Upstream: https://github.com/google/draco, the build three.js r186 ships in
+  `examples/jsm/libs/draco/`
+- License: Apache License 2.0 (`src/rhr/vendor/draco/LICENSE`)
+- Used to read version 7 Roblox meshes, whose geometry is Draco-compressed.
+

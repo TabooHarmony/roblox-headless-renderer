@@ -316,7 +316,11 @@ def _render_browser(
         if persistent_setting is None:
             from rhr.browser_session import status as browser_status
 
-            persistent = bool(browser_status().get("running"))
+            from rhr.browser_render import webgl_mode
+
+            # A worker drawing in the other WebGL mode is not used (RHR_WEBGL).
+            worker = browser_status()
+            persistent = bool(worker.get("running")) and worker.get("webgl") == webgl_mode()
         else:
             persistent = persistent_setting.lower() in {"1", "true", "yes", "on"}
         if persistent:

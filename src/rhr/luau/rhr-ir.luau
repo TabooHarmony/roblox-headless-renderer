@@ -153,6 +153,7 @@ local VISUAL_CLASSES = {
   Terrain = true, Sky = true, Atmosphere = true, SurfaceAppearance = true,
   MaterialVariant = true, Highlight = true, NegateOperation = true,
   Clouds = true, BloomEffect = true, ColorCorrectionEffect = true, SunRaysEffect = true,
+  DepthOfFieldEffect = true, BlurEffect = true,
   -- Its per-material overrides pick the MaterialVariant parts and Terrain draw with.
   MaterialService = true,
 }

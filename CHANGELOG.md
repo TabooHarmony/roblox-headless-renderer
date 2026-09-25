@@ -31,6 +31,16 @@ Studio on a swatch of materials, a union and terrain, and on real game places.
   surfaces (a Baseplate's studs; Inlet, Weld, Glue, Universal).
 - **SurfaceAppearance and MaterialVariant** normal, roughness and metalness maps.
 - Metals and glass reflect the sky.
+- **Neon glows** the way Roblox does it at high quality (checked in Studio): drawn
+  about 3x brighter than its colour, and what passes white glows, blurred at quarter
+  resolution. `BloomEffect` and `ColorCorrectionEffect` are drawn (experimental);
+  SunRays, DepthOfField, Blur and Clouds are reported as not drawn.
+- **Every mesh format**, including versions 6 and 7 (Draco-compressed; RHR ships
+  Google's decoder). Many recently uploaded meshes are version 7 and were drawn as
+  boxes. Only the most detailed level of detail is drawn now (all levels used to be
+  drawn on top of each other).
+- **3D renders use the GPU**: about 8x faster (a textured scene: 2 s instead of 17 s).
+  `RHR_WEBGL=software` keeps software rendering, as tests and CI do.
 
 ### Fixed
 
