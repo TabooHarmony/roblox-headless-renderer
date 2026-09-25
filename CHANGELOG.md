@@ -37,7 +37,7 @@ Atmosphere outside Lighting no longer applies. Known difference: negative
   a translucent shell now, not solid red.
 - **Beam and Trail textures run along their length**, repeating `TextureLength` times
   in Stretch mode (they were sideways and stretched once): Jaxelos's tails wave.
-- **Highlight** is drawn: fill and outline, in Studio's order.
+- **Highlight** is drawn: fill and outline, in Studio's order (tested: AlwaysOnTop shows through a wall, Occluded does not).
 - **SpreadAngle axes** follow Roblox (Megumin's mushroom cloud spreads flat, not up).
 - **Disc ShapePartial** emits from the rim inward (ColorOrb's smoke is a ring).
 - **Roblox's "image unavailable" thumbnail** is no longer cached as a texture (it drew

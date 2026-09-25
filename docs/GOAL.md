@@ -78,7 +78,7 @@ exact visuals, Studio's own MCP is the tool for that.
 
 **In the release:**
 
-1. **VFX as a still frame.** Particles, Beams and Trails drawn inside `scene` and
+1. **VFX as a still frame (done, 2026-09-25).** Particles, Beams and Trails drawn inside `scene` and
    `preview`, frozen at one moment of the effect playing. Most real VFX are played by
    a script (`:Emit()` on disabled emitters); RHR reads the community's `EmitCount` /
    `EmitDelay` / `EmitDuration` attributes and plays them itself, then shows the
@@ -87,11 +87,16 @@ exact visuals, Studio's own MCP is the tool for that.
    glow, is it hidden), not what a still frame cannot show (motion, exact randomness,
    exact brightness). Checked against a local collection of community VFX that stays
    off GitHub:
-   - done: particles inside the 3D scene (hidden by walls), playing from attributes,
-     `LightEmission` blending for particles, Beams and Trails, `ZOffset`, emitter
-     rotation, flipbooks, `Squash`, every `Orientation`, framing that includes effects;
-   - next: side-by-side check against Studio on the collection; Roblox's built-in
-     particle textures from the Studio install; `LightInfluence` as lit or not.
+   - particles inside the 3D scene (hidden by walls), playing from attributes,
+     framing that includes effects, emitter rotation, flipbooks, every `Orientation`;
+   - measured in Studio and matched: particle size (2 x `Size`), `Squash`,
+     `SpreadAngle` axes, Disc `ShapePartial`, Beam and Trail texture direction and
+     repeat, Highlight fill and outline, and particle brightness, blending and tone
+     (fitted to a 108-particle sweep, 9/255 RMS);
+   - side by side with Studio on ten community effects: five match, five close, none
+     misleading. Left for after the release: `TextureSpeed`, `LightInfluence`,
+     Roblox's built-in `rbxasset://` particle textures, fire saturation in very dense
+     effects.
 2. **Speed.** Measure where each render's time goes (Python and Lune start-up, scene
    rebuild, texture loading, the sky-visibility grid, the frame itself), keep one warm
    browser running automatically, cut the biggest costs, and publish the measured
@@ -103,8 +108,8 @@ exact visuals, Studio's own MCP is the tool for that.
 
 - Animated VFX in 3D renders (GIFs, timelines). `rhr particles` still gives a
   contact sheet over time.
-- Special effects: Highlight, Clouds, SunRays, depth of field, custom shader tricks.
-  These stay reported as not drawn.
+- Special effects: Clouds, SunRays, depth of field, custom shader tricks. These stay
+  reported as not drawn. (Highlight is drawn since the VFX pass.)
 - Replacing Chromium. It is the first candidate after the release if speed is still
   the main complaint.
 - Further lighting and shadow tuning. Shadows stay on (they cost almost nothing on the
@@ -116,7 +121,7 @@ exact visuals, Studio's own MCP is the tool for that.
 
 **After the release, roughly in order:** replacing Chromium (if speed is still the
 complaint), terrain material blending and decorations, Clouds, SunRays, animated VFX,
-other special effects.
+the VFX details listed above, other special effects.
 
 ## Rules for new work
 

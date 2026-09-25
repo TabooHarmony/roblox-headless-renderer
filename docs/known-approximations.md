@@ -272,6 +272,10 @@ whether it glows; not the exact particles Roblox would draw.
   Lighting, the particles alone are blended this way and put back over the picture.
   The fit is to a default Baseplate in Studio; other Lighting shifts it. `ZOffset`
   moves particles toward the camera, keeping their size on screen.
+- **Background**: a file without Lighting is drawn on RHR's plain dark background
+  (32, 36, 43). Studio shows such a model over whatever place it is in, usually
+  darker, so dark smoke that reads light grey against Studio's backdrop can read dark
+  against RHR's. The effect itself is drawn the same.
 - **LightInfluence** is not applied. In Studio's default daylight it brightens a
   particle by 10-30% at most.
 - **Framing**: without a Camera or `--view`, the view covers visible parts and the
