@@ -1,3 +1,5 @@
+import math
+
 from .text_fonts import *
 
 _PIXEL_FONT_ADVANCE_EM = {"Press Start 2P": 1.0}
@@ -194,6 +196,34 @@ def _pixel_advance(font: skia.Font) -> float:
         font.getTypeface().getFamilyName(), 1.0)
 
 
+_ADVANCE_CEIL_SLACK = 0.2
+
+
+def _glyph_advances(run_text: str, font: skia.Font) -> list[float]:
+    """Each glyph's advance rounded up to a whole pixel, as Roblox places them.
+
+    Studio's TextBounds grow faster than the font at small sizes: at TextSize 16 a
+    19-character Builder Sans line is 126px where the exact advances sum to 116, and
+    per-glyph ceilings give 127 (five families, TextSize 8-100: 1.5% mean error, from
+    5.6% with exact advances; TextService:GetTextSize). An advance less than 0.2px
+    past a whole pixel stays on it (worst string 7px off instead of 11).
+    """
+    glyphs = font.textToGlyphs(run_text)
+    # The unhinted advances: hinting already snaps each one down to a whole pixel.
+    # (skia-python cannot copy a Font, so switch this one over and back.)
+    hinting, linear, subpixel = font.getHinting(), font.isLinearMetrics(), font.isSubpixel()
+    font.setHinting(skia.FontHinting.kNone)
+    font.setLinearMetrics(True)
+    font.setSubpixel(True)
+    try:
+        widths = font.getWidths(glyphs)
+    finally:
+        font.setHinting(hinting)
+        font.setLinearMetrics(linear)
+        font.setSubpixel(subpixel)
+    return [float(math.ceil(width - _ADVANCE_CEIL_SLACK)) for width in widths]
+
+
 def _measure_run_text(run_text: str, font: skia.Font) -> float:
     if not run_text:
         return 0.0
@@ -203,7 +233,7 @@ def _measure_run_text(run_text: str, font: skia.Font) -> float:
         return _robux_advance(font) * len(run_text)
     if _is_pixel_font(font):
         return _pixel_advance(font) * len(run_text)
-    return float(font.measureText(run_text))
+    return sum(_glyph_advances(run_text, font))
 
 
 def _text_path(run_text: str, font: skia.Font, x: float, baseline_y: float) -> skia.Path | None:
@@ -213,9 +243,11 @@ def _text_path(run_text: str, font: skia.Font, x: float, baseline_y: float) -> s
     glyph_paths = font.getPaths(glyphs)
     if not glyph_paths:
         return None
-    positions = font.getPos(glyphs, skia.Point(float(x), float(baseline_y)))
-    if not positions:
-        return None
+    positions = []
+    cursor = float(x)
+    for advance in _glyph_advances(run_text, font):
+        positions.append(skia.Point(cursor, float(baseline_y)))
+        cursor += advance
 
     out = skia.Path()
     has_path = False
@@ -366,8 +398,15 @@ def _draw_run_text(canvas: skia.Canvas, run_text: str, x: float, baseline_y: flo
                 for i, ch in enumerate(run_text):
                     canvas.drawString(ch, x + i * step, baseline_y, font, paint)
             return step * len(run_text)
-        canvas.drawString(run_text, x, baseline_y, font, paint)
-        return float(font.measureText(run_text))
+        advances = _glyph_advances(run_text, font)
+        xpos, cursor = [], 0.0
+        for advance in advances:
+            xpos.append(cursor)
+            cursor += advance
+        blob = skia.TextBlob.MakeFromPosTextH(run_text, xpos, 0.0, font)
+        if blob is not None:
+            canvas.drawTextBlob(blob, x, baseline_y, paint)
+        return cursor
     if _font_has_glyph(font, _ROBUX_CHAR):
         draw_font = _robux_draw_font(font)
         robux_adv = float(font.measureText(run_text))

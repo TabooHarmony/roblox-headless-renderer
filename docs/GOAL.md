@@ -203,6 +203,11 @@ side-by-side check against Studio for what it touched.
      light scattering fitted to Studio across Intensity and Spread.
    - **UI edge cases already known**: `UIPageLayout`, `FillEmptySpace` in flex and
      table layouts, clipping of overflowing non-wrapped text, and the small-text gap.
+     **Done (2026-09-26)**, against a new Studio fixture (tests/studio/ui_edge_cases,
+     52/52 rects): table FillEmptySpace and page spacing laid out as Studio does,
+     flex already matched, overflowing text no longer clipped to its label, and glyph
+     advances rounded up to whole pixels as Roblox does (text width error 5.6% ->
+     1.3%). Left: RHR's bundled Roboto differs from Studio's.
    - **VFX leftovers**: `TextureSpeed`, `LightInfluence` as lit or not. (Roblox's
      built-in `rbxasset://` particle textures now load from the install; not yet
      checked against Studio.)

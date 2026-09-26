@@ -216,10 +216,9 @@ def _draw_text_plain_rtl(canvas: skia.Canvas, x: float, y: float, w: float, h: f
     stroke_paints.sort(key=lambda t: t[0], reverse=True)
     max_stroke = max((t for t, _ in stroke_paints), default=0.0)
     canvas.save()
-    canvas.clipRect(skia.Rect.MakeXYWH(
-        content_x - max_stroke, content_y - max_stroke,
-        content_w + max_stroke * 2, content_h + max_stroke * 2,
-    ))
+    # Roblox does not clip a label's text to the label: unwrapped text longer than
+    # its box runs past it (left-aligned to the right, centred both ways, right-
+    # aligned to the left; Studio). Only a ClipsDescendants ancestor clips it.
 
     name = node.get("_debug_path") or node.get("name") or node.get("type", "?")
 
@@ -521,10 +520,9 @@ def _draw_text_plain(canvas: skia.Canvas, x: float, y: float, w: float, h: float
 
     max_stroke = max((t for t, _ in stroke_paints), default=0)
     canvas.save()
-    canvas.clipRect(skia.Rect.MakeXYWH(
-        content_x - max_stroke, content_y - max_stroke,
-        content_w + max_stroke * 2, content_h + max_stroke * 2,
-    ))
+    # Roblox does not clip a label's text to the label: unwrapped text longer than
+    # its box runs past it (left-aligned to the right, centred both ways, right-
+    # aligned to the left; Studio). Only a ClipsDescendants ancestor clips it.
 
     name = node.get("_debug_path") or node.get("name") or node.get("type", "?")
 

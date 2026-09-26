@@ -33,8 +33,9 @@ failures: list[str] = []
 # Studio fails this test until it is removed here, so the list cannot go stale.
 KNOWN = {
     ("ui_text.rbxlx", "StarterGui/UIText/Backdrop/Roboto_Wrap (text)"):
-        "18px Roboto measures ~6% narrower than Studio, so a line that overflows the "
-        "172px label in Studio still fits in RHR and the label does not wrap",
+        "'Wrapped text that needs' at 18px Roboto is 175px in Studio and 171px in RHR "
+        "(RHR's bundled Roboto is a different version from Studio's), so the line that "
+        "overflows the 172px label in Studio still fits in RHR and does not wrap",
 }
 
 

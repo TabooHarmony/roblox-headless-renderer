@@ -20,7 +20,9 @@ Semantics, each pinned by a Studio fixture (tests/studio/ui_*.rbxlx):
     (Fill, SpaceBetween, SpaceAround, SpaceEvenly), ItemLineAlignment and UIFlexItem.
   * UIGridLayout: cell size/padding, FillDirection, FillDirectionMaxCells, StartCorner,
     alignment of the cell block.
-  * UITableLayout: rows of cells, column widths and row heights from the largest cell.
+  * UITableLayout: rows of cells, column widths and row heights from the largest cell;
+    FillEmptySpaceColumns/Rows share the free space in proportion to those sizes.
+  * UIPageLayout: pages one container length (+ Padding) apart, the first at the origin.
   * ScrollingFrame: CanvasSize (+ AutomaticCanvasSize), CanvasPosition (clamped),
     children's Scale against the window.
 """
@@ -316,8 +318,10 @@ class UILayout:
         layout = _layout_object(node)
         children = _gui_children(node)
         kind = layout.get("className") if layout is not None else None
-        if kind in ("UIListLayout", "UIPageLayout"):
+        if kind == "UIListLayout":
             self._list(layout, children, content, k)
+        elif kind == "UIPageLayout":
+            self._pages(layout, children, content, k)
         elif kind == "UIGridLayout":
             self._grid(layout, children, content, k)
         elif kind == "UITableLayout":
@@ -435,6 +439,30 @@ class UILayout:
                 cursor += size_main + gap
             cross_cursor += line_extent + cross_padding
 
+    # ------------------------------------------------------------ UIPageLayout
+
+    def _pages(self, layout: dict, children: list[dict], content: Box, k: float) -> None:
+        """Pages side by side, one container length (plus Padding) apart, the first page
+        at the container's origin (edit mode shows the first page). A page smaller than
+        the container keeps its own size and sits at the start of its slot (Studio: half
+        size pages, Vertical, Padding 5 -> y 0, 125, 250 in a 120 px frame)."""
+        horizontal = _enum(layout, "FillDirection", "Horizontal") == "Horizontal"
+        pad_scale, pad_offset = _udim(layout, "Padding")
+        main_size = content.w if horizontal else content.h
+        step = main_size + pad_scale * main_size + pad_offset * k
+        index = 0
+        for child in _sorted(children, layout):
+            box = self._resolve(child, content, k, position=False)
+            if not _visible(child):
+                self.boxes[child["path"]] = Box(content.x, content.y, box.w, box.h, box.scale)
+                continue
+            if horizontal:
+                placed = Box(content.x + index * step, content.y, box.w, box.h, box.scale)
+            else:
+                placed = Box(content.x, content.y + index * step, box.w, box.h, box.scale)
+            self.boxes[child["path"]] = placed
+            index += 1
+
     @staticmethod
     def _flex_ratio(child: dict, container_flex: str, kind: str) -> float:
         item = _modifier(child, "UIFlexItem")
@@ -524,6 +552,20 @@ class UILayout:
         column_count = max((len(line) for line in grid), default=0)
         col_w = [max((line[c][1].w for line in grid if c < len(line)), default=0.0) for c in range(column_count)]
         row_h = [max((box.h for _, box in line), default=0.0) for line in grid]
+        # FillEmptySpaceColumns / Rows: the free space is shared out in proportion to
+        # the columns' (rows') own sizes (Studio: 30/40/50 px columns in 292 px of room
+        # -> 73, 97.3, 121.7).
+        def fill(sizes: list[float], room: float, pad: float) -> list[float]:
+            used = sum(sizes)
+            free = room - used - pad * max(0, len(sizes) - 1)
+            if free <= 1e-6 or used <= 0:
+                return sizes
+            return [size + free * size / used for size in sizes]
+
+        if _bool(layout, "FillEmptySpaceColumns", False):
+            col_w = fill(col_w, content.w, pad_x)
+        if _bool(layout, "FillEmptySpaceRows", False):
+            row_h = fill(row_h, content.h, pad_y)
         y = content.y
         for index, (line, height) in enumerate(zip(grid, row_h)):
             x = content.x

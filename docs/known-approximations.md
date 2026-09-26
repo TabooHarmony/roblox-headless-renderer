@@ -20,11 +20,13 @@ Covered: UDim2 size and position, AnchorPoint, SizeConstraint, UIPadding,
 UISizeConstraint, UIAspectRatioConstraint, UIScale, AutomaticSize (from text and
 from children), UIListLayout (sorting, alignment, Wraps, flex, UIFlexItem,
 ItemLineAlignment), UIGridLayout (FillDirectionMaxCells, StartCorner, alignment),
-UITableLayout, ScrollingFrame canvas and CanvasPosition.
+UITableLayout (with `FillEmptySpaceColumns`/`Rows`: the free space shared in
+proportion to the columns' and rows' own sizes), UIPageLayout (pages one container
+length plus Padding apart, the first page showing, as in Studio's edit view; no page
+animation), ScrollingFrame canvas and CanvasPosition.
 
-Not yet measured against Studio: UIPageLayout (laid out like a list, no page
-animation), UITableLayout `FillEmptySpace*`, flex shrink with wrapping, and
-ItemLineAlignment Stretch.
+Not yet measured against Studio: flex shrink with wrapping, ItemLineAlignment
+Stretch, and a UIPageLayout scrolled to another page than the first.
 
 **The top bar.** Screen UI is laid out below Roblox's 58 px top bar
 (`ScreenInsets = CoreUISafeInsets`, the default), as in a running game. Studio's
@@ -46,13 +48,21 @@ top-bar inset.
 **Measured:** Roblox makes `TextSize` the full line height (ascent + descent), not
 the font's em size, and RHR does the same for drawing, TextScaled fitting,
 wrapping, truncation and AutomaticSize. Heights match Studio exactly; widths within
-a few percent.
+about 1.3% on average: like Roblox, every glyph's advance is rounded up to a whole
+pixel, which makes small text noticeably wider than the font's own metrics (Builder
+Sans at 16 px: 126 px for a 19-character line, where the exact advances give 116;
+measured with TextService over five families at TextSize 8 to 100).
+
+A label's text is not clipped to the label: unwrapped text longer than its box runs
+past it, as in Studio (left-aligned to the right, centred both ways, right-aligned
+to the left). A ClipsDescendants ancestor still clips it.
 
 Known differences:
 
-- At small sizes (around 20 px) Roblox's text runs 2-6% wider than the rule above,
-  from its own glyph rounding. A line that only just overflows its box in Studio can
-  still fit in RHR, so it may wrap differently.
+- Widths are still off by a pixel or two per line now and then, so a line that only
+  just overflows its box in Studio can still fit in RHR (or the other way round) and
+  wrap differently. RHR's bundled Roboto is a different version from the one Studio
+  ships, which accounts for some of it.
 - TextTruncate draws a one-character ellipsis (`…`) where Roblox's docs show `...`,
   a 1-5 px difference. Where exactly Roblox cuts has not been measured.
 - `MaxVisibleGraphemes` is not drawn (it is a typewriter effect over time);
