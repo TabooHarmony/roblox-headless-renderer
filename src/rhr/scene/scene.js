@@ -48,6 +48,7 @@ const TUNE_DEFAULTS = {
   exposure: 1.475, tone: 3, sunR: 1.0, sunG: 0.965, sunB: 0.91, pRough: 0.72, spRough: 0.33, aoK: 1.0, aoReach: 64,
   tBlendH: 0.4, tBlendD: 0.35, tBlendN: 0.25,
   gDensity: 1.0, gMin: 1.8, gMax: 3.6, gLean: 60, gBend: 0, gMargin: 0.15, gWidth: 0.5, gShadeR: 0.30, gShadeG: 0.33, gShadeB: 0.13,
+  sunScale: 1.16, sunGain: 0.7, sunBlur: 3.0,
   cTile: 4200, cHeight: 900, cOct: 0.4, cLod: 0.5, cHaze: 0.25, cDensPow: 1.7, cCurve: 0.0004, cEdge: 0.007, cCov0: 0.48, cCov1: 1.4, cSoft: 0.08, cOpacity: 4.0, cBright: 0.87, cCore: 0.68, cDark: 0.64, cCover: -1, cDensity: -1,
   gNear: 40, gFar: 200, gCarpet: 0.75, gCarpetNear: 20, gCarpetFar: 150, gOn: 1,
 };
@@ -3863,6 +3864,23 @@ function configureAtmosphere(index) {
 // 0.73 scattered, 0.64 overcast) times Color, darker as the sun sets. Roblox's clouds
 // change shape over time even with no wind; RHR draws one fixed layout.
 let cloudState = null;
+let sunState = null;
+
+// The sun: Sky.SunTextureId (Roblox's own sun from the install when unset), added
+// onto the sky where the sun is, under the clouds; none when CelestialBodiesShown is
+// off. Fitted to Studio's default sun seen straight up (its disc sits exactly on
+// Lighting:GetSunDirection()): the texture, slightly blurred, drawn 1.16 x
+// SunAngularSize across at 0.7 brightness gives the same white disc and soft rim.
+async function prepareSun(index) {
+  sunState = null;
+  const sky = findLightingClass(index, 'Sky');
+  const props = sky?.props || {};
+  if (props.CelestialBodiesShown === false) return;
+  const texture = await loadSceneTexture(props.SunTextureId || 'rbxasset://sky/sun.jpg');
+  if (!texture) return;
+  const size = Math.max(0, Math.min(60, Number(props.SunAngularSize ?? 21)));
+  sunState = {texture, size};
+}
 
 async function prepareClouds(index) {
   cloudState = null;
@@ -3888,6 +3906,11 @@ function cloudUniforms() {
     cloudFit: {value: new THREE.Vector4(TUNE.cCov0, TUNE.cCov1, TUNE.cOpacity, TUNE.cCore)},
     cloudShade: {value: new THREE.Vector2(TUNE.cBright, TUNE.cDark)},
     cloudSun: {value: new THREE.Vector3(0, 1, 0)},
+    sunOn: {value: sunState ? 1 : 0},
+    sunTex: {value: sunState ? sunState.texture : null},
+    sunTan: {value: sunState ? Math.tan(THREE.MathUtils.degToRad(sunState.size * TUNE.sunScale) / 2) : 1},
+    sunGain: {value: TUNE.sunGain},
+    sunBlur: {value: TUNE.sunBlur},
     cloudLook: {value: new THREE.Vector3(TUNE.cOct, TUNE.cLod, TUNE.cHaze)},
     cloudShade2: {value: new THREE.Vector2(TUNE.cDensPow, 0)},
   };
@@ -3916,6 +3939,7 @@ uniform samplerCube sky; uniform vec3 fogColor; uniform float haze; uniform floa
 uniform mat3 rotation;
 uniform float cloudOn; uniform sampler2D clouds; uniform float cloudCover; uniform float cloudDensity;
 uniform vec3 cloudColor; uniform vec4 cloudShape; uniform vec4 cloudFit; uniform vec2 cloudShade; uniform vec3 cloudSun; uniform vec3 cloudLook; uniform vec2 cloudShade2;
+uniform float sunOn; uniform sampler2D sunTex; uniform float sunTan; uniform float sunGain; uniform float sunBlur;
 varying vec3 vDir;
 vec3 rhrToLinear( vec3 c ) { return pow( c, vec3( 2.2 ) ); }
 float overcastK( float cover ) { return 3.0 * smoothstep( 0.7, 0.85, cover ); }
@@ -3923,6 +3947,16 @@ void main() {
   vec3 d = normalize(vDir);
   vec3 s = rotation * d;
   vec3 c = textureCube(sky, vec3(-s.x, s.y, s.z)).rgb * intensity;
+  if ( sunOn > 0.5 ) {
+    vec3 sd = normalize( cloudSun );
+    float facing = dot( d, sd );
+    if ( facing > 0.0 && sd.y > -0.2 ) {
+      vec3 right = normalize( cross( abs( sd.y ) < 0.99 ? vec3( 0.0, 1.0, 0.0 ) : vec3( 1.0, 0.0, 0.0 ), sd ) );
+      vec3 up = cross( sd, right );
+      vec2 q = vec2( dot( d, right ), dot( d, up ) ) / facing / sunTan;
+      if ( abs( q.x ) < 1.0 && abs( q.y ) < 1.0 ) c += texture2D( sunTex, q * 0.5 + 0.5, sunBlur ).rgb * sunGain * smoothstep( 1.0, 0.8, length( q ) );
+    }
+  }
   if ( cloudOn > 0.5 && d.y > cloudShape.z ) {
     // Distance to a layer that curves down to the horizon, in tiles per unit height.
     float reach = 1.0 / sqrt( d.y * d.y + cloudShape.y );
@@ -5195,6 +5229,7 @@ async function main() {
       configureEnvironment(index);
     }
     await prepareClouds(index);
+    await prepareSun(index);
     if (skyCube) {
       // Drawn as a dome so the Atmosphere can veil it.
       scene.background = null;
@@ -5302,6 +5337,7 @@ function resetScene() {
   sunLight = null;
   sunDirection = null;
   cloudState = null;
+  sunState = null;
   postEffects = null;
   localLightsDropped = 0;
   charactersDressed = 0;

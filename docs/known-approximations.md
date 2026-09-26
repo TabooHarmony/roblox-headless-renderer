@@ -206,8 +206,11 @@ stderr says so on every 3D render.
   even with no wind; RHR's are flatter, with less of the puffy detail. They darken
   after sunset by a set amount rather than following the Lighting.
 - The sky's top face (SkyboxUp, and Roblox's default sky) is turned a quarter to
-  match Studio; the bottom face is as it was (unverified). The sun and moon discs
-  are not drawn.
+  match Studio; the bottom face is as it was (unverified).
+- The sun is drawn (Sky.SunTextureId, or Roblox's own from the install), exactly
+  where Lighting:GetSunDirection() puts it, under the clouds, sized by
+  SunAngularSize; its disc and soft rim were matched to Studio's default sun seen
+  straight up. The moon and stars are not drawn.
 - Point, Spot and Surface lights: colour, brightness, range and angle are used;
   intensity is not calibrated. At most the 16 most relevant (nearest the camera,
   weighted by range and brightness) are drawn, because each light costs every pixel;

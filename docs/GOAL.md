@@ -199,7 +199,7 @@ side-by-side check against Studio for what it touched.
      **Clouds done (2026-09-26)**: one still layer from Roblox's own cloud tile, fitted
      to Studio (coverage, size, brightness per band of sky across Cover and Density).
      Also fixed: the sky's top face was turned a quarter (a seam when looking up).
-     Next: SunRays; the sun disc is not drawn either.
+     The sun disc is drawn too, matched to Studio's. Next: SunRays.
    - **UI edge cases already known**: `UIPageLayout`, `FillEmptySpace` in flex and
      table layouts, clipping of overflowing non-wrapped text, and the small-text gap.
    - **VFX leftovers**: `TextureSpeed`, `LightInfluence` as lit or not. (Roblox's

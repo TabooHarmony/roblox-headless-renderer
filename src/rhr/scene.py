@@ -289,7 +289,7 @@ def _extras(ir_path: Path | None = None) -> dict:
     import hashlib
 
     from rhr.paths import MATERIAL_CACHE, UNION_CACHE
-    from rhr.studio import AVATAR_CONTENT, studio_content, studio_install, studio_textures
+    from rhr.studio import AVATAR_CONTENT, SKY_CONTENT, studio_content, studio_install, studio_textures
 
     def by_stem(root: Path, suffix: str) -> dict[str, Path]:
         if not root.is_dir():
@@ -304,7 +304,7 @@ def _extras(ir_path: Path | None = None) -> dict:
     # Files the client ships with (rbxasset://), by path: what the IR names plus what
     # characters are drawn with. Served next to the Studio textures under a name
     # without slashes.
-    content = studio_content(sorted((_content_refs(ir_path) if ir_path else set()) | set(AVATAR_CONTENT)))
+    content = studio_content(sorted((_content_refs(ir_path) if ir_path else set()) | set(AVATAR_CONTENT) | set(SKY_CONTENT)))
     content_names = {key: "content-" + hashlib.sha1(key.encode()).hexdigest()[:16] + path.suffix.lower()
                      for key, path in content.items()}
     manifest = {

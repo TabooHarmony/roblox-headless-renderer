@@ -138,6 +138,10 @@ AVATAR_CONTENT = tuple(key.lower() for key in (
 ))
 
 
+# The default sun and moon (Sky.SunTextureId / MoonTextureId when a place sets none).
+SKY_CONTENT = ("sky/sun.jpg", "sky/moon.jpg")
+
+
 def content_path(uri: str) -> str | None:
     """`rbxasset://Textures\face.png` -> `textures/face.png`: the key RHR uses for a file
     the Roblox client ships with. None for anything else."""
