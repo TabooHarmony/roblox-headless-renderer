@@ -140,8 +140,8 @@ pay that again. `rhr cache` shows what the cache holds (it stays under 2 GB,
     textures, and the sky is a gradient. RHR says so on stderr, because the result
     looks noticeably less like Roblox.
 - **Terrain** is drawn smooth, meshed from the place's voxels the way Roblox does it,
-  with Roblox's terrain textures (top, side and bottom). Where two materials meet the
-  edge is hard; Roblox blends them.
+  with Roblox's terrain textures (top, side and bottom), blended where materials meet
+  as in Studio. Grass blades and water waves are not drawn.
 - **Unions** are drawn with the exact shape and per-part colours Studio saved for them.
 - **Place files.** In a `.rbxl`, only StarterGui's ScreenGuis are drawn; templates
   stored in ReplicatedStorage and elsewhere are named on stderr (`--all-guis` draws

@@ -14,7 +14,8 @@ material and occupancy.
       runs until 32**3 voxels         lead byte: material id (bits 0-5), "occupancy
                                       byte follows" (bit 6), "run length byte follows"
                                       (bit 7); then the occupancy byte, then the run
-                                      length minus one
+                                      length minus one. Ids past the material list
+                                      (63 seen) are Air, as Studio reads them
     voxel order inside a chunk: x fastest, then z, then y
 
 A voxel is 4 studs; chunk (cx, cy, cz) starts at stud (cx, cy, cz) * 128. Occupancy
@@ -106,8 +107,12 @@ def decode_smooth_grid(data: bytes) -> list[tuple[tuple[int, int, int], bytes, b
             if lead & 0x80:
                 run = data[offset] + 1
                 offset += 1
-            if count + run > size or material >= len(MATERIALS):
-                raise TerrainFormatError("voxel run past the chunk, or unknown material")
+            if count + run > size:
+                raise TerrainFormatError("voxel run past the chunk")
+            if material >= len(MATERIALS):
+                # Seen as id 63 (with an occupancy byte) where Studio's ReadVoxels
+                # reports plain Air: voxels next to an edited region.
+                material, occ = 0, 0
             materials[count:count + run] = bytes([material]) * run
             occupancy[count:count + run] = bytes([occ]) * run
             count += run

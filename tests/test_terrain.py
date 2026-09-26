@@ -3,7 +3,9 @@
 
 The decoder (rhr.terrain) was checked against Studio's Terrain:ReadVoxels on Roblox's
 game template. Here a small terrain is encoded in the same format (a grass floor and
-a water block), written into a place, and both decoded and rendered.
+a water block), written into a place, and both decoded and rendered. A second place
+has grass meeting sand: the seam is blended, and grass (earlier in Roblox's material
+order) reaches half a voxel into the sand, as measured in Studio.
 
     python tests/test_terrain.py
 """
@@ -20,7 +22,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "src"))
 failures: list[str] = []
 
-GRASS, WATER = 2, 1
+GRASS, WATER, SAND = 2, 1, 6
 
 
 def check(ok: bool, message: str) -> None:
@@ -79,6 +81,17 @@ def main() -> int:
     check(m[at(0, 31, 0)] == GRASS and o[at(0, 31, 0)] == 127, "a partly filled voxel keeps its occupancy")
     check(m[at(5, 31, 1)] == WATER and m[at(3, 31, 0)] == 0, "water, and air around it")
 
+    # Material id 63 (seen next to edited regions) is Air, as Studio's ReadVoxels says.
+    size = 32 ** 3
+    runs = bytearray([0xFF, 0x80, 0x1F])  # id 63, occupancy 128, 32 voxels
+    left = size - 32
+    while left:
+        run = min(256, left)
+        runs += bytes([0x80, run - 1])
+        left -= run
+    odd = decode_smooth_grid(bytes([1, 5]) + bytes(12) + bytes(runs))
+    check(len(odd) == 1 and not any(odd[0][1]) and not any(odd[0][2]), "an unknown material id decodes as air")
+
     with tempfile.TemporaryDirectory(prefix="rhr-terrain-") as directory:
         place = Path(directory) / "terrain.rbxlx"
         place.write_text(f'''<roblox version="4">
@@ -110,8 +123,57 @@ def main() -> int:
             green = (rgb[..., 1] > rgb[..., 0] + 25) & (rgb[..., 1] > rgb[..., 2] + 10)
             check(green.mean() > 0.02, f"the grass floor is on screen ({green.mean():.1%} green pixels)")
 
+        check_blend(Path(directory))
+
     print("terrain: ok" if not failures else f"terrain: {len(failures)} failed")
     return 1 if failures else 0
+
+
+def check_blend(directory: Path) -> None:
+    """Grass (x < 16 studs) meets sand on an 8x8-voxel floor, seen from straight above."""
+    floor = {(x, 0, z): (GRASS if x < 4 else SAND, 255) for x in range(8) for z in range(8)}
+    blob = encode({(0, 0, 0): floor})
+    place = directory / "blend.rbxlx"
+    place.write_text(f'''<roblox version="4">
+  <Item class="Workspace" referent="W"><Properties><string name="Name">Workspace</string></Properties>
+    <Item class="Terrain" referent="T"><Properties><string name="Name">Terrain</string>
+      <BinaryString name="SmoothGrid">{base64.b64encode(blob).decode()}</BinaryString></Properties></Item>
+  </Item>
+  <Item class="Lighting" referent="L"><Properties><string name="Name">Lighting</string></Properties></Item>
+</roblox>
+''', encoding="utf-8")
+    png = directory / "blend.png"
+    height, fov, width_px, height_px = 80.0, 30.0, 480, 480
+    proc = subprocess.run([sys.executable, "-m", "rhr", "scene", str(place), "--viewport", f"{width_px}x{height_px}",
+                           "--flat-materials", "--no-shadows", "--camera", f"16,{height},16.001", "--look-at", "16,0,16",
+                           "--fov", str(fov), "--out", str(png)],
+                          capture_output=True, text=True, cwd=str(REPO), timeout=300)
+    check(proc.returncode == 0, f"scene renders grass meeting sand ({proc.stderr.strip()[-120:]})")
+    check("blended where they meet" in proc.stderr, "a note says materials are blended")
+    if proc.returncode != 0:
+        return
+    import math
+
+    from PIL import Image
+    import numpy as np
+
+    with Image.open(png).convert("RGB") as img:
+        rgb = np.asarray(img).astype(float)
+    # Studs to pixels on the floor's top (y = 4): x = 16 is the image's middle column.
+    per_stud = (height_px / 2) / ((height - 4) * math.tan(math.radians(fov / 2)))
+    column = lambda x: int(round(width_px / 2 + (x - 16) * per_stud))  # noqa: E731
+    band = rgb[height_px // 2 - int(3 * per_stud):height_px // 2 + int(3 * per_stud)]
+    red = band[..., 0].mean(axis=0)  # sand is much redder than grass
+    grass, sand = red[column(6):column(10)].mean(), red[column(26):column(30)].mean()
+    t = (red - grass) / max(1.0, sand - grass)
+    xs = [x / 4 for x in range(40, 104)]  # 10..26 studs
+    profile = [t[column(x)] for x in xs]
+    middle = next((x for x, v in zip(xs, profile) if v >= 0.5), None)
+    check(sand - grass > 30, f"grass and sand differ on screen (red {grass:.0f} vs {sand:.0f})")
+    check(middle is not None and 16.8 <= middle <= 19.5,
+          f"the seam's middle is about 2 studs into the sand (at x = {middle} studs, sand starts at 16)")
+    soft = sum(1 for v in profile if 0.15 < v < 0.85) / 4
+    check(soft >= 0.75, f"the seam is blended, not a hard edge ({soft} studs between 15% and 85%)")
 
 
 def test_main():

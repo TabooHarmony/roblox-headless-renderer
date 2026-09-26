@@ -46,6 +46,7 @@ renderer.setClearColor(viewportMode ? 0x000000 : 0x20242b, viewportMode ? 0 : 1)
 const TUNE_DEFAULTS = {
   sunK: 1.625, skyK: 1.175, ambK: 0.1, skyBg: 1.0375, fogL: 1.0, fogDecayMix: 0.4375,
   exposure: 1.475, tone: 3, sunR: 1.0, sunG: 0.965, sunB: 0.91, pRough: 0.72, spRough: 0.33, aoK: 1.0, aoReach: 64,
+  tBlendH: 0.4, tBlendD: 0.35, tBlendN: 0.25,
 };
 let TUNE = {...TUNE_DEFAULTS};
 let shadowsRequested = true;
@@ -1421,10 +1422,16 @@ async function stylePlaceholderMeshes() {
 // barely leaves its own. Normals are averaged over the whole surface, so material
 // borders do not crease.
 //
-// Each face takes the material of its solid voxel, and the texture for its
-// direction (Roblox gives Grass, Asphalt and others separate top, side and bottom
-// textures), projected along the face's main axis in world space. Where two
-// materials meet the edge is hard; Roblox blends them. Water is its own surface,
+// Materials: every vertex takes one material, the first in Roblox's terrain material
+// order (Grass, Slate, Concrete, Brick, Sand, ...) among the solid voxels around it,
+// so where two materials meet the earlier one reaches half a voxel (2 studs) into the
+// other: measured in Studio on nine pairs, both ways round. Across a face whose
+// corners differ the materials are blended by height, as Roblox does: each
+// material's weight (1 at its own corners, 0 at the others) plus the height its
+// colour map carries in its alpha; the highest wins, with a soft band
+// (TUNE.tBlendH, TUNE.tBlendD). Each face uses the texture for its direction
+// (Roblox gives Grass, Asphalt and others separate top, side and bottom textures),
+// projected along the face's main axis in world space. Water is its own surface,
 // only where it meets air.
 let terrainSummary = null;
 
@@ -1449,6 +1456,7 @@ function terrainSurface(chunks, n, voxelStuds, isInside, isOutside) {
   };
   const vertexIndex = new Map();   // "x,y,z" of the cell -> vertex number
   const positions = [];
+  const vertexMaterials = [];
   const vertexOf = (x, y, z) => {
     const id = key(x, y, z);
     let index = vertexIndex.get(id);
@@ -1459,7 +1467,7 @@ function terrainSurface(chunks, n, voxelStuds, isInside, isOutside) {
     for (let c = 0; c < 8; c += 1) {
       const ox = c & 1, oy = (c >> 1) & 1, oz = (c >> 2) & 1;
       const [material, occupancy] = sample(x + ox, y + oy, z + oz);
-      corner.push({ox, oy, oz, inside: isInside(material), occupancy});
+      corner.push({ox, oy, oz, material, inside: isInside(material), occupancy});
     }
     for (let a = 0; a < 8; a += 1) {
       for (const bit of [1, 2, 4]) {
@@ -1475,6 +1483,9 @@ function terrainSurface(chunks, n, voxelStuds, isInside, isOutside) {
       }
     }
     if (!count) { sx = sy = sz = 0.5; count = 1; }
+    let material = 0;
+    for (const c of corner) if (c.inside && (!material || c.material < material)) material = c.material;
+    vertexMaterials.push(material);
     index = positions.length / 3;
     positions.push(
       (x + sx / count + 0.5) * voxelStuds,
@@ -1535,29 +1546,82 @@ function terrainSurface(chunks, n, voxelStuds, isInside, isOutside) {
     const length = Math.hypot(normals[i], normals[i + 1], normals[i + 2]) || 1;
     normals[i] /= length; normals[i + 1] /= length; normals[i + 2] /= length;
   }
-  return {positions, normals, quads};
+  return {positions, normals, quads, vertexMaterials};
 }
 
-// One geometry per (material, texture direction), with world-space box-projected UVs.
-function terrainGeometries(surface, faceKind) {
-  const {positions, normals, quads} = surface;
+// One geometry per layer (a material and a texture direction: top, side or bottom),
+// with world-space box-projected UVs. Each corner weighs the layers of its material
+// by its normal (TERRAIN_KIND_BAND: steep turns from top to side over a band, not at
+// a line), and `canonicalKind` folds directions that share a texture. A face whose
+// corners all have one layer goes into that layer's geometry (`material`, `kind`); a
+// face with more goes into a blend geometry for its layers (`blend`, the
+// TERRAIN_BLEND_SLOTS heaviest) with each corner's weights in `rhrW`.
+const TERRAIN_BLEND_SLOTS = 4;
+const TERRAIN_KIND_BAND = [0.4, 0.65];
+
+function terrainKindWeights(ny) {
+  const [low, high] = TERRAIN_KIND_BAND;
+  const top = THREE.MathUtils.smoothstep(ny, low, high);
+  const bottom = THREE.MathUtils.smoothstep(-ny, low, high);
+  return [['top', top], ['side', 1 - top - bottom], ['bottom', bottom]].filter(([, w]) => w > 1e-3);
+}
+
+function terrainGeometries(surface, kindWeights, canonicalKind = (_, kind) => kind) {
+  const {positions, normals, quads, vertexMaterials} = surface;
   const groups = new Map();
   for (const quad of quads) {
-    const [a, b, c, d, material] = quad;
-    const ny = (normals[a * 3 + 1] + normals[b * 3 + 1] + normals[c * 3 + 1] + normals[d * 3 + 1]) / 4;
-    const kind = faceKind(ny);
-    const groupKey = `${material}|${kind}`;
+    const [a, b, c, d, own] = quad;
+    const mean = axis => (normals[a * 3 + axis] + normals[b * 3 + axis] + normals[c * 3 + axis] + normals[d * 3 + axis]) / 4;
+    const [qx, qy, qz] = [mean(0), mean(1), mean(2)];
+    // One projection for the whole face: chosen per corner, a face on a curve
+    // would stretch the texture across two projections.
+    const ax = Math.abs(qx), ay = Math.abs(qy), az = Math.abs(qz);
+    const projection = ay >= ax && ay >= az ? 'y' : ax >= az ? 'x' : 'z';
+    // Each corner's weight per layer ("material|kind").
+    const cornerWeights = [a, b, c, d].map(index => {
+      const material = vertexMaterials?.[index] || own;
+      const weights = new Map();
+      for (const [kind, w] of kindWeights(normals[index * 3 + 1])) {
+        const key = `${material}|${canonicalKind(material, kind)}`;
+        weights.set(key, (weights.get(key) || 0) + w);
+      }
+      return weights;
+    });
+    const totals = new Map();
+    for (const weights of cornerWeights) for (const [key, w] of weights) totals.set(key, (totals.get(key) || 0) + w);
+    const byName = (x, y) => (x < y ? -1 : x > y ? 1 : 0);
+    const layers = [...totals.keys()]
+      .sort((x, y) => totals.get(y) - totals.get(x) || byName(x, y))
+      .slice(0, TERRAIN_BLEND_SLOTS)
+      .sort(byName);
+    const blend = layers.length > 1;
+    const groupKey = layers.join(',');
     let group = groups.get(groupKey);
-    if (!group) groups.set(groupKey, group = {material, kind, positions: [], normals: [], uvs: []});
+    if (!group) {
+      const parsed = layers.map(key => {
+        const [material, kind] = key.split('|');
+        return {material: Number(material), kind};
+      });
+      groups.set(groupKey, group = {
+        material: parsed[0].material, kind: parsed[0].kind, blend: blend ? parsed : null,
+        positions: [], normals: [], uvs: [], weights: [],
+      });
+    }
+    const cornerOf = new Map([[a, 0], [b, 1], [c, 2], [d, 3]]);
     for (const index of [a, b, c, a, c, d]) {
       const x = positions[index * 3], y = positions[index * 3 + 1], z = positions[index * 3 + 2];
-      const nx = normals[index * 3], nyv = normals[index * 3 + 1], nz = normals[index * 3 + 2];
       group.positions.push(x, y, z);
-      group.normals.push(nx, nyv, nz);
-      const ax = Math.abs(nx), ay = Math.abs(nyv), az = Math.abs(nz);
-      if (ay >= ax && ay >= az) group.uvs.push(x / TERRAIN_TILE_STUDS, z / TERRAIN_TILE_STUDS);
-      else if (ax >= az) group.uvs.push(z / TERRAIN_TILE_STUDS, y / TERRAIN_TILE_STUDS);
+      group.normals.push(normals[index * 3], normals[index * 3 + 1], normals[index * 3 + 2]);
+      if (projection === 'y') group.uvs.push(x / TERRAIN_TILE_STUDS, z / TERRAIN_TILE_STUDS);
+      else if (projection === 'x') group.uvs.push(z / TERRAIN_TILE_STUDS, y / TERRAIN_TILE_STUDS);
       else group.uvs.push(x / TERRAIN_TILE_STUDS, y / TERRAIN_TILE_STUDS);
+      if (blend) {
+        const weights = cornerWeights[cornerOf.get(index)];
+        const row = layers.map(key => weights.get(key) || 0);
+        const sum = row.reduce((x, y) => x + y, 0);
+        // A corner whose layers all lost their slots counts as the first slot's.
+        for (let s = 0; s < TERRAIN_BLEND_SLOTS; s += 1) group.weights.push(sum > 0 ? (row[s] || 0) / sum : (s === 0 ? 1 : 0));
+      }
     }
   }
   return [...groups.values()].map(group => {
@@ -1565,8 +1629,198 @@ function terrainGeometries(surface, faceKind) {
     geometry.setAttribute('position', new THREE.Float32BufferAttribute(group.positions, 3));
     geometry.setAttribute('normal', new THREE.Float32BufferAttribute(group.normals, 3));
     geometry.setAttribute('uv', new THREE.Float32BufferAttribute(group.uvs, 2));
-    return {geometry, material: group.material, kind: group.kind, triangles: group.positions.length / 9};
+    if (group.blend) geometry.setAttribute('rhrW', new THREE.Float32BufferAttribute(group.weights, TERRAIN_BLEND_SLOTS));
+    return {geometry, material: group.material, blend: group.blend, kind: group.kind, triangles: group.positions.length / 9};
   });
+}
+
+// Texture directions that share a texture count as one layer: a material with a
+// single texture (Rock, Mud...) blends only with other materials. Keyed by the
+// maps Roblox's table gives each direction; a MaterialVariant, the look-alikes and
+// flat colours are the same on every face.
+async function terrainKindCanon(index, names) {
+  const canon = new Map();
+  for (let m = 0; m < names.length; m += 1) {
+    const name = names[m];
+    const same = flatMaterials || materialVariant(index, null, name);
+    const entries = same ? null : await Promise.all(['top', 'side', 'bottom'].map(kind => robloxMaterialEntry(name, kind)));
+    const id = entry => (entry ? `${entry.color}|${entry.normal}` : '');
+    for (const [k, kind] of ['top', 'side', 'bottom'].entries()) {
+      let first = kind;
+      if (same || !entries[k]) first = 'top';
+      else first = ['top', 'side', 'bottom'][entries.findIndex(entry => id(entry) === id(entries[k]))];
+      canon.set(`${m}|${kind}`, first);
+    }
+  }
+  return (material, kind) => canon.get(`${material}|${kind}`) || kind;
+}
+
+// How one terrain material looks on one face direction: its colour (the texture's
+// multiplier), its maps if any, and how many times its texture repeats per terrain
+// tile. A MaterialVariant override comes first, then Roblox's own terrain textures,
+// then the CC0 look-alike; with none (or --flat-materials) the plain colour.
+const terrainLookCache = new Map();
+
+function terrainLook(index, terrain, name, kind) {
+  const key = `${name}|${kind}`;
+  if (!terrainLookCache.has(key)) terrainLookCache.set(key, loadTerrainLook(index, terrain, name, kind));
+  return terrainLookCache.get(key);
+}
+
+async function loadTerrainLook(index, terrain, name, kind) {
+  const raw = terrain.rawColors?.[name];
+  const natural = terrain.colors?.[name];
+  const color = new THREE.Color().setRGB(...(natural || [128, 128, 128]).map(c => c / 255), THREE.SRGBColorSpace);
+  const plain = {color, maps: null, uvScale: 1, source: null};
+  if (flatMaterials) return plain;
+  // A MaterialVariant override: its image in real colours, tinted by the place's
+  // MaterialColor (white leaves it as is).
+  const variant = materialVariant(index, null, name);
+  const own = variant ? await loadVariantTextures(variant) : null;
+  const tint = raw || [255, 255, 255];
+  if (own) {
+    const tile = Number(variant.props?.StudsPerTile) || 10;
+    return {
+      color: new THREE.Color().setRGB(tint[0] / 255, tint[1] / 255, tint[2] / 255, THREE.SRGBColorSpace),
+      maps: own, uvScale: TERRAIN_TILE_STUDS / tile, source: 'variant', variant: variant.name,
+    };
+  }
+  const roblox = await loadRobloxMaterial(name, kind);
+  if (roblox) {
+    // Roblox's terrain textures are pale: it multiplies them by the material's
+    // base colour (the install's materials2022.json), scaled by the place's
+    // MaterialColor over the default one. Without the install, the default
+    // colour stands in for the base colour.
+    robloxMaterialsUsed.add(name);
+    const fallback = terrain.defaultColors?.[name] || tint;
+    const base = terrain.baseColors?.[name] || fallback;
+    const channel = k => (base[k] / 255) * Math.min(2, tint[k] / Math.max(1, fallback[k]));
+    return {
+      color: new THREE.Color().setRGB(channel(0), channel(1), channel(2), THREE.SRGBColorSpace),
+      maps: roblox, uvScale: 1, source: 'roblox',
+    };
+  }
+  const lookAlike = await loadMaterialTextures(name);
+  if (!lookAlike) return plain;
+  lookAlikeMaterialsUsed.add(name);
+  return {color, maps: lookAlike, uvScale: 1, source: 'lookalike'};
+}
+
+function applyTerrainLook(meshMaterial, mesh, look) {
+  meshMaterial.color.copy(look.color);
+  if (!look.maps) return;
+  if (look.uvScale !== 1) {
+    const uv = mesh.geometry.attributes.uv;
+    for (let i = 0; i < uv.count; i += 1) uv.setXY(i, uv.getX(i) * look.uvScale, uv.getY(i) * look.uvScale);
+  }
+  if (look.source === 'lookalike') {
+    meshMaterial.map = look.maps.map;
+    if (look.maps.normalMap) meshMaterial.normalMap = look.maps.normalMap;
+    meshMaterial.needsUpdate = true;
+    return;
+  }
+  applyMaps(meshMaterial, look.maps);
+  if (look.variant) mesh.userData.rhrMaterialVariant = look.variant;
+  if (look.source === 'roblox') {
+    meshMaterial.onBeforeCompile = () => {};  // terrain colour maps are not tint masks
+    meshMaterial.customProgramCacheKey = () => 'rhr-terrain';
+  }
+}
+
+// 1x1 stand-ins for a blend slot without a texture: white at mid height, flat normal.
+let terrainBlankTextures = null;
+function blankTerrainTextures() {
+  if (terrainBlankTextures) return terrainBlankTextures;
+  const make = (bytes, colorSpace) => {
+    const texture = new THREE.DataTexture(new Uint8Array(bytes), 1, 1);
+    texture.colorSpace = colorSpace;
+    texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
+    texture.needsUpdate = true;
+    return texture;
+  };
+  terrainBlankTextures = {
+    color: make([255, 255, 255, 128], THREE.SRGBColorSpace),
+    normal: make([128, 128, 255, 255], THREE.NoColorSpace),
+  };
+  return terrainBlankTextures;
+}
+
+// A face where materials meet: every slot's colour and normal map sampled and
+// blended by height (see the terrain notes above). Roughness is a flat 0.95 there
+// (samplers are scarce: three maps a slot would pass WebGL's 16).
+function terrainBlendMaterial(looks) {
+  const blank = blankTerrainTextures();
+  const material = new THREE.MeshStandardMaterial({color: 0xffffff, roughness: 1, metalness: 0});
+  material.map = looks[0].maps?.map || blank.color;
+  material.normalMap = blank.normal;
+  const uniforms = {
+    rhrBlendH: {value: TUNE.tBlendH},
+    rhrBlendD: {value: TUNE.tBlendD},
+    rhrBlendN: {value: TUNE.tBlendN},
+  };
+  for (let s = 0; s < TERRAIN_BLEND_SLOTS; s += 1) {
+    const look = looks[s];
+    uniforms[`rhrColor${s}`] = {value: look?.maps?.map || blank.color};
+    uniforms[`rhrNormal${s}`] = {value: look?.maps?.normalMap || blank.normal};
+    uniforms[`rhrTint${s}`] = {value: look ? look.color.clone() : new THREE.Color(0, 0, 0)};
+    uniforms[`rhrScale${s}`] = {value: look?.uvScale || 1};
+    uniforms[`rhrRough${s}`] = {value: 0.95};
+    uniforms[`rhrUsed${s}`] = {value: look ? 1 : 0};
+  }
+  const slots = [...Array(TERRAIN_BLEND_SLOTS).keys()];
+  material.onBeforeCompile = shader => {
+    Object.assign(shader.uniforms, uniforms);
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', `#include <common>
+attribute vec4 rhrW;
+varying vec4 vRhrW;`)
+      .replace('#include <begin_vertex>', `#include <begin_vertex>
+vRhrW = rhrW;`);
+    const declarations = slots.map(s => `uniform sampler2D rhrColor${s};
+uniform sampler2D rhrNormal${s};
+uniform vec3 rhrTint${s};
+uniform float rhrScale${s};
+uniform float rhrRough${s};
+uniform float rhrUsed${s};`).join('\n');
+    const sample = slots.map(s => `
+  vec4 rhrC${s} = texture2D( rhrColor${s}, vMapUv * rhrScale${s} );
+  float rhrA${s} = rhrUsed${s} > 0.5 ? vRhrW[${s}] + rhrBlendH * ( rhrC${s}.a - 0.5 ) + rhrBlendN * rhrNoise( vMapUv * ${TERRAIN_TILE_STUDS.toFixed(1)} + vec2( ${17.3 * s}, ${31.7 * s} ) ) : -10.0;`).join('');
+    const top = slots.map(s => `rhrA${s}`).reduce((x, y) => `max( ${x}, ${y} )`);
+    const weights = slots.map(s => `
+  rhrB[${s}] = max( rhrA${s} - rhrTop + rhrBlendD, 0.0 );`).join('');
+    const mixColor = slots.map(s => `rhrB[${s}] * rhrC${s}.rgb * rhrTint${s}`).join(' + ');
+    const mixNormal = slots.map(s => `rhrB[${s}] * ( texture2D( rhrNormal${s}, vMapUv * rhrScale${s} ).xyz * 2.0 - 1.0 )`).join(' + ');
+    const mixRough = slots.map(s => `rhrB[${s}] * rhrRough${s}`).join(' + ');
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', `#include <common>
+varying vec4 vRhrW;
+uniform float rhrBlendH;
+uniform float rhrBlendD;
+uniform float rhrBlendN;
+${declarations}
+// Value noise in studs, two octaves (1 and 1/2 stud), about -0.5..0.5.
+float rhrHash( vec2 p ) { return fract( sin( dot( p, vec2( 127.1, 311.7 ) ) ) * 43758.5453 ); }
+float rhrValue( vec2 p ) {
+  vec2 i = floor( p ), f = fract( p );
+  f = f * f * ( 3.0 - 2.0 * f );
+  return mix( mix( rhrHash( i ), rhrHash( i + vec2( 1.0, 0.0 ) ), f.x ), mix( rhrHash( i + vec2( 0.0, 1.0 ) ), rhrHash( i + vec2( 1.0, 1.0 ) ), f.x ), f.y );
+}
+float rhrNoise( vec2 p ) { return 0.67 * rhrValue( p ) + 0.33 * rhrValue( p * 2.0 + 5.2 ) - 0.5; }`)
+      .replace('#include <map_fragment>', `
+vec4 rhrB;
+{${sample}
+  float rhrTop = ${top};${weights}
+  rhrB /= max( rhrB.x + rhrB.y + rhrB.z + rhrB.w, 1e-5 );
+  diffuseColor.rgb *= ${mixColor};
+}`)
+      .replace('#include <roughnessmap_fragment>', `#include <roughnessmap_fragment>
+roughnessFactor = ${mixRough};`)
+      .replace('#include <normal_fragment_maps>', THREE.ShaderChunk.normal_fragment_maps.replace(
+        'vec3 mapN = texture2D( normalMap, vNormalMapUv ).xyz * 2.0 - 1.0;',
+        `vec3 mapN = normalize( ${mixNormal} );`));
+  };
+  material.customProgramCacheKey = () => 'rhr-terrain-blend';
+  return material;
 }
 
 async function addTerrain(index) {
@@ -1595,20 +1849,36 @@ async function addTerrain(index) {
   terrainGrid = {chunks, n, voxelStuds: terrain.voxelStuds, solid};
   const ground = terrainSurface(chunks, n, terrain.voxelStuds, solid, m => !solid(m));
   const water = terrainSurface(chunks, n, terrain.voxelStuds, m => m === WATER, m => m === 0);
-  const kindOf = ny => (ny > 0.5 ? 'top' : ny < -0.5 ? 'bottom' : 'side');
+  water.vertexMaterials = null;
+  const canonicalKind = await terrainKindCanon(index, names);
+  terrainLookCache.clear();
   const jobs = [];
   let triangles = 0;
+  let blendTriangles = 0;
   const materialsDrawn = new Set();
-  for (const part of [...terrainGeometries(ground, kindOf), ...terrainGeometries(water, () => 'top')]) {
+  for (const part of [...terrainGeometries(ground, terrainKindWeights, canonicalKind), ...terrainGeometries(water, () => [['top', 1]])]) {
     const name = names[part.material];
     const isWater = part.material === WATER;
-    materialsDrawn.add(name);
+    for (const layer of part.blend || [part]) materialsDrawn.add(names[layer.material]);
     triangles += part.triangles;
-    const raw = terrain.rawColors?.[name];
-    const natural = terrain.colors?.[name];
+    if (part.blend) {
+      blendTriangles += part.triangles;
+      const mesh = new THREE.Mesh(part.geometry, new THREE.MeshStandardMaterial({color: 0x808080, roughness: 0.95, metalness: 0}));
+      mesh.receiveShadow = true;
+      mesh.castShadow = true;
+      mesh.userData.rhrNode = terrainNode;
+      mesh.userData.rhrTerrain = [...new Set(part.blend.map(layer => names[layer.material]))].join('+');
+      scene.add(mesh);
+      jobs.push((async () => {
+        const looks = await Promise.all(part.blend.map(layer => terrainLook(index, terrain, names[layer.material], layer.kind)));
+        mesh.material.dispose();
+        mesh.material = terrainBlendMaterial(looks);
+      })());
+      continue;
+    }
     const color = isWater
       ? colorValue(terrainNode?.props?.WaterColor, 0x0c545c)
-      : new THREE.Color().setRGB(...(natural || [128, 128, 128]).map(c => c / 255), THREE.SRGBColorSpace);
+      : new THREE.Color().setRGB(...(terrain.colors?.[name] || [128, 128, 128]).map(c => c / 255), THREE.SRGBColorSpace);
     const meshMaterial = new THREE.MeshStandardMaterial({
       color,
       roughness: isWater ? 0.15 : 0.95,
@@ -1625,47 +1895,10 @@ async function addTerrain(index) {
     mesh.userData.rhrTerrain = name;
     scene.add(mesh);
     if (isWater || flatMaterials) continue;
-    jobs.push((async () => {
-      // A MaterialVariant override: its image in real colours, tinted by the place's
-      // MaterialColor (white leaves it as is).
-      const variant = materialVariant(index, null, name);
-      const own = variant ? await loadVariantTextures(variant) : null;
-      const tint = raw || [255, 255, 255];
-      if (own) {
-        meshMaterial.color.setRGB(tint[0] / 255, tint[1] / 255, tint[2] / 255, THREE.SRGBColorSpace);
-        const tile = Number(variant.props?.StudsPerTile) || 10;
-        const uv = part.geometry.attributes.uv;
-        for (let i = 0; i < uv.count; i += 1) uv.setXY(i, uv.getX(i) * TERRAIN_TILE_STUDS / tile, uv.getY(i) * TERRAIN_TILE_STUDS / tile);
-        applyMaps(meshMaterial, own);
-        mesh.userData.rhrMaterialVariant = variant.name;
-        return;
-      }
-      const roblox = await loadRobloxMaterial(name, part.kind);
-      if (roblox) {
-        // Roblox's terrain textures are pale: it multiplies them by the material's
-        // base colour (the install's materials2022.json), scaled by the place's
-        // MaterialColor over the default one. Without the install, the default
-        // colour stands in for the base colour.
-        robloxMaterialsUsed.add(name);
-        const fallback = terrain.defaultColors?.[name] || tint;
-        const base = terrain.baseColors?.[name] || fallback;
-        const channel = k => (base[k] / 255) * Math.min(2, tint[k] / Math.max(1, fallback[k]));
-        meshMaterial.color.setRGB(channel(0), channel(1), channel(2), THREE.SRGBColorSpace);
-        applyMaps(meshMaterial, roblox);
-        meshMaterial.onBeforeCompile = () => {};  // terrain colour maps are not tint masks
-        meshMaterial.customProgramCacheKey = () => 'rhr-terrain';
-        return;
-      }
-      const lookAlike = await loadMaterialTextures(name);
-      if (!lookAlike) return;
-      lookAlikeMaterialsUsed.add(name);
-      meshMaterial.map = lookAlike.map;
-      if (lookAlike.normalMap) meshMaterial.normalMap = lookAlike.normalMap;
-      meshMaterial.needsUpdate = true;
-    })());
+    jobs.push(terrainLook(index, terrain, name, part.kind).then(look => applyTerrainLook(meshMaterial, mesh, look)));
   }
   await Promise.all(jobs);
-  terrainSummary = {triangles, materials: [...materialsDrawn]};
+  terrainSummary = {triangles, blendTriangles, materials: [...materialsDrawn]};
 }
 
 // Characters. A rig is a Model with a Humanoid; what it wears is painted onto its body
@@ -4181,7 +4414,7 @@ async function addSurfaceGuis(index, camera) {
 async function reportNotes() {
   const notes = [];
   if (terrainSummary) {
-    notes.push(`terrain drawn smooth (${terrainSummary.materials.join(', ')}); materials meet with a hard edge where Roblox blends them`);
+    notes.push(`terrain drawn smooth (${terrainSummary.materials.join(', ')}); materials blended where they meet (approximate)`);
   }
   if (meshParseFailures.length) {
     notes.push(`${meshParseFailures.length} cached mesh file(s) could not be read and are drawn as boxes (${meshParseFailures.slice(0, 3).join('; ')})`);

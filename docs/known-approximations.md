@@ -137,9 +137,17 @@ signed in, see below):
   between a solid and an empty voxel as far as the solid one's occupancy reaches),
   with Roblox's terrain textures for each face direction (top, side, bottom), 8 studs
   per tile, coloured by the material's base colour and the place's MaterialColors.
-  Where two materials meet the edge is hard; Roblox blends them. Grass came out a
-  little brighter and yellower than Studio's, rock a little lighter. Terrain
-  decorations (grass blades) and water waves are not drawn.
+  Where two materials meet they are blended, the way Studio does it on nine pairs
+  measured: the material earlier in Roblox's terrain order (Grass, Slate, Concrete,
+  Brick, Sand, ...) reaches half a voxel (2 studs) into the other, and the seam is a
+  ragged band about 1.5 studs wide, shaped by each texture's height (its colour
+  map's alpha) and a fine noise. Studio's edge follows its textures more closely
+  (grass blades poking into sand); RHR's is softer. Steep slopes fade from a
+  material's top texture to its side texture over a band of slope. Grass came out a
+  little brighter and yellower than Studio's, rock a little lighter; in a place with
+  EnvironmentDiffuseScale 0 (old default lighting), faces turned from the sun are
+  much lighter than Studio's. Cliff faces are smooth where Studio's are bumpy.
+  Terrain decorations (grass blades) and water waves are not drawn.
 
 **Without Roblox Studio** on the machine (or signed out): images are 420 px
 thumbnails, meshes and unions are outlined boxes, materials use public-domain (CC0)

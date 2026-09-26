@@ -182,7 +182,13 @@ side-by-side check against Studio for what it touched.
      the install, R6 body and head meshes, package textures, mesh textures, faces on
      mesh heads, layered clothing fitted through its cages. Left: a rig built only
      from a `HumanoidDescription` (no body parts) is not assembled; poses are as saved.
-   - **Terrain**: material blending where materials meet, and grass decoration. Next.
+   - **Terrain**: material blending where materials meet, and grass decoration.
+     **Blending done (2026-09-26)**, checked against Studio on nine material pairs and a
+     generated 256-stud landscape: seams sit where Studio's do (the earlier material
+     in Roblox's order reaches half a voxel into the other), blended by texture height
+     and noise, and top/side textures fade by slope. Also fixed: terrain with an
+     unknown material id (63, next to edited regions) no longer fails to decode, and
+     curved terrain no longer smears its textures. Next: grass decoration.
    - **Sky effects**: `Clouds` and `SunRays` (reported as not drawn today).
    - **UI edge cases already known**: `UIPageLayout`, `FillEmptySpace` in flex and
      table layouts, clipping of overflowing non-wrapped text, and the small-text gap.
