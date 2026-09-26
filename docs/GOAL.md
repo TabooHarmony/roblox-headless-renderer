@@ -196,6 +196,10 @@ side-by-side check against Studio for what it touched.
      without a console window on Windows, and part surfaces (studs...) are drawn on
      Plastic only, as in Studio.
    - **Sky effects**: `Clouds` and `SunRays` (reported as not drawn today).
+     **Clouds done (2026-09-26)**: one still layer from Roblox's own cloud tile, fitted
+     to Studio (coverage, size, brightness per band of sky across Cover and Density).
+     Also fixed: the sky's top face was turned a quarter (a seam when looking up).
+     Next: SunRays; the sun disc is not drawn either.
    - **UI edge cases already known**: `UIPageLayout`, `FillEmptySpace` in flex and
      table layouts, clipping of overflowing non-wrapped text, and the small-text gap.
    - **VFX leftovers**: `TextureSpeed`, `LightInfluence` as lit or not. (Roblox's

@@ -48,6 +48,7 @@ const TUNE_DEFAULTS = {
   exposure: 1.475, tone: 3, sunR: 1.0, sunG: 0.965, sunB: 0.91, pRough: 0.72, spRough: 0.33, aoK: 1.0, aoReach: 64,
   tBlendH: 0.4, tBlendD: 0.35, tBlendN: 0.25,
   gDensity: 1.0, gMin: 1.8, gMax: 3.6, gLean: 60, gBend: 0, gMargin: 0.15, gWidth: 0.5, gShadeR: 0.30, gShadeG: 0.33, gShadeB: 0.13,
+  cTile: 4200, cHeight: 900, cOct: 0.4, cLod: 0.5, cHaze: 0.25, cDensPow: 1.7, cCurve: 0.0004, cEdge: 0.007, cCov0: 0.48, cCov1: 1.4, cSoft: 0.08, cOpacity: 4.0, cBright: 0.87, cCore: 0.68, cDark: 0.64, cCover: -1, cDensity: -1,
   gNear: 40, gFar: 200, gCarpet: 0.75, gCarpetNear: 20, gCarpetFar: 150, gOn: 1,
 };
 let TUNE = {...TUNE_DEFAULTS};
@@ -3715,6 +3716,9 @@ function sceneGeometryBounds() {
 // A cube map from six images. Roblox stretches each sky face over its square, whatever
 // the image's own size (sky uploads are often 1023x682 and the like); WebGL needs six
 // equal squares, so every face is drawn onto one first.
+// Quarter turns per cube face (+X, -X, +Y, -Y, +Z, -Z), clockwise on the canvas.
+const SKY_FACE_TURNS = [0, 0, -1, 0, 0, 0];
+
 async function loadSquareCube(urls) {
   const images = await Promise.all(urls.map(url => new Promise(resolve => {
     const image = new Image();
@@ -3726,10 +3730,19 @@ async function loadSquareCube(urls) {
   if (images.some(image => !image)) return null;
   const largest = Math.max(...images.map(image => Math.max(image.naturalWidth, image.naturalHeight)));
   const size = Math.min(1024, 2 ** Math.ceil(Math.log2(Math.max(16, largest))));
-  const faces = images.map(image => {
+  const faces = images.map((image, face) => {
     const canvas = document.createElement('canvas');
     canvas.width = canvas.height = size;
-    canvas.getContext('2d').drawImage(image, 0, 0, size, size);
+    const context = canvas.getContext('2d');
+    // Roblox's SkyboxUp is turned a quarter against THREE's +Y face (matched against
+    // Studio looking straight up: only this turn lines its clouds up).
+    const turn = SKY_FACE_TURNS[face] || 0;
+    if (turn) {
+      context.translate(size / 2, size / 2);
+      context.rotate(turn * Math.PI / 2);
+      context.translate(-size / 2, -size / 2);
+    }
+    context.drawImage(image, 0, 0, size, size);
     return canvas;
   });
   const cube = new THREE.CubeTexture(faces);
@@ -3840,10 +3853,51 @@ function configureAtmosphere(index) {
 
 // A sky cube drawn on a dome around the camera, so the Atmosphere can veil it the
 // way Roblox does (see configureAtmosphere).
+// Clouds (Terrain.Clouds), drawn in the sky dome as one layer above the camera that
+// curves down to meet the horizon, as Roblox's does (its layer ends about 0.4 degrees
+// above the horizon). The cloud shapes come from the flat cloud tile Roblox ships
+// for devices without 3D textures (content/sky/cloudsfb.dds, two octaves). Fitted to
+// Studio at the highest quality, looking 25 degrees up: Cover opens the layer
+// steeply (none at 0.35, about 5% of the sky at 0.5, 70% at 0.65, all of it from
+// 0.8), Density makes the clouds more opaque, and they come out grey (sRGB about
+// 0.73 scattered, 0.64 overcast) times Color, darker as the sun sets. Roblox's clouds
+// change shape over time even with no wind; RHR draws one fixed layout.
+let cloudState = null;
+
+async function prepareClouds(index) {
+  cloudState = null;
+  const node = nodesOfClass(index, 'Clouds')[0];
+  if (!node || node.props?.Enabled === false) return;
+  const texture = await loadStudioTexture('sky_clouds', 1);
+  if (!texture) return;
+  const props = node.props || {};
+  const cover = TUNE.cCover >= 0 ? TUNE.cCover : Number(props.Cover ?? 0.5);
+  const density = TUNE.cDensity >= 0 ? TUNE.cDensity : Number(props.Density ?? 0.7);
+  cloudState = {node, texture, cover, density, color: colorValue(props.Color, 0xffffff)};
+}
+
+function cloudUniforms() {
+  const c = cloudState;
+  return {
+    cloudOn: {value: c ? 1 : 0},
+    clouds: {value: c ? c.texture : null},
+    cloudCover: {value: c ? c.cover : 0},
+    cloudDensity: {value: c ? c.density : 0},
+    cloudColor: {value: c ? c.color.clone() : new THREE.Color(1, 1, 1)},
+    cloudShape: {value: new THREE.Vector4(TUNE.cHeight / TUNE.cTile, TUNE.cCurve, TUNE.cEdge, TUNE.cSoft)},
+    cloudFit: {value: new THREE.Vector4(TUNE.cCov0, TUNE.cCov1, TUNE.cOpacity, TUNE.cCore)},
+    cloudShade: {value: new THREE.Vector2(TUNE.cBright, TUNE.cDark)},
+    cloudSun: {value: new THREE.Vector3(0, 1, 0)},
+    cloudLook: {value: new THREE.Vector3(TUNE.cOct, TUNE.cLod, TUNE.cHaze)},
+    cloudShade2: {value: new THREE.Vector2(TUNE.cDensPow, 0)},
+  };
+}
+
 function makeSkyDome(cube) {
   const haze = atmosphereState ? atmosphereState.haze : 0;
   const material = new THREE.ShaderMaterial({
     uniforms: {
+      ...cloudUniforms(),
       sky: {value: cube},
       fogColor: {value: atmosphereState ? atmosphereState.fogColor.clone() : new THREE.Color(1, 1, 1)},
       haze: {value: haze},
@@ -3860,11 +3914,38 @@ void main() {
     fragmentShader: `
 uniform samplerCube sky; uniform vec3 fogColor; uniform float haze; uniform float intensity;
 uniform mat3 rotation;
+uniform float cloudOn; uniform sampler2D clouds; uniform float cloudCover; uniform float cloudDensity;
+uniform vec3 cloudColor; uniform vec4 cloudShape; uniform vec4 cloudFit; uniform vec2 cloudShade; uniform vec3 cloudSun; uniform vec3 cloudLook; uniform vec2 cloudShade2;
 varying vec3 vDir;
+vec3 rhrToLinear( vec3 c ) { return pow( c, vec3( 2.2 ) ); }
+float overcastK( float cover ) { return 3.0 * smoothstep( 0.7, 0.85, cover ); }
 void main() {
   vec3 d = normalize(vDir);
   vec3 s = rotation * d;
   vec3 c = textureCube(sky, vec3(-s.x, s.y, s.z)).rgb * intensity;
+  if ( cloudOn > 0.5 && d.y > cloudShape.z ) {
+    // Distance to a layer that curves down to the horizon, in tiles per unit height.
+    float reach = 1.0 / sqrt( d.y * d.y + cloudShape.y );
+    vec2 p = d.xz * cloudShape.x * reach;
+    float n = ( 1.0 - cloudLook.x ) * texture2D( clouds, p, cloudLook.y ).r + cloudLook.x * texture2D( clouds, p * 2.7 + vec2( 0.31, 0.17 ), cloudLook.y ).r;
+    // Toward the horizon the pattern gets finer than a pixel: settle to its mean.
+    n = mix( n, 0.24, smoothstep( 6.0, 30.0, reach ) );
+    float core = smoothstep( 0.0, 0.25, n - ( cloudFit.x - cloudFit.y * ( cloudCover - 0.5 ) * 2.0 ) );
+    // Cover sets the threshold: the tile's value where cloud starts.
+    float threshold = cloudFit.x - cloudFit.y * ( cloudCover - 0.5 ) * 2.0;
+    float body = smoothstep( threshold - cloudShape.w, threshold + cloudShape.w, n + ( cloudCover >= 0.999 ? 1.0 : 0.0 ) );
+    // Opacity builds up with thickness: thin edges see-through, thick middles solid.
+    float alpha = body * ( 1.0 - exp( - cloudFit.z * pow( cloudDensity, cloudShade2.x ) * ( 0.15 + 1.6 * core + overcastK( cloudCover ) ) ) );
+    alpha *= smoothstep( cloudShape.z, cloudShape.z + 0.004, d.y );
+    // Low broken clouds are seen through more air: fainter toward the horizon (an
+    // overcast layer stays solid down to it).
+    alpha *= mix( mix( cloudLook.z, 1.0, smoothstep( 0.0, 0.4, d.y ) ), 1.0, smoothstep( 0.7, 0.8, cloudCover ) );
+    float overcast = smoothstep( 0.6, 1.0, cloudCover );
+    // Thin edges bright, thick middles grey; one flat grey when overcast.
+    float grey = mix( mix( cloudShade.x, cloudFit.w, core ), cloudShade.y, overcast );
+    float daylight = mix( 0.12, 1.0, smoothstep( -0.1, 0.25, cloudSun.y ) );
+    c = mix( c, rhrToLinear( vec3( grey ) ) * cloudColor * daylight, clamp( alpha, 0.0, 1.0 ) );
+  }
   float elevation = degrees(asin(clamp(d.y, -1.0, 1.0)));
   float veil;
   if (elevation < 0.0) veil = clamp(haze, 0.0, 1.0);
@@ -3882,6 +3963,7 @@ void main() {
   dome.renderOrder = -1000;
   dome.userData.rhrSkyDome = true;
   dome.onBeforeRender = (_renderer, _scene, camera) => {
+    if (sunDirection) material.uniforms.cloudSun.value.copy(sunDirection);
     dome.position.copy(camera.position);
     dome.scale.setScalar(camera.far * 0.5);
     dome.updateMatrixWorld(true);
@@ -4618,6 +4700,7 @@ async function addSurfaceGuis(index, camera) {
 
 async function reportNotes() {
   const notes = [];
+  if (cloudState) notes.push(`clouds drawn as one still layer (Cover ${cloudState.cover.toFixed(2)}, Density ${cloudState.density.toFixed(2)}; Roblox's change shape over time)`);
   if (terrainSummary) {
     notes.push(`terrain drawn smooth (${terrainSummary.materials.join(', ')}); materials blended where they meet (approximate)`);
     if (terrainSummary.grassBlades) notes.push(`terrain grass drawn at rest (${terrainSummary.grassBlades} blades; Roblox animates it)`);
@@ -5111,6 +5194,7 @@ async function main() {
     } else {
       configureEnvironment(index);
     }
+    await prepareClouds(index);
     if (skyCube) {
       // Drawn as a dome so the Atmosphere can veil it.
       scene.background = null;
@@ -5217,6 +5301,7 @@ function resetScene() {
   atmosphereHorizon = null;
   sunLight = null;
   sunDirection = null;
+  cloudState = null;
   postEffects = null;
   localLightsDropped = 0;
   charactersDressed = 0;

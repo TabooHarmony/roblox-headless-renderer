@@ -194,8 +194,20 @@ stderr says so on every 3D render.
 - Post-processing (experimental): `BloomEffect` (what is brighter than its Threshold,
   blurred by its Size, added at its Intensity) and `ColorCorrectionEffect` (Brightness,
   Contrast, Saturation, TintColor) are drawn, set by eye; Studio's own at low quality
-  levels draws neither. `SunRaysEffect`, `DepthOfFieldEffect`, `BlurEffect` and
-  `Clouds` are not drawn and are listed under `unsupportedVisualClasses`.
+  levels draws neither. `SunRaysEffect`, `DepthOfFieldEffect` and `BlurEffect` are
+  not drawn and are listed under `unsupportedVisualClasses`.
+- `Clouds` are drawn as one still layer in the sky, from the flat cloud tile Roblox
+  ships for devices without 3D textures (so only with Studio installed; without it
+  they are listed as unsupported). Fitted to Studio at the highest quality looking
+  25 degrees up, per band of sky: how much the clouds cover, how big they look and how
+  bright they are, at Cover 0.35 to 1 and Density 0.2 to 1. Cover opens the layer
+  steeply (clear below about 0.4, overcast from 0.8), Density sets how opaque they
+  are, Color tints them. Roblox's clouds are volumetric and change shape over time
+  even with no wind; RHR's are flatter, with less of the puffy detail. They darken
+  after sunset by a set amount rather than following the Lighting.
+- The sky's top face (SkyboxUp, and Roblox's default sky) is turned a quarter to
+  match Studio; the bottom face is as it was (unverified). The sun and moon discs
+  are not drawn.
 - Point, Spot and Surface lights: colour, brightness, range and angle are used;
   intensity is not calibrated. At most the 16 most relevant (nearest the camera,
   weighted by range and brightness) are drawn, because each light costs every pixel;

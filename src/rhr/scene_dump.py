@@ -229,6 +229,8 @@ def build_scene_dump(
         class_counts[class_name] = class_counts.get(class_name, 0) + 1
         if class_name in NOT_DRAWN_CLASSES and props.get("Enabled") is not False:
             unsupported_counts[class_name] = unsupported_counts.get(class_name, 0) + 1
+        elif class_name in STUDIO_DRAWN_CLASSES and props.get("Enabled") is not False and not _studio_installed():
+            unsupported_counts[class_name] = unsupported_counts.get(class_name, 0) + 1
 
         # Model.Scale is not applied: saved parts already carry their scaled
         # CFrames and Sizes (ScaleTo rewrites them; Scale only records the factor).
@@ -527,7 +529,16 @@ EXPERIMENTAL_CLASSES = (
     "PointLight", "SpotLight", "SurfaceLight", "Texture",
 )
 # Present in Lighting but not drawn at all.
-NOT_DRAWN_CLASSES = ("Clouds", "SunRaysEffect", "DepthOfFieldEffect", "BlurEffect")
+NOT_DRAWN_CLASSES = ("SunRaysEffect", "DepthOfFieldEffect", "BlurEffect")
+# Drawn with a texture from the Studio install (Clouds: its cloud tile), so not
+# drawn without one.
+STUDIO_DRAWN_CLASSES = ("Clouds",)
+
+
+def _studio_installed() -> bool:
+    from rhr.studio import studio_install
+
+    return studio_install() is not None
 
 
 def _experimental(class_counts: dict[str, int], materials: int) -> dict[str, int]:

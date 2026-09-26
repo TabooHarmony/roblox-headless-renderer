@@ -142,6 +142,7 @@ pay that again. `rhr cache` shows what the cache holds (it stays under 2 GB,
 - **Terrain** is drawn smooth, meshed from the place's voxels the way Roblox does it,
   with Roblox's terrain textures (top, side and bottom), blended where materials meet
   as in Studio, and grass blades (drawn still) when the place turns Decoration on.
+- **Clouds** (Terrain.Clouds) are drawn as a still layer from Roblox's cloud tile.
   Water waves are not drawn.
 - **Unions** are drawn with the exact shape and per-part colours Studio saved for them.
 - **Place files.** In a `.rbxl`, only StarterGui's ScreenGuis are drawn; templates

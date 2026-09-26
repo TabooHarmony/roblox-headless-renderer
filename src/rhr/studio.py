@@ -62,7 +62,8 @@ def studio_textures() -> dict[str, Path]:
     """Name -> PNG in RHR's cache, converted from the Studio install; {} without one.
 
     Names: sky_bk/dn/ft/lf/rt/up (Roblox's default sky, used when a place has no
-    Sky of its own) and plastic_normaldetail (Plastic's fine surface relief).
+    Sky of its own), plastic_normaldetail (Plastic's fine surface relief) and
+    sky_clouds (the flat cloud tile Roblox falls back to without 3D textures).
     """
     install = studio_install()
     if install is None:
@@ -91,7 +92,36 @@ def studio_textures() -> dict[str, Path]:
                 continue
         if destination.is_file():
             out[name] = destination
+    clouds = install / "content" / "sky" / "cloudsfb.dds"
+    destination = target / "sky_clouds.png"
+    if not destination.is_file() and clouds.is_file():
+        try:
+            _convert_r8_dds(clouds, destination)
+        except (OSError, ValueError):
+            pass
+    if destination.is_file():
+        out["sky_clouds"] = destination
     return out
+
+
+def _convert_r8_dds(source: Path, destination: Path) -> None:
+    """A DX10 DDS holding one 8-bit channel (DXGI_FORMAT_R8_UNORM), top mip, as a PNG."""
+    import struct
+
+    from PIL import Image
+
+    data = source.read_bytes()
+    if data[:4] != b"DDS " or data[84:88] != b"DX10" or struct.unpack("<I", data[128:132])[0] != 61:
+        raise ValueError(f"not an R8 DX10 DDS: {source}")
+    height, width = struct.unpack("<II", data[12:20])
+    start = 4 + 124 + 20
+    pixels = data[start:start + width * height]
+    if len(pixels) != width * height:
+        raise ValueError(f"truncated DDS: {source}")
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    temporary = destination.with_suffix(".tmp.png")
+    Image.frombytes("L", (width, height), pixels).save(temporary)
+    temporary.replace(destination)
 
 
 # What characters are drawn with, from the install (content/avatar): the classic head
