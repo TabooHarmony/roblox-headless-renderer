@@ -110,6 +110,10 @@ local PROPS = {
   "GroundName", "CrackedLavaName", "AsphaltName", "LeafyGrassName", "SaltName", "LimestoneName",
   "PavementName", "RockName", "CardboardName", "CarpetName", "CeramicTilesName",
   "ClayRoofTilesName", "RoofShinglesName", "LeatherName", "PlasterName", "RubberName",
+  -- Characters: clothing templates, body colours, R6 package meshes, the rig type
+  "ShirtTemplate", "PantsTemplate", "Graphic", "TextureId", "BodyPart", "BaseTextureId",
+  "OverlayTextureId", "HeadColor3", "TorsoColor3", "LeftArmColor3", "RightArmColor3",
+  "LeftLegColor3", "RightLegColor3", "RigType", "VertexColor",
   -- Containers. (No "Name" here: it is already listed above, and this is a list, so a
   -- duplicate is a second read of the same property on every instance.)
 }
@@ -120,6 +124,7 @@ for _, name in ipairs(PROPS) do PROPS_SET[name] = true end
 local CONTENT_PROPERTY_ALIASES = {
   MeshId = "MeshContent",
   TextureID = "TextureContent",
+  TextureId = "TextureContent",
   SkyboxBk = "SkyboxBackContent",
   SkyboxDn = "SkyboxDownContent",
   SkyboxFt = "SkyboxFrontContent",
@@ -158,6 +163,9 @@ local VISUAL_CLASSES = {
   DepthOfFieldEffect = true, BlurEffect = true,
   -- Its per-material overrides pick the MaterialVariant parts and Terrain draw with.
   MaterialService = true,
+  -- Characters: what a rig wears, its body colours and R6 body package meshes.
+  Humanoid = true, Shirt = true, Pants = true, ShirtGraphic = true, BodyColors = true,
+  CharacterMesh = true,
 }
 
 local VISUAL_XML_RECOVERY = {

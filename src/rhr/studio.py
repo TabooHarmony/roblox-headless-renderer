@@ -94,6 +94,78 @@ def studio_textures() -> dict[str, Path]:
     return out
 
 
+# What characters are drawn with, from the install (content/avatar): the classic head
+# for SpecialMesh MeshType Head, the R6 body part meshes, and the layouts Roblox paints
+# Shirt and Pants templates through onto an R6 body (a 1024x512 atlas) or onto R15
+# body parts (torso 388x272, each arm or leg 264x284).
+AVATAR_CONTENT = tuple(key.lower() for key in (
+    "avatar/heads/head.mesh",
+    *(f"avatar/meshes/{part}.mesh" for part in ("torso", "leftarm", "rightarm", "leftleg", "rightleg")),
+    *(f"avatar/compositing/{name}.mesh" for name in (
+        "CompositShirtTemplate", "CompositPantsTemplate", "CompositTShirt",
+        "R15CompositTorsoBase", "R15CompositLeftArmBase", "R15CompositRightArmBase",
+    )),
+))
+
+
+def content_path(uri: str) -> str | None:
+    """`rbxasset://Textures\face.png` -> `textures/face.png`: the key RHR uses for a file
+    the Roblox client ships with. None for anything else."""
+    text = str(uri or "").strip()
+    if not text.lower().startswith("rbxasset://"):
+        return None
+    path = text[len("rbxasset://"):].replace("\\", "/").lstrip("/").lower()
+    return path if path and ".." not in path.split("/") else None
+
+
+def studio_content(paths) -> dict[str, Path]:
+    """Key (see `content_path`) -> a file from the install for each one it has.
+
+    Looked up in the install's content folder, then PlatformContent/pc (where the
+    client keeps textures it ships per platform). DDS and TEX images are converted to
+    PNG in RHR's cache once, as `studio_textures` does. {} without an install.
+    """
+    install = studio_install()
+    if install is None:
+        return {}
+    roots = [install / "content", install / "PlatformContent" / "pc"]
+    out: dict[str, Path] = {}
+    for key in paths:
+        source = next((root / key for root in roots if (root / key).is_file()), None)
+        if source is None:
+            source = _case_insensitive(roots, key)
+        if source is None:
+            continue
+        if source.suffix.lower() in {".dds", ".tex"}:
+            destination = STUDIO_TEXTURES / install.name / "content" / (key.replace("/", "_") + ".png")
+            if not destination.is_file():
+                try:
+                    _convert(source, destination)
+                except (OSError, ValueError):
+                    continue
+            source = destination
+        out[key] = source
+    return out
+
+
+def _case_insensitive(roots: list[Path], key: str) -> Path | None:
+    """The install's own spelling of `key` (lower case) on a case-sensitive file system."""
+    for root in roots:
+        current = root
+        for part in key.split("/"):
+            if not current.is_dir():
+                current = None
+                break
+            match = next((c for c in current.iterdir() if c.name.lower() == part), None)
+            if match is None:
+                current = None
+                break
+            current = match
+        if current is not None and current.is_file():
+            return current
+    return None
+
+
 def terrain_base_colors() -> dict[str, list[int]]:
     """Terrain material -> the colour Roblox multiplies its terrain texture by.
 

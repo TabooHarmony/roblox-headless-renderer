@@ -229,6 +229,21 @@ function meshAssetId(uri) {
   return contentAssetId(uri);
 }
 
+// A file the Roblox client ships with (rbxasset://textures/face.png), served from the
+// Studio install: its key in the extras manifest, as rhr.studio.content_path spells it.
+function contentKey(uri) {
+  const text = String(uri || '').trim();
+  if (!/^rbxasset:\/\//i.test(text)) return null;
+  const key = text.slice(11).replace(/\\/g, '/').replace(/^\/+/, '').toLowerCase();
+  return key || null;
+}
+
+async function contentUrl(uri) {
+  const key = contentKey(uri);
+  if (!key) return null;
+  return (await extrasManifest).content?.[key] || null;
+}
+
 function dataViewString(bytes, start, end) {
   return new TextDecoder().decode(bytes.slice(start, end));
 }
@@ -559,17 +574,21 @@ function withoutBadVertices(geometry) {
 }
 
 async function loadMeshGeometry(uri) {
-  const assetId = meshAssetId(uri);
+  const content = contentKey(uri);
+  const assetId = content ? `content:${content}` : meshAssetId(uri);
   if (!assetId) return null;
   if (sceneMeshGeometryCache.has(assetId)) return sceneMeshGeometryCache.get(assetId);
   const promise = (async () => {
-    const manifest = await sceneMeshManifest;
-    const url = manifest[assetId];
+    const url = content ? await contentUrl(uri) : (await sceneMeshManifest)[assetId];
     if (!url) return null;
     return keep('mesh', url, async () => {
       const response = await fetch(url);
       if (!response.ok) return null;
-      return withoutBadVertices(await parseRobloxMesh(await response.arrayBuffer()));
+      const geometry = withoutBadVertices(await parseRobloxMesh(await response.arrayBuffer()));
+      // Material textures replace `uv` with stud-sized box UVs; the mesh's own UVs,
+      // which its TextureID and a character's clothing are drawn with, stay in uv1.
+      if (geometry?.attributes.uv && !geometry.attributes.uv1) geometry.setAttribute('uv1', geometry.attributes.uv);
+      return geometry;
     });
   })().catch(error => {
     meshParseFailures.push(`${assetId}: ${error.message}`);
@@ -594,6 +613,17 @@ function fitMeshGeometryToPart(baseGeometry, size) {
   geometry.computeBoundingBox();
   geometry.computeBoundingSphere();
   return geometry;
+}
+
+// Studio-measured (a front view against a 1-stud block): a SpecialMesh of MeshType Head
+// is 0.935 of the part's smaller horizontal side across (X and Z) and 0.935 of its
+// height tall, times the mesh's Scale. An R6 head (2x1x1, Scale 1.25) is 1.17 studs.
+const HEAD_MESH = 'rbxasset://avatar/heads/head.mesh';
+function headMeshSize(node, special) {
+  const [x, y, z] = dimensions(node.props?.Size);
+  const scale = special.props?.Scale || {};
+  const across = Math.min(x, z) * 0.935;
+  return {X: across * Number(scale.X ?? 1), Y: y * 0.935 * Number(scale.Y ?? 1), Z: across * Number(scale.Z ?? 1)};
 }
 
 function transformSpecialFileMesh(baseGeometry, special) {
@@ -625,7 +655,12 @@ function shapeGeometry(node) {
     y *= Number(scale.Y ?? 1);
     z *= Number(scale.Z ?? 1);
     let geometry;
-    if (meshType === 'Sphere' || meshType === 'Head') {
+    if (meshType === 'Head') {
+      // Until the install's head mesh loads (addPart), or without an install.
+      const size = headMeshSize(node, special);
+      geometry = new THREE.SphereGeometry(0.5, 24, 16);
+      geometry.scale(size.X, size.Y, size.Z);
+    } else if (meshType === 'Sphere') {
       geometry = new THREE.SphereGeometry(0.5, 24, 16);
       geometry.scale(x, y, z);
     } else if (meshType === 'Cylinder') {
@@ -1017,6 +1052,59 @@ function applySurfaceAppearance(mesh, node, geometryReady) {
   materialTextureJobs.push(job);
 }
 
+// An image drawn over the part's own colour with the mesh's own UVs (uv1): where the
+// image is transparent the colour shows, as for a mesh's texture in Roblox. `tint`
+// (a SpecialMesh's VertexColor) multiplies the image. A premultiplied image (a
+// character's clothing, painted in a render target) adds its colour instead of mixing.
+function useOverlayMap(material, texture, premultiplied = false, tint = null) {
+  texture.channel = 1;
+  material.map = texture;
+  const t = tint ? `vec3( ${tint.r.toFixed(5)}, ${tint.g.toFixed(5)}, ${tint.b.toFixed(5)} )` : null;
+  const image = t ? `rhrOverlay.rgb * ${t}` : 'rhrOverlay.rgb';
+  material.onBeforeCompile = shader => {
+    shader.fragmentShader = shader.fragmentShader.replace('#include <map_fragment>', `
+#ifdef USE_MAP
+  vec4 rhrOverlay = texture2D( map, vMapUv );
+  diffuseColor.rgb = ${premultiplied ? `diffuseColor.rgb * ( 1.0 - rhrOverlay.a ) + ${image}` : `mix( diffuseColor.rgb, ${image}, rhrOverlay.a )`};
+#endif`);
+  };
+  const key = `rhr-overlay${premultiplied ? '-premultiplied' : ''}${t ? `-${t}` : ''}`;
+  material.customProgramCacheKey = () => key;
+  material.needsUpdate = true;
+}
+
+// A MeshPart's TextureID, or the TextureId of a FileMesh or Head SpecialMesh.
+function meshTextureUri(node) {
+  if (node?.className === 'MeshPart') return surfaceAppearanceOf(node) ? null : node.props?.TextureID || null;
+  const special = specialMeshChild(node);
+  const type = special?.props?.MeshType?.name;
+  return special && (type === 'FileMesh' || type === 'Head') ? special.props?.TextureId || null : null;
+}
+
+// Drawn with the mesh's own UVs once the mesh has loaded (a box stand-in has none to
+// draw it with). The part's colour shows through the image's transparent parts
+// (Studio: an R6 package head textured with the face image is the head's colour with
+// the face on it); a SpecialMesh's VertexColor tints the image.
+function applyMeshTexture(mesh, node, geometryReady) {
+  const uri = meshTextureUri(node);
+  if (!uri || flatMaterials) return false;
+  const special = node.className === 'MeshPart' ? null : specialMeshChild(node);
+  const job = Promise.all([loadSceneTexture(uri), geometryReady]).then(([texture]) => {
+    if (!texture || !mesh.userData.rhrMeshAsset || !mesh.geometry.attributes.uv1) return;
+    const map = texture.clone();
+    map.wrapS = map.wrapT = THREE.RepeatWrapping;
+    map.needsUpdate = true;
+    const vertexColor = special?.props?.VertexColor;
+    const tint = vertexColor && (vertexColor.X !== 1 || vertexColor.Y !== 1 || vertexColor.Z !== 1)
+      ? new THREE.Color().setRGB(Number(vertexColor.X ?? 1), Number(vertexColor.Y ?? 1), Number(vertexColor.Z ?? 1), THREE.SRGBColorSpace)
+      : null;
+    useOverlayMap(mesh.material, map, false, tint);
+    mesh.userData.rhrMeshTexture = true;
+  });
+  materialTextureJobs.push(job);
+  return true;
+}
+
 function applyMaterialTexture(mesh, materialName, geometryReady = Promise.resolve(), node = null, index = null) {
   if (flatMaterials || !materialName) return;
   if (surfaceAppearanceOf(node)) return;  // the SurfaceAppearance replaces the material's look
@@ -1087,7 +1175,9 @@ function applyPlasticDetail(mesh, node, geometryReady) {
       base.normalScale = new THREE.Vector2(0.25, 0.25);
       base.needsUpdate = true;
     }
-    if (!tiles.some(Boolean)) return;
+    // Per-face materials need the box's six face groups. A Block part whose SpecialMesh
+    // makes it a sphere or a file mesh (an R6 head) has none, and would not draw at all.
+    if (!tiles.some(Boolean) || mesh.geometry.groups.length !== 6) return;
     // The surface tile is grey around mid-value: the part's colour times twice the
     // tile, so the face keeps its colour on average.
     mesh.material = tiles.map(tile => {
@@ -1225,8 +1315,23 @@ function addPart(node, parent) {
     });
     meshGeometryJobs.push(job);
     geometryReady = job;
+  } else if (special?.props?.MeshType?.name === 'Head') {
+    const job = loadMeshGeometry(HEAD_MESH).then(baseGeometry => {
+      if (!baseGeometry) return;
+      const fitted = fitMeshGeometryToPart(baseGeometry, headMeshSize(node, special));
+      const offset = special.props?.Offset;
+      if (offset) fitted.translate(Number(offset.X ?? 0), Number(offset.Y ?? 0), Number(offset.Z ?? 0));
+      mesh.geometry.dispose();
+      mesh.geometry = fitted;
+      mesh.userData.rhrMeshAsset = 'head';
+    });
+    meshGeometryJobs.push(job);
+    geometryReady = job;
   }
-  applyMaterialTexture(mesh, materialName, geometryReady, node, sceneIndex);
+  // A mesh's own image (TextureID) replaces the material's look, as a SurfaceAppearance does.
+  if (!applyMeshTexture(mesh, node, geometryReady)) {
+    applyMaterialTexture(mesh, materialName, geometryReady, node, sceneIndex);
+  }
   applySurfaceAppearance(mesh, node, geometryReady);
   mesh.castShadow = node.props?.CastShadow !== false;
   mesh.receiveShadow = true;
@@ -1561,6 +1666,242 @@ async function addTerrain(index) {
   terrainSummary = {triangles, materials: [...materialsDrawn]};
 }
 
+// Characters. A rig is a Model with a Humanoid; what it wears is painted onto its body
+// the way Roblox does it, with the layouts that ship in the Studio install
+// (content/avatar/compositing): each layout is a flat mesh whose positions are pixels
+// of the body's texture and whose UVs point into a clothing template (585x559).
+// Pants, then the Shirt, then the ShirtGraphic (the template's torso front) are
+// painted in that order into a render target, and the body parts draw it over their
+// own colour with their own UVs.
+//
+// R6: one 1024x512 texture for the body, drawn on the install's R6 body part meshes
+// (content/avatar/meshes, boxes with rounded edges), or on a CharacterMesh's mesh
+// (a body package) for the parts it replaces. The head is not part of it.
+// R15: a texture per body part: the torso's layout is 388x272, an arm's or a leg's
+// 264x284 (legs use the arm layouts with the Pants template), drawn with the body
+// part MeshPart's UVs over its TextureID when it has one.
+const AVATAR = 'rbxasset://avatar/';
+const R6_BODY = {
+  Torso: {mesh: 'torso', bodyPart: 'Torso', color: 'TorsoColor3'},
+  'Left Arm': {mesh: 'leftarm', bodyPart: 'LeftArm', color: 'LeftArmColor3'},
+  'Right Arm': {mesh: 'rightarm', bodyPart: 'RightArm', color: 'RightArmColor3'},
+  'Left Leg': {mesh: 'leftleg', bodyPart: 'LeftLeg', color: 'LeftLegColor3'},
+  'Right Leg': {mesh: 'rightleg', bodyPart: 'RightLeg', color: 'RightLegColor3'},
+  Head: {color: 'HeadColor3'},
+};
+const R15_LAYOUTS = {
+  torso: {mesh: 'R15CompositTorsoBase', width: 388, height: 272},
+  left: {mesh: 'R15CompositLeftArmBase', width: 264, height: 284},
+  right: {mesh: 'R15CompositRightArmBase', width: 264, height: 284},
+};
+// Body part -> [layout, templates painted through it, BodyColors property]
+const R15_BODY = {
+  UpperTorso: ['torso', ['pants', 'shirt', 'graphic'], 'TorsoColor3'],
+  LowerTorso: ['torso', ['pants', 'shirt', 'graphic'], 'TorsoColor3'],
+  LeftUpperArm: ['left', ['shirt'], 'LeftArmColor3'],
+  LeftLowerArm: ['left', ['shirt'], 'LeftArmColor3'],
+  LeftHand: ['left', ['shirt'], 'LeftArmColor3'],
+  RightUpperArm: ['right', ['shirt'], 'RightArmColor3'],
+  RightLowerArm: ['right', ['shirt'], 'RightArmColor3'],
+  RightHand: ['right', ['shirt'], 'RightArmColor3'],
+  LeftUpperLeg: ['left', ['pants'], 'LeftLegColor3'],
+  LeftLowerLeg: ['left', ['pants'], 'LeftLegColor3'],
+  LeftFoot: ['left', ['pants'], 'LeftLegColor3'],
+  RightUpperLeg: ['right', ['pants'], 'RightLegColor3'],
+  RightLowerLeg: ['right', ['pants'], 'RightLegColor3'],
+  RightFoot: ['right', ['pants'], 'RightLegColor3'],
+  Head: [null, [], 'HeadColor3'],
+};
+// Painted at twice the layout's size: the templates' own detail survives filtering.
+const CLOTHING_SCALE = 2;
+let charactersDressed = 0;
+
+function childOfClass(node, className) {
+  return Object.values(node?.children || {}).find(child => child.className === className) || null;
+}
+
+function childNamed(node, name) {
+  return Object.values(node?.children || {}).find(child => child.name === name) || null;
+}
+
+// What a rig wears, as images in paint order: {pants, shirt, graphic} -> {texture, color}.
+async function clothingLayers(model) {
+  const layers = {};
+  const pants = childOfClass(model, 'Pants');
+  const shirt = childOfClass(model, 'Shirt');
+  const graphic = childOfClass(model, 'ShirtGraphic');
+  const load = async (clothing, property) => {
+    const texture = clothing?.props?.[property] ? await loadSceneTexture(clothing.props[property]) : null;
+    return texture ? {texture, color: colorValue(clothing.props?.Color3)} : null;
+  };
+  layers.pants = await load(pants, 'PantsTemplate');
+  layers.shirt = await load(shirt, 'ShirtTemplate');
+  const image = await load(graphic, 'Graphic');
+  if (image?.texture.image) {
+    // A T-shirt image covers the template's torso front (231, 74, 128x128): drawn into
+    // a template-sized image, it goes through the same layout as the shirt.
+    const canvas = document.createElement('canvas');
+    canvas.width = 585;
+    canvas.height = 559;
+    canvas.getContext('2d').drawImage(image.texture.image, 231, 74, 128, 128);
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.colorSpace = THREE.SRGBColorSpace;
+    layers.graphic = {texture, color: image.color};
+  }
+  return layers;
+}
+
+// Paint images through layouts into a new texture (premultiplied alpha, linear).
+// items: [{geometry, texture, color}] in paint order; geometry positions are pixels.
+function paintLayout(width, height, items) {
+  const target = new THREE.WebGLRenderTarget(width * CLOTHING_SCALE, height * CLOTHING_SCALE, {
+    type: THREE.HalfFloatType,
+    depthBuffer: false,
+  });
+  const camera = new THREE.OrthographicCamera(0, width, height, 0, -1000, 1000);
+  const canvasScene = new THREE.Scene();
+  items.forEach((item, order) => {
+    const material = new THREE.MeshBasicMaterial({
+      map: item.texture,
+      color: item.color || new THREE.Color(0xffffff),
+      transparent: true,
+      depthTest: false,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+      toneMapped: false,
+    });
+    const mesh = new THREE.Mesh(item.geometry, material);
+    mesh.renderOrder = order;
+    canvasScene.add(mesh);
+  });
+  const previousTarget = renderer.getRenderTarget();
+  const clearColor = renderer.getClearColor(new THREE.Color());
+  const clearAlpha = renderer.getClearAlpha();
+  renderer.setRenderTarget(target);
+  renderer.setClearColor(0x000000, 0);
+  renderer.clear();
+  renderer.render(canvasScene, camera);
+  renderer.setRenderTarget(previousTarget);
+  renderer.setClearColor(clearColor, clearAlpha);
+  canvasScene.traverse(object => object.material?.dispose());
+  return target.texture;
+}
+
+// The whole image over a layout's full area (a body part's own TextureID, a package's
+// base texture).
+function fullLayoutQuad(width, height) {
+  const geometry = new THREE.PlaneGeometry(width, height);
+  geometry.translate(width / 2, height / 2, 0);
+  return geometry;
+}
+
+// A body part's material, with the clothing texture over its colour.
+function dressPart(mesh, texture) {
+  const base = Array.isArray(mesh.material) ? mesh.material[0] : mesh.material;
+  const material = base.clone();
+  material.map = null;
+  material.normalMap = null;
+  material.roughnessMap = null;
+  material.metalnessMap = null;
+  material.onBeforeCompile = () => {};
+  material.customProgramCacheKey = () => '';
+  useOverlayMap(material, texture, true);
+  mesh.material = material;
+}
+
+function applyBodyColors(model, table) {
+  const colors = childOfClass(model, 'BodyColors')?.props;
+  if (!colors) return;
+  for (const [name, entry] of Object.entries(table)) {
+    const property = Array.isArray(entry) ? entry[2] : entry.color;
+    const mesh = meshByNode.get(childNamed(model, name));
+    if (!mesh || !colors[property]) continue;
+    for (const material of [mesh.material].flat()) material.color.copy(colorValue(colors[property]));
+  }
+}
+
+async function dressR6(model, layers) {
+  const charMeshes = Object.values(model.children || {}).filter(child => child.className === 'CharacterMesh');
+  const items = [];
+  const layout = async name => loadMeshGeometry(`${AVATAR}compositing/${name}.mesh`);
+  const baseTexture = charMeshes.map(c => c.props?.BaseTextureId).find(id => id && String(id) !== '0');
+  const overlayTexture = charMeshes.map(c => c.props?.OverlayTextureId).find(id => id && String(id) !== '0');
+  const idUri = id => (/^\d+$/.test(String(id)) ? `rbxassetid://${id}` : id);
+  if (baseTexture) {
+    const texture = await loadSceneTexture(idUri(baseTexture));
+    if (texture) items.push({geometry: fullLayoutQuad(1024, 512), texture});
+  }
+  const pantsLayout = layers.pants ? await layout('CompositPantsTemplate') : null;
+  const shirtLayout = layers.shirt || layers.graphic ? await layout('CompositShirtTemplate') : null;
+  if (pantsLayout) items.push({geometry: pantsLayout, ...layers.pants});
+  if (shirtLayout && layers.shirt) items.push({geometry: shirtLayout, ...layers.shirt});
+  if (shirtLayout && layers.graphic) items.push({geometry: shirtLayout, ...layers.graphic});
+  if (overlayTexture) {
+    const texture = await loadSceneTexture(idUri(overlayTexture));
+    if (texture) items.push({geometry: fullLayoutQuad(1024, 512), texture});
+  }
+  const atlas = items.length ? paintLayout(1024, 512, items) : null;
+  let dressed = false;
+  for (const [name, entry] of Object.entries(R6_BODY)) {
+    if (!entry.mesh) continue;
+    const node = childNamed(model, name);
+    const mesh = meshByNode.get(node);
+    if (!mesh || !['Part', 'MeshPart'].includes(node.className) || specialMeshChild(node)) continue;
+    const charMesh = charMeshes.find(c => c.props?.BodyPart?.name === entry.bodyPart);
+    const packaged = charMesh?.props?.MeshId && String(charMesh.props.MeshId) !== '0';
+    const base = packaged
+      ? await loadMeshGeometry(idUri(charMesh.props.MeshId))
+      : await loadMeshGeometry(`${AVATAR}meshes/${entry.mesh}.mesh`);
+    if (!base) continue;
+    // A package's mesh is authored in studs around the part; the plain body part mesh
+    // is a unit shape the part's size stretches.
+    const geometry = packaged ? base.clone() : fitMeshGeometryToPart(base, node.props?.Size);
+    mesh.geometry.dispose();
+    mesh.geometry = geometry;
+    mesh.userData.rhrMeshAsset = packaged ? meshAssetId(idUri(charMesh.props.MeshId)) : `r6-${entry.mesh}`;
+    if (atlas) dressPart(mesh, atlas);
+    else if (Array.isArray(mesh.material)) mesh.material = mesh.material[0];
+    dressed = true;
+  }
+  return dressed;
+}
+
+async function dressR15(model, layers) {
+  const layoutGeometry = {};
+  let dressed = false;
+  for (const [name, [layoutName, templates]] of Object.entries(R15_BODY)) {
+    if (!layoutName) continue;
+    const node = childNamed(model, name);
+    const mesh = meshByNode.get(node);
+    if (!mesh || node.className !== 'MeshPart' || !mesh.userData.rhrMeshAsset || surfaceAppearanceOf(node)) continue;
+    const worn = templates.filter(template => layers[template]);
+    if (!worn.length) continue;
+    const spec = R15_LAYOUTS[layoutName];
+    if (!(layoutName in layoutGeometry)) layoutGeometry[layoutName] = await loadMeshGeometry(`${AVATAR}compositing/${spec.mesh}.mesh`);
+    const layout = layoutGeometry[layoutName];
+    if (!layout) continue;
+    const items = [];
+    const own = node.props?.TextureID ? await loadSceneTexture(node.props.TextureID) : null;
+    if (own) items.push({geometry: fullLayoutQuad(spec.width, spec.height), texture: own});
+    for (const template of worn) items.push({geometry: layout, ...layers[template]});
+    dressPart(mesh, paintLayout(spec.width, spec.height, items));
+    dressed = true;
+  }
+  return dressed;
+}
+
+async function dressCharacters(index) {
+  if (flatMaterials) return;
+  for (const humanoid of nodesOfClass(index, 'Humanoid')) {
+    const model = index.parentByNode.get(humanoid);
+    if (!model) continue;
+    const r15 = humanoid.props?.RigType?.name === 'R15' || Boolean(childNamed(model, 'UpperTorso'));
+    applyBodyColors(model, r15 ? R15_BODY : R6_BODY);
+    const layers = await clothingLayers(model);
+    if (await (r15 ? dressR15(model, layers) : dressR6(model, layers))) charactersDressed += 1;
+  }
+}
+
 function addNode(node, parent) {
   // Model.Scale is not applied: a saved model's parts already carry their scaled
   // CFrames and Sizes (Roblox's ScaleTo rewrites them; Scale only records the factor).
@@ -1571,13 +1912,13 @@ function addNode(node, parent) {
 }
 
 async function loadSceneTexture(uri) {
-  const assetId = contentAssetId(uri);
+  const content = contentKey(uri);
+  const assetId = content ? `content:${content}` : contentAssetId(uri);
   if (!assetId) return null;
   if (sceneTextureCache.has(assetId)) return sceneTextureCache.get(assetId);
 
   const promise = (async () => {
-    const manifest = await sceneAssetManifest;
-    const url = manifest[assetId];
+    const url = content ? await contentUrl(uri) : (await sceneAssetManifest)[assetId];
     if (!url) return null;
     return keep('image', url, async () => {
       const texture = await new Promise(resolve => new THREE.TextureLoader().load(url, resolve, undefined, () => resolve(null)));
@@ -1592,12 +1933,12 @@ async function loadSceneTexture(uri) {
 // A normal, roughness or metalness map: the same cached image, read as data (no sRGB).
 const sceneDataTextureCache = new Map();
 async function loadSceneDataTexture(uri) {
-  const assetId = contentAssetId(uri);
+  const content = contentKey(uri);
+  const assetId = content ? `content:${content}` : contentAssetId(uri);
   if (!assetId) return null;
   if (sceneDataTextureCache.has(assetId)) return sceneDataTextureCache.get(assetId);
   const promise = (async () => {
-    const manifest = await sceneAssetManifest;
-    const url = manifest[assetId];
+    const url = content ? await contentUrl(uri) : (await sceneAssetManifest)[assetId];
     if (!url) return null;
     return keep('image-data', url, async () => {
       const texture = await new Promise(resolve => new THREE.TextureLoader().load(url, resolve, undefined, () => resolve(null)));
@@ -1653,12 +1994,74 @@ function surfaceImagePlane(parentNode, face) {
   return {geometry, plane, faceWidth, faceHeight};
 }
 
+// A decal on a mesh (a face on an R6 head) lies on the mesh's own surface: the image
+// is projected along the face's direction over the mesh's bounds, onto the triangles
+// that look that way. Same orientation as on a box (surfaceImagePlane).
+function projectedDecalGeometry(source, face) {
+  source.computeBoundingBox();
+  const size = source.boundingBox.getSize(new THREE.Vector3());
+  const center = source.boundingBox.getCenter(new THREE.Vector3());
+  const {plane, faceWidth, faceHeight} = surfaceImagePlane({props: {Size: {X: size.x, Y: size.y, Z: size.z}}}, face);
+  plane.position.add(center);
+  plane.updateMatrix();
+  const toPlane = plane.matrix.clone().invert();
+  const position = source.attributes.position;
+  const index = source.index;
+  const count = index ? index.count : position.count;
+  const corners = [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()];
+  const local = [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()];
+  const edgeA = new THREE.Vector3();
+  const edgeB = new THREE.Vector3();
+  const positions = [];
+  const uvs = [];
+  for (let i = 0; i + 2 < count; i += 3) {
+    for (let k = 0; k < 3; k += 1) {
+      corners[k].fromBufferAttribute(position, index ? index.getX(i + k) : i + k);
+      local[k].copy(corners[k]).applyMatrix4(toPlane);
+    }
+    const facing = edgeA.subVectors(local[1], local[0]).cross(edgeB.subVectors(local[2], local[0])).normalize().z;
+    if (facing < 0.2) continue;
+    for (let k = 0; k < 3; k += 1) {
+      positions.push(corners[k].x, corners[k].y, corners[k].z);
+      uvs.push(local[k].x / faceWidth + 0.5, local[k].y / faceHeight + 0.5);
+    }
+  }
+  if (!positions.length) return null;
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+  geometry.computeVertexNormals();
+  return geometry;
+}
+
 async function addSurfaceImage(node, parentNode) {
   const parentMesh = meshByNode.get(parentNode);
   if (!parentMesh) return;
   const baseTexture = await loadSceneTexture(node.props?.Texture);
   if (!baseTexture) return;
   const face = node.props?.Face?.name || 'Front';
+  if (parentMesh.userData.rhrMeshAsset && node.className === 'Decal') {
+    const geometry = projectedDecalGeometry(parentMesh.geometry, face);
+    if (!geometry) return;
+    const texture = baseTexture.clone();
+    texture.wrapS = texture.wrapT = THREE.ClampToEdgeWrapping;
+    texture.needsUpdate = true;
+    const transparency = Math.max(0, Math.min(1, Number(node.props?.Transparency ?? 0)));
+    const decal = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial({
+      map: texture,
+      color: colorValue(node.props?.Color3, 0xffffff),
+      roughness: 1,
+      transparent: true,
+      opacity: 1 - transparency,
+      depthWrite: false,
+      polygonOffset: true,
+      polygonOffsetFactor: -2,
+      polygonOffsetUnits: -2,
+    }));
+    decal.userData.rhrDecoration = true;
+    parentMesh.add(decal);
+    return;
+  }
   const {geometry, plane, faceWidth, faceHeight} = surfaceImagePlane(parentNode, face);
   let texture = baseTexture;
   if (node.className === 'Texture') {
@@ -4024,6 +4427,7 @@ async function main() {
     await Promise.all(meshGeometryJobs);
     await Promise.all(materialTextureJobs);
     await stylePlaceholderMeshes();
+    await dressCharacters(buildNodeIndex([viewport]));
     configureEnvironment(index);
     const cameraNode = findCamera(buildNodeIndex([viewport]));
     camera = new THREE.PerspectiveCamera();
@@ -4043,6 +4447,8 @@ async function main() {
     await Promise.all(materialTextureJobs);
     await stylePlaceholderMeshes();
     mark('material textures loaded');
+    await dressCharacters(index);
+    mark('characters dressed');
     await addSurfaceImages(index);
     addAttachmentAnchors(index);
     mark('decals and attachments');

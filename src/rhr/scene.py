@@ -258,10 +258,38 @@ def _inline_unions(ir_path: Path) -> dict[str, Path]:
     return found
 
 
+def _content_refs(ir_path: Path) -> set[str]:
+    """Every `rbxasset://` file the IR names (see rhr.studio.content_path)."""
+    from rhr.studio import content_path
+
+    try:
+        ir = json.loads(Path(ir_path).read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return set()
+    found: set[str] = set()
+
+    def visit(value) -> None:
+        if isinstance(value, dict):
+            for item in value.values():
+                visit(item)
+        elif isinstance(value, list):
+            for item in value:
+                visit(item)
+        elif isinstance(value, str) and value[:11].lower() == "rbxasset://":
+            key = content_path(value)
+            if key:
+                found.add(key)
+
+    visit(ir.get("roots", []))
+    return found
+
+
 def _extras(ir_path: Path | None = None) -> dict:
     """Union meshes, Roblox material maps and Studio textures the page may use."""
+    import hashlib
+
     from rhr.paths import MATERIAL_CACHE, UNION_CACHE
-    from rhr.studio import studio_install, studio_textures
+    from rhr.studio import AVATAR_CONTENT, studio_content, studio_install, studio_textures
 
     def by_stem(root: Path, suffix: str) -> dict[str, Path]:
         if not root.is_dir():
@@ -273,16 +301,23 @@ def _extras(ir_path: Path | None = None) -> dict:
         unions.update(_inline_unions(ir_path))
     materials = by_stem(MATERIAL_CACHE, ".png")
     studio = studio_textures()
+    # Files the client ships with (rbxasset://), by path: what the IR names plus what
+    # characters are drawn with. Served next to the Studio textures under a name
+    # without slashes.
+    content = studio_content(sorted((_content_refs(ir_path) if ir_path else set()) | set(AVATAR_CONTENT)))
+    content_names = {key: "content-" + hashlib.sha1(key.encode()).hexdigest()[:16] + path.suffix.lower()
+                     for key, path in content.items()}
     manifest = {
         "unions": {k: _versioned("/__rhr_union__/", k, v) for k, v in unions.items()},
         "materials": {k: _versioned("/__rhr_material__/", k, v) for k, v in materials.items()},
         "studio": {k: _versioned("/__rhr_studio__/", k, v) for k, v in studio.items()},
+        "content": {key: _versioned("/__rhr_studio__/", content_names[key], path) for key, path in content.items()},
         "studioInstalled": studio_install() is not None,
     }
     return {
         "union_files": unions,
         "material_files": materials,
-        "studio_files": studio,
+        "studio_files": {**studio, **{content_names[key]: path for key, path in content.items()}},
         "extras_manifest_payload": json.dumps(manifest).encode(),
     }
 

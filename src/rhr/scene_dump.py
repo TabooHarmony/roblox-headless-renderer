@@ -13,6 +13,7 @@ from rhr.paths import ICON_CACHE, MESH_CACHE, UNION_CACHE
 
 from rhr.ir import load_ir
 from rhr.rbxl_raw import EMPTY_TERRAIN_SMOOTH_GRID, BinaryRbxError, extract_serialized_string_property
+from rhr.studio import content_path, studio_content
 
 ASSET_EXTENSIONS = ("png", "webp", "jpg", "jpeg", "svg")
 DEFAULT_MESH_DIR = MESH_CACHE
@@ -200,6 +201,7 @@ def build_scene_dump(
             except (OSError, BinaryRbxError, UnicodeError):
                 terrain_payloads = []
     terrain_index = 0
+    shipped: dict[str, bool] = {}  # rbxasset:// key -> the install has it
 
     def trail_history_source(node: dict) -> str | None:
         current = parent_by_id.get(id(node))
@@ -454,13 +456,22 @@ def build_scene_dump(
         if class_name in {"Decal", "Texture"}:
             uri = props.get("Texture")
             asset_id = _asset_id(uri)
+            key = content_path(uri)
+            if not uri:
+                available = True  # an empty decal draws nothing, in Studio too
+            elif key:
+                if key not in shipped:
+                    shipped[key] = bool(studio_content([key]))
+                available = shipped[key]  # a file the client ships (rbxasset://), from the install
+            else:
+                available = _asset_available(asset_id, texture_dir)
             asset_references.append({
                 "path": path,
                 "class": class_name,
                 "property": "Texture",
                 "uri": uri,
                 "assetId": asset_id,
-                "available": _asset_available(asset_id, texture_dir),
+                "available": available,
             })
 
         for child in _children(node):

@@ -48,6 +48,7 @@ IMAGE_PROPERTIES = {
     "Image", "HoverImage", "PressedImage", "Texture", "TextureID", "TextureId",
     "SkyboxBk", "SkyboxDn", "SkyboxFt", "SkyboxLf", "SkyboxRt", "SkyboxUp",
     "MoonTextureId", "SunTextureId", "ColorMap", "NormalMap", "RoughnessMap", "MetalnessMap",
+    "ShirtTemplate", "PantsTemplate", "Graphic", "BaseTextureId", "OverlayTextureId",
 }
 MATERIAL_TABLE = PACKAGE / "scene" / "roblox_materials.json"
 FAILURES = CACHE / "cache" / "fetch_failures.json"
@@ -108,7 +109,9 @@ def collect_refs(ir: dict) -> tuple[set[str], set[str]]:
                 if ref:
                     images.add(ref)
         cls = node.get("className")
-        if cls == "MeshPart" or (cls == "SpecialMesh" and _prop_value(props.get("MeshType")) == "FileMesh"):
+        if cls in ("MeshPart", "CharacterMesh") or (
+            cls == "SpecialMesh" and _prop_value(props.get("MeshType")) == "FileMesh"
+        ):
             ref = asset_id(props.get("MeshId"))
             if ref:
                 meshes.add(ref)

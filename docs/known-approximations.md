@@ -194,7 +194,21 @@ stderr says so on every 3D render.
   The sun, moon and stars are not drawn. With several Sky objects the first one is
   used; which one Roblox picks has not been checked.
 - Decals and Textures need their images cached. Face orientation was checked in
-  Studio.
+  Studio. A decal on a mesh (a face on an R6 head) is projected onto the mesh's
+  own surface. Images the client ships (`rbxasset://textures/face.png`) come from the
+  Studio install.
+- A mesh's own image (a MeshPart's `TextureID`, a FileMesh or Head SpecialMesh's
+  `TextureId`) is drawn with the mesh's UVs; the part's colour shows through its
+  transparent parts, and a SpecialMesh's `VertexColor` tints it.
+- Characters (a Model with a Humanoid), compared with Studio on R6 and R15 rigs,
+  plain and dressed, from the front and back: `Shirt`, `Pants` and `ShirtGraphic`
+  are painted onto the body with the layouts Roblox itself uses (from the Studio
+  install), over the body's colour; R6 bodies use Roblox's rounded body part meshes
+  and a body package's `CharacterMesh` meshes; the R6 head is the classic head mesh
+  (a `Head` SpecialMesh, sized as measured in Studio); `BodyColors` colours the body
+  parts. Without a Studio install, clothing is not drawn. Not modelled: layered
+  clothing (3D clothing is drawn as its undeformed mesh), poses (a rig stands as
+  saved; animations are never played), and facial animation.
 
 **Drawn as stand-ins, and reported as such:**
 
