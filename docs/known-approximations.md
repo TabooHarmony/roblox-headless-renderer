@@ -147,7 +147,17 @@ signed in, see below):
   little brighter and yellower than Studio's, rock a little lighter; in a place with
   EnvironmentDiffuseScale 0 (old default lighting), faces turned from the sun are
   much lighter than Studio's. Cliff faces are smooth where Studio's are bumpy.
-  Terrain decorations (grass blades) and water waves are not drawn.
+  Water waves are not drawn.
+- Terrain grass (Terrain.Decoration) is drawn at rest; Roblox sways it, wind or not.
+  Blades grow on the Grass material's top faces, fitted to Studio at the highest
+  quality with GrassLength 0.7: blade heights, how much of a side view they cover at
+  each height, their colour (the place's Grass MaterialColor, about 0.6 as bright as
+  a flat part of that colour, varying per blade), and how they fade with distance
+  (gone by about 200 studs). Up close Studio's grass reads as a carpet, so the
+  ground under it is darkened toward the blade colour too, fading out by 150 studs.
+  Studio's blades are finer and closer in tone to the ground than RHR's; far away
+  (150-250 studs) RHR's grass still shows a little more than Studio's. GrassLength
+  scales blade length; the density change Roblox makes with it is not modelled.
 
 **Without Roblox Studio** on the machine (or signed out): images are 420 px
 thumbnails, meshes and unions are outlined boxes, materials use public-domain (CC0)

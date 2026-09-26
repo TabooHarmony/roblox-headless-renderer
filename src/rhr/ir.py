@@ -19,6 +19,7 @@ import sys
 from pathlib import Path
 
 from rhr.paths import LUAU_IR_SCRIPT
+from rhr.procs import no_window
 
 def lune_executable() -> str:
     """Path to `lune`, or a RuntimeError that says how to install it."""
@@ -152,6 +153,7 @@ def emit_ir(source_path, out_path, *, profile: str = "full", report_path=None) -
         encoding="utf-8",
         errors="replace",
         stdin=subprocess.DEVNULL,
+        **no_window(),
     )
     if proc.returncode != 0 and "Failed to find tool 'lune'" in proc.stderr:
         # Rokit's shim only resolves tools listed in a rokit.toml above the cwd.

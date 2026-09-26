@@ -47,6 +47,8 @@ const TUNE_DEFAULTS = {
   sunK: 1.625, skyK: 1.175, ambK: 0.1, skyBg: 1.0375, fogL: 1.0, fogDecayMix: 0.4375,
   exposure: 1.475, tone: 3, sunR: 1.0, sunG: 0.965, sunB: 0.91, pRough: 0.72, spRough: 0.33, aoK: 1.0, aoReach: 64,
   tBlendH: 0.4, tBlendD: 0.35, tBlendN: 0.25,
+  gDensity: 1.0, gMin: 1.8, gMax: 3.6, gLean: 60, gBend: 0, gMargin: 0.15, gWidth: 0.5, gShadeR: 0.30, gShadeG: 0.33, gShadeB: 0.13,
+  gNear: 40, gFar: 200, gCarpet: 0.75, gCarpetNear: 20, gCarpetFar: 150, gOn: 1,
 };
 let TUNE = {...TUNE_DEFAULTS};
 let shadowsRequested = true;
@@ -1113,7 +1115,7 @@ function applyMaterialTexture(mesh, materialName, geometryReady = Promise.resolv
   if (surfaceAppearanceOf(node)) return;  // the SurfaceAppearance replaces the material's look
   const variant = node && index ? materialVariant(index, node, materialName) : null;
   if (!variant && ['Plastic', 'SmoothPlastic', 'Neon', 'Glass', 'ForceField'].includes(materialName)) {
-    if (materialName === 'Plastic' || materialName === 'SmoothPlastic') applyPlasticDetail(mesh, node, geometryReady);
+    if (materialName === 'Plastic' || materialName === 'SmoothPlastic') applyPlasticDetail(mesh, node, geometryReady, materialName === 'Plastic');
     return;
   }
   const variantTile = Number(variant?.props?.StudsPerTile) || 10;
@@ -1162,8 +1164,10 @@ const SURFACE_TEXTURES = {
   Weld: 'surface_weld', Glue: 'surface_weld',
 };
 
-function applyPlasticDetail(mesh, node, geometryReady) {
-  const isBox = node?.className === 'Part' && ['Block', undefined].includes(node.props?.Shape?.name ?? node.props?.shape?.name);
+// Studio draws a part's surfaces (studs, inlets...) on Plastic only: SmoothPlastic,
+// Wood, Metal, Neon, Brick, Glass and Concrete with TopSurface Studs show none.
+function applyPlasticDetail(mesh, node, geometryReady, withSurfaces = true) {
+  const isBox = withSurfaces && node?.className === 'Part' && ['Block', undefined].includes(node.props?.Shape?.name ?? node.props?.shape?.name);
   const surfaces = isBox ? BOX_FACE_SURFACES.map(face => SURFACE_TEXTURES[node.props?.[face]?.name] || null) : [];
   const job = Promise.all([
     loadStudioTexture('plastic_normaldetail', 4),
@@ -1434,6 +1438,7 @@ async function stylePlaceholderMeshes() {
 // projected along the face's main axis in world space. Water is its own surface,
 // only where it meets air.
 let terrainSummary = null;
+let terrainGrassSource = null;  // set by addTerrain when Terrain.Decoration is on
 
 function base64Bytes(text) {
   const binary = atob(text);
@@ -1748,7 +1753,7 @@ function blankTerrainTextures() {
 // A face where materials meet: every slot's colour and normal map sampled and
 // blended by height (see the terrain notes above). Roughness is a flat 0.95 there
 // (samplers are scarce: three maps a slot would pass WebGL's 16).
-function terrainBlendMaterial(looks) {
+function terrainBlendMaterial(looks, carpetMask = []) {
   const blank = blankTerrainTextures();
   const material = new THREE.MeshStandardMaterial({color: 0xffffff, roughness: 1, metalness: 0});
   material.map = looks[0].maps?.map || blank.color;
@@ -1757,6 +1762,8 @@ function terrainBlendMaterial(looks) {
     rhrBlendH: {value: TUNE.tBlendH},
     rhrBlendD: {value: TUNE.tBlendD},
     rhrBlendN: {value: TUNE.tBlendN},
+    rhrCarpet: {value: grassCarpetColor()},
+    rhrCarpetRange: {value: new THREE.Vector2(TUNE.gCarpetNear, TUNE.gCarpetFar)},
   };
   for (let s = 0; s < TERRAIN_BLEND_SLOTS; s += 1) {
     const look = looks[s];
@@ -1766,6 +1773,7 @@ function terrainBlendMaterial(looks) {
     uniforms[`rhrScale${s}`] = {value: look?.uvScale || 1};
     uniforms[`rhrRough${s}`] = {value: 0.95};
     uniforms[`rhrUsed${s}`] = {value: look ? 1 : 0};
+    uniforms[`rhrCarpetMask${s}`] = {value: carpetMask[s] ? 1 : 0};
   }
   const slots = [...Array(TERRAIN_BLEND_SLOTS).keys()];
   material.onBeforeCompile = shader => {
@@ -1781,14 +1789,15 @@ uniform sampler2D rhrNormal${s};
 uniform vec3 rhrTint${s};
 uniform float rhrScale${s};
 uniform float rhrRough${s};
-uniform float rhrUsed${s};`).join('\n');
+uniform float rhrUsed${s};
+uniform float rhrCarpetMask${s};`).join('\n');
     const sample = slots.map(s => `
   vec4 rhrC${s} = texture2D( rhrColor${s}, vMapUv * rhrScale${s} );
   float rhrA${s} = rhrUsed${s} > 0.5 ? vRhrW[${s}] + rhrBlendH * ( rhrC${s}.a - 0.5 ) + rhrBlendN * rhrNoise( vMapUv * ${TERRAIN_TILE_STUDS.toFixed(1)} + vec2( ${17.3 * s}, ${31.7 * s} ) ) : -10.0;`).join('');
     const top = slots.map(s => `rhrA${s}`).reduce((x, y) => `max( ${x}, ${y} )`);
     const weights = slots.map(s => `
   rhrB[${s}] = max( rhrA${s} - rhrTop + rhrBlendD, 0.0 );`).join('');
-    const mixColor = slots.map(s => `rhrB[${s}] * rhrC${s}.rgb * rhrTint${s}`).join(' + ');
+    const mixColor = slots.map(s => `rhrB[${s}] * rhrC${s}.rgb * rhrTint${s} * mix( vec3( 1.0 ), rhrCarpet, rhrCarpetMask${s} * rhrCarpetNear )`).join(' + ');
     const mixNormal = slots.map(s => `rhrB[${s}] * ( texture2D( rhrNormal${s}, vMapUv * rhrScale${s} ).xyz * 2.0 - 1.0 )`).join(' + ');
     const mixRough = slots.map(s => `rhrB[${s}] * rhrRough${s}`).join(' + ');
     shader.fragmentShader = shader.fragmentShader
@@ -1797,6 +1806,8 @@ varying vec4 vRhrW;
 uniform float rhrBlendH;
 uniform float rhrBlendD;
 uniform float rhrBlendN;
+uniform vec3 rhrCarpet;
+uniform vec2 rhrCarpetRange;
 ${declarations}
 // Value noise in studs, two octaves (1 and 1/2 stud), about -0.5..0.5.
 float rhrHash( vec2 p ) { return fract( sin( dot( p, vec2( 127.1, 311.7 ) ) ) * 43758.5453 ); }
@@ -1810,6 +1821,7 @@ float rhrNoise( vec2 p ) { return 0.67 * rhrValue( p ) + 0.33 * rhrValue( p * 2.
 vec4 rhrB;
 {${sample}
   float rhrTop = ${top};${weights}
+  float rhrCarpetNear = 1.0 - smoothstep( rhrCarpetRange.x, rhrCarpetRange.y, length( vViewPosition ) );
   rhrB /= max( rhrB.x + rhrB.y + rhrB.z + rhrB.w, 1e-5 );
   diffuseColor.rgb *= ${mixColor};
 }`)
@@ -1852,6 +1864,8 @@ async function addTerrain(index) {
   water.vertexMaterials = null;
   const canonicalKind = await terrainKindCanon(index, names);
   terrainLookCache.clear();
+  const decoration = terrainNode?.props?.Decoration === true && TUNE.gOn > 0;
+  const GRASS_ID = names.indexOf('Grass');
   const jobs = [];
   let triangles = 0;
   let blendTriangles = 0;
@@ -1872,7 +1886,8 @@ async function addTerrain(index) {
       jobs.push((async () => {
         const looks = await Promise.all(part.blend.map(layer => terrainLook(index, terrain, names[layer.material], layer.kind)));
         mesh.material.dispose();
-        mesh.material = terrainBlendMaterial(looks);
+        const carpet = part.blend.map(layer => decoration && layer.material === GRASS_ID && layer.kind === 'top');
+        mesh.material = terrainBlendMaterial(looks, carpet);
       })());
       continue;
     }
@@ -1894,11 +1909,201 @@ async function addTerrain(index) {
     mesh.userData.rhrNode = terrainNode;
     mesh.userData.rhrTerrain = name;
     scene.add(mesh);
-    if (isWater || flatMaterials) continue;
-    jobs.push(terrainLook(index, terrain, name, part.kind).then(look => applyTerrainLook(meshMaterial, mesh, look)));
+    const carpet = decoration && part.material === GRASS_ID && part.kind === 'top';
+    if (isWater || flatMaterials) {
+      if (carpet) withGrassCarpet(meshMaterial);
+      continue;
+    }
+    jobs.push(terrainLook(index, terrain, name, part.kind).then(look => {
+      applyTerrainLook(meshMaterial, mesh, look);
+      if (carpet) withGrassCarpet(meshMaterial);
+    }));
   }
   await Promise.all(jobs);
   terrainSummary = {triangles, blendTriangles, materials: [...materialsDrawn]};
+  const GRASS = names.indexOf('Grass');
+  if (decoration && GRASS > 0) {
+    const raw = terrain.rawColors?.Grass || terrain.defaultColors?.Grass || [111, 126, 62];
+    terrainGrassSource = {
+      surface: ground, grass: GRASS, node: terrainNode,
+      length: Math.max(0.1, Math.min(1, Number(terrainNode.props.GrassLength ?? 0.7))),
+      color: new THREE.Color().setRGB(raw[0] / 255, raw[1] / 255, raw[2] / 255, THREE.SRGBColorSpace),
+    };
+  }
+}
+
+// Terrain grass (Terrain.Decoration), measured in Studio at the highest quality with
+// GrassLength 0.7: thin blades on the Grass material's top faces only, 1.6 to 3.35
+// studs tall at the tip (median 2.5), leaning up to about 45 degrees in any
+// direction, spread evenly (not in clumps), casting shadows. Their colour is the
+// place's Grass MaterialColor, lit like the ground under them and about 0.6 as bright
+// as a flat surface of that colour. Studio draws them all out to about 100 studs from
+// the camera, fewer and fewer after that, and none past about 290 (RHR fades them out
+// sooner, TUNE.gNear..gFar, which matches a whole field better). Roblox sways them
+// (also with no wind); RHR draws them at rest. GrassLength scales their length
+// (0.1..1; Roblox also changes their density with it, by an amount not measured).
+// Up close Studio's grass reads as a carpet: in a top-down view with decoration on,
+// 95% of the pixels change and the whole field comes out about the blades' colour,
+// ground between the blades included (on/off pixel ratio R 0.58, G 0.62, B 0.44). So
+// with decoration on, the Grass top texture is darkened toward the blade colour too,
+// fading out between TUNE.gCarpetNear and gCarpetFar studs from the camera (fitted to
+// the change decoration makes in Studio: top-down, at 30 degrees, and over the hills,
+// per band of distance). The blades themselves fade between gNear and gFar, fitted
+// the same way; on a lone strip Studio still draws a few out to about 260 studs.
+function grassCarpetColor() {
+  // Linear multipliers for the on/off screen ratio, scaled by TUNE.gCarpet.
+  const k = TUNE.gCarpet;
+  return new THREE.Color(1 - k * (1 - 0.30), 1 - k * (1 - 0.35), 1 - k * (1 - 0.16));
+}
+
+function withGrassCarpet(material) {
+  const previous = material.onBeforeCompile;
+  const previousKey = material.customProgramCacheKey;
+  const carpet = grassCarpetColor();
+  material.onBeforeCompile = (shader, renderer) => {
+    if (previous) previous.call(material, shader, renderer);
+    shader.uniforms.rhrCarpet = {value: carpet};
+    shader.uniforms.rhrCarpetRange = {value: new THREE.Vector2(TUNE.gCarpetNear, TUNE.gCarpetFar)};
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', `#include <common>
+uniform vec3 rhrCarpet;
+uniform vec2 rhrCarpetRange;`)
+      .replace('#include <map_fragment>', `#include <map_fragment>
+diffuseColor.rgb *= mix( rhrCarpet, vec3( 1.0 ), smoothstep( rhrCarpetRange.x, rhrCarpetRange.y, length( vViewPosition ) ) );`);
+  };
+  material.customProgramCacheKey = () => `${previousKey ? previousKey.call(material) : ''}|rhr-carpet`;
+  material.needsUpdate = true;
+}
+
+function grassHash(a, b, c) {
+  let h = Math.imul(a | 0, 0x27d4eb2d) ^ Math.imul(b | 0, 0x165667b1) ^ Math.imul(c | 0, 0x9e3779b1);
+  h = Math.imul(h ^ (h >>> 15), 0x85ebca6b);
+  h = Math.imul(h ^ (h >>> 13), 0xc2b2ae35);
+  return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
+}
+
+function addTerrainGrass(camera) {
+  const source = terrainGrassSource;
+  if (!source || !camera) return;
+  const {surface, grass} = source;
+  const {positions, normals, quads, vertexMaterials} = surface;
+  const scale = source.length / 0.7;
+  const eye = camera.position;
+  const out = [];
+  const shades = [];
+  let blades = 0;
+  const p = new THREE.Vector3(), mid = new THREE.Vector3(), tip = new THREE.Vector3(), across = new THREE.Vector3();
+  const corner = i => [positions[i * 3], positions[i * 3 + 1], positions[i * 3 + 2]];
+  // Which faces are tops (face normal within ~45 degrees of up), and per edge whether
+  // every face on it is one: an edge with a non-top face beside it is where the ground
+  // turns down.
+  const faceUp = quad => {
+    const [a, b, c, d] = quad;
+    const e1 = [positions[c * 3] - positions[a * 3], positions[c * 3 + 1] - positions[a * 3 + 1], positions[c * 3 + 2] - positions[a * 3 + 2]];
+    const e2 = [positions[d * 3] - positions[b * 3], positions[d * 3 + 1] - positions[b * 3 + 1], positions[d * 3 + 2] - positions[b * 3 + 2]];
+    const n = [e1[1] * e2[2] - e1[2] * e2[1], e1[2] * e2[0] - e1[0] * e2[2], e1[0] * e2[1] - e1[1] * e2[0]];
+    return n[1] / (Math.hypot(...n) || 1);
+  };
+  const edgeKey = (i, j) => (i < j ? `${i}_${j}` : `${j}_${i}`);
+  const edgeTop = new Map();  // edge -> true while every face on it is a top
+  for (const quad of quads) {
+    const top = faceUp(quad) > 0.7;
+    for (let e = 0; e < 4; e += 1) {
+      const key = edgeKey(quad[e], quad[(e + 1) % 4]);
+      edgeTop.set(key, (edgeTop.get(key) ?? true) && top);
+    }
+  }
+  const seen = new Map();
+  for (const quad of quads) for (let e = 0; e < 4; e += 1) {
+    const key = edgeKey(quad[e], quad[(e + 1) % 4]);
+    seen.set(key, (seen.get(key) || 0) + 1);
+  }
+  for (const quad of quads) {
+    const [a, b, c, d] = quad;
+    // Grass top weight per corner: the corner is grass, and its normal counts as top.
+    const weight = [a, b, c, d].map(i => (vertexMaterials[i] === grass ? THREE.MathUtils.smoothstep(normals[i * 3 + 1], ...TERRAIN_KIND_BAND) : 0));
+    if (Math.max(...weight) < 0.5) continue;
+    // Edges where the ground turns down: Roblox rounds them and grows no grass on the
+    // rounding, so blades keep gMargin away.
+    const border = [[a, b], [b, c], [c, d], [d, a]].map(([i, j]) => {
+      const key = edgeKey(i, j);
+      return !edgeTop.get(key) || (seen.get(key) || 0) < 2;
+    });
+    const [ax, ay, az] = corner(a), [bx, by, bz] = corner(b), [cx, cy, cz] = corner(c), [dx, dy, dz] = corner(d);
+    const side = [Math.hypot(bx - ax, bz - az), Math.hypot(cx - bx, cz - bz), Math.hypot(dx - cx, dz - cz), Math.hypot(ax - dx, az - dz)];
+    const mx = (ax + bx + cx + dx) / 4, my = (ay + by + cy + dy) / 4, mz = (az + bz + cz + dz) / 4;
+    const distance = Math.hypot(mx - eye.x, my - eye.y, mz - eye.z);
+    if (distance > TUNE.gFar + 4) continue;
+    // Area from the diagonals.
+    const e1 = [cx - ax, cy - ay, cz - az], e2 = [dx - bx, dy - by, dz - bz];
+    const area = 0.5 * Math.hypot(e1[1] * e2[2] - e1[2] * e2[1], e1[2] * e2[0] - e1[0] * e2[2], e1[0] * e2[1] - e1[1] * e2[0]);
+    const seedX = Math.round(mx * 4), seedY = Math.round(my * 4), seedZ = Math.round(mz * 4);
+    const wanted = area * TUNE.gDensity;
+    const count = Math.floor(wanted + grassHash(seedX, seedY, seedZ));
+    for (let k = 0; k < count; k += 1) {
+      const r = n => grassHash(seedX + 7919 * k, seedY + 104729 * n, seedZ + 1299709 * k + n);
+      const u = r(1), v = r(2);
+      // Bilinear point on the face and the grass weight there.
+      const w = weight[0] * (1 - u) * (1 - v) + weight[1] * u * (1 - v) + weight[2] * u * v + weight[3] * (1 - u) * v;
+      if (w < 0.5) continue;
+      // Distance (studs) to each bordering edge: a-b is v = 0, b-c u = 1, c-d v = 1, d-a u = 0.
+      const gaps = [v * side[3], (1 - u) * side[0], (1 - v) * side[1], u * side[2]];
+      if ((border[0] && gaps[0] < TUNE.gMargin) || (border[1] && gaps[1] < TUNE.gMargin)
+        || (border[2] && gaps[2] < TUNE.gMargin) || (border[3] && gaps[3] < TUNE.gMargin)) continue;
+      p.set(
+        ax * (1 - u) * (1 - v) + bx * u * (1 - v) + cx * u * v + dx * (1 - u) * v,
+        ay * (1 - u) * (1 - v) + by * u * (1 - v) + cy * u * v + dy * (1 - u) * v,
+        az * (1 - u) * (1 - v) + bz * u * (1 - v) + cz * u * v + dz * (1 - u) * v,
+      );
+      // Fewer blades with distance: each has a fixed rank and is kept while the
+      // share drawn at its distance is above it.
+      const share = 1 - THREE.MathUtils.smoothstep(p.distanceTo(eye), TUNE.gNear, TUNE.gFar);
+      if (r(3) >= share) continue;
+      // Two segments: the lower half leans a little, the upper half bends further
+      // over, the way the blade's flat face points (seen from above, a bent blade
+      // shows its face).
+      const length = (TUNE.gMin + (TUNE.gMax - TUNE.gMin) * r(4)) * scale;
+      const lean = THREE.MathUtils.degToRad(TUNE.gLean) * Math.sqrt(r(5));
+      const bend = lean + THREE.MathUtils.degToRad(TUNE.gBend) * r(7);
+      const heading = 2 * Math.PI * r(6);
+      const hx = Math.cos(heading), hz = Math.sin(heading);
+      mid.set(hx * Math.sin(lean), Math.cos(lean), hz * Math.sin(lean)).multiplyScalar(length / 2).add(p);
+      tip.set(hx * Math.sin(bend), Math.cos(bend), hz * Math.sin(bend)).multiplyScalar(length / 2).add(mid);
+      const half = 0.5 * TUNE.gWidth * (0.7 + 0.6 * r(8));
+      across.set(-hz * half, 0, hx * half);
+      const bl = [p.x - across.x, p.y, p.z - across.z], br = [p.x + across.x, p.y, p.z + across.z];
+      const ml = [mid.x - 0.55 * across.x, mid.y, mid.z - 0.55 * across.z], mr = [mid.x + 0.55 * across.x, mid.y, mid.z + 0.55 * across.z];
+      const top = [tip.x, tip.y, tip.z];
+      out.push(
+        ...bl, ...br, ...mr, ...bl, ...mr, ...ml, ...ml, ...mr, ...top,
+        ...br, ...bl, ...mr, ...mr, ...bl, ...ml, ...mr, ...ml, ...top,
+      );
+      // Blades differ in brightness: in Studio's pixels the darkest tenth is 0.83 and
+      // the brightest tenth 1.3 of the median blade (screen values; linear here).
+      const shade = ((0.82 + 0.58 * r(9) ** 2.2) / 0.95) ** 2.2;
+      for (let k2 = 0; k2 < 18; k2 += 1) shades.push(shade, shade, shade);
+      blades += 1;
+    }
+  }
+  if (!blades) return;
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(out, 3));
+  // Lit as the ground under them: every blade faces up, on both sides.
+  const up = new Float32Array(out.length);
+  for (let i = 1; i < up.length; i += 3) up[i] = 1;
+  geometry.setAttribute('normal', new THREE.BufferAttribute(up, 3));
+  geometry.setAttribute('color', new THREE.Float32BufferAttribute(shades, 3));
+  const material = new THREE.MeshStandardMaterial({
+    color: source.color.clone().multiply(new THREE.Color(TUNE.gShadeR, TUNE.gShadeG, TUNE.gShadeB)), roughness: 1, metalness: 0,
+    vertexColors: true,
+  });
+  const mesh = new THREE.Mesh(geometry, material);
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  mesh.userData.rhrNode = source.node;
+  mesh.userData.rhrTerrain = 'Grass decoration';
+  scene.add(mesh);
+  if (terrainSummary) terrainSummary.grassBlades = blades;
 }
 
 // Characters. A rig is a Model with a Humanoid; what it wears is painted onto its body
@@ -4415,6 +4620,7 @@ async function reportNotes() {
   const notes = [];
   if (terrainSummary) {
     notes.push(`terrain drawn smooth (${terrainSummary.materials.join(', ')}); materials blended where they meet (approximate)`);
+    if (terrainSummary.grassBlades) notes.push(`terrain grass drawn at rest (${terrainSummary.grassBlades} blades; Roblox animates it)`);
   }
   if (meshParseFailures.length) {
     notes.push(`${meshParseFailures.length} cached mesh file(s) could not be read and are drawn as boxes (${meshParseFailures.slice(0, 3).join('; ')})`);
@@ -4942,6 +5148,8 @@ async function main() {
     fitSunShadow(camera, lookAtOverride || framedCenter || null);
     pruneLocalLights(camera);
     mark('camera and framing');
+    addTerrainGrass(camera);
+    mark('terrain grass');
     if (modernLighting(index)) buildSkyVisibility(camera);
     mark('sky visibility grid');
     await addBeams(index, camera);
@@ -5002,6 +5210,7 @@ function resetScene() {
   materialVariantsByName = null;
   sceneIndex = null;
   terrainSummary = null;
+  terrainGrassSource = null;
   terrainGrid = null;
   skyVisibility = null;
   atmosphereState = null;

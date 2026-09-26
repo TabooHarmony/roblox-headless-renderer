@@ -19,6 +19,7 @@ import zipfile
 from pathlib import Path
 
 from rhr.paths import CACHE
+from rhr.procs import no_window
 
 BIN_DIR = CACHE / "bin"
 
@@ -40,7 +41,7 @@ def _is_rokit_shim(path: str) -> bool:
 def _runs_here(path: str) -> bool:
     try:
         proc = subprocess.run([path, "--version"], capture_output=True, text=True, timeout=30,
-                              stdin=subprocess.DEVNULL)
+                              stdin=subprocess.DEVNULL, **no_window())
     except (OSError, subprocess.TimeoutExpired):
         return False
     return proc.returncode == 0
@@ -133,7 +134,8 @@ def download_tool(name: str) -> Path:
 
 def _tool_version(path: str) -> str:
     try:
-        proc = subprocess.run([path, "--version"], capture_output=True, text=True, timeout=30)
+        proc = subprocess.run([path, "--version"], capture_output=True, text=True, timeout=30,
+                              stdin=subprocess.DEVNULL, **no_window())
     except OSError as exc:
         return f"cannot run ({exc})"
     return (proc.stdout or proc.stderr).strip().splitlines()[0] if proc.returncode == 0 else "cannot run"

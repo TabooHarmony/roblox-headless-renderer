@@ -124,6 +124,7 @@ def main() -> int:
             check(green.mean() > 0.02, f"the grass floor is on screen ({green.mean():.1%} green pixels)")
 
         check_blend(Path(directory))
+        check_grass(Path(directory))
 
     print("terrain: ok" if not failures else f"terrain: {len(failures)} failed")
     return 1 if failures else 0
@@ -174,6 +175,44 @@ def check_blend(directory: Path) -> None:
           f"the seam's middle is about 2 studs into the sand (at x = {middle} studs, sand starts at 16)")
     soft = sum(1 for v in profile if 0.15 < v < 0.85) / 4
     check(soft >= 0.75, f"the seam is blended, not a hard edge ({soft} studs between 15% and 85%)")
+
+
+def check_grass(directory: Path) -> None:
+    """Terrain.Decoration grows blades on Grass: seen from the side, they stand above the ground line."""
+    floor = {(x, 0, z): (GRASS, 255) for x in range(8) for z in range(8)}
+    blob = base64.b64encode(encode({(0, 0, 0): floor})).decode()
+    from PIL import Image
+    import numpy as np
+
+    green = {}
+    for decoration in ("true", "false"):
+        place = directory / f"grass-{decoration}.rbxlx"
+        place.write_text(f'''<roblox version="4">
+  <Item class="Workspace" referent="W"><Properties><string name="Name">Workspace</string></Properties>
+    <Item class="Terrain" referent="T"><Properties><string name="Name">Terrain</string>
+      <bool name="Decoration">{decoration}</bool>
+      <BinaryString name="SmoothGrid">{blob}</BinaryString></Properties></Item>
+  </Item>
+  <Item class="Lighting" referent="L"><Properties><string name="Name">Lighting</string></Properties></Item>
+</roblox>
+''', encoding="utf-8")
+        png = directory / f"grass-{decoration}.png"
+        proc = subprocess.run([sys.executable, "-m", "rhr", "scene", str(place), "--viewport", "400x240",
+                               "--flat-materials", "--no-shadows", "--camera", "16,6,-20", "--look-at", "16,6,16",
+                               "--fov", "40", "--out", str(png)],
+                              capture_output=True, text=True, cwd=str(REPO), timeout=300)
+        check(proc.returncode == 0, f"scene renders grass with Decoration={decoration} ({proc.stderr.strip()[-120:]})")
+        if proc.returncode != 0:
+            return
+        noted = "terrain grass drawn at rest" in proc.stderr
+        check(noted == (decoration == "true"), f"the grass note is there only with Decoration on (Decoration={decoration})")
+        with Image.open(png).convert("RGB") as img:
+            rgb = np.asarray(img).astype(int)
+        # Above the floor's top edge (y = 4, level with the camera's lower half).
+        sky = rgb[: rgb.shape[0] // 2 - 8]
+        green[decoration] = float(((sky[..., 1] > sky[..., 2] + 8) & (sky[..., 1] > 40)).mean())
+    check(green.get("true", 0) > 0.01 and green.get("false", 1) < 0.002,
+          f"blades stand above the ground only with Decoration on ({green.get('true', 0):.1%} vs {green.get('false', 1):.1%} green)")
 
 
 def test_main():

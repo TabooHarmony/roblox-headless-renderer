@@ -141,7 +141,8 @@ pay that again. `rhr cache` shows what the cache holds (it stays under 2 GB,
     looks noticeably less like Roblox.
 - **Terrain** is drawn smooth, meshed from the place's voxels the way Roblox does it,
   with Roblox's terrain textures (top, side and bottom), blended where materials meet
-  as in Studio. Grass blades and water waves are not drawn.
+  as in Studio, and grass blades (drawn still) when the place turns Decoration on.
+  Water waves are not drawn.
 - **Unions** are drawn with the exact shape and per-part colours Studio saved for them.
 - **Place files.** In a `.rbxl`, only StarterGui's ScreenGuis are drawn; templates
   stored in ReplicatedStorage and elsewhere are named on stderr (`--all-guis` draws

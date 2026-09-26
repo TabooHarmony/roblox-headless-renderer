@@ -12,6 +12,8 @@ import json
 import subprocess
 from pathlib import Path
 
+from rhr.procs import no_window
+
 def project_file(source: Path) -> Path | None:
     """The project file `source` names, or None when it is not a Rojo project."""
     if source.is_dir():
@@ -45,6 +47,7 @@ def build(project: Path, out_dir: Path) -> Path:
         encoding="utf-8",
         errors="replace",
         stdin=subprocess.DEVNULL,
+        **no_window(),
     )
     if proc.returncode != 0 and "Failed to find tool 'rojo'" in proc.stderr:
         raise RuntimeError(

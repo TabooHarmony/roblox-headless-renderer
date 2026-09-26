@@ -81,7 +81,7 @@ What RHR tells you it did not do exactly:
   a script plays without them is named, not drawn. Judge presence, place, size,
   colour and glow; not motion or exact particle positions. `--effect-time T` shows
   another moment, `--focus <path>` frames one effect in a pack of several.
-- Terrain is drawn smooth with Roblox's textures, blended where materials meet; no grass blades or water waves.
+- Terrain is drawn smooth with Roblox's textures, blended where materials meet; grass blades (Decoration) are drawn still; no water waves.
 - In a place file, a ScreenGui outside StarterGui (a template in ReplicatedStorage)
   is not drawn or checked; a `note` names it. Pass `--all-guis` to include it.
 - Material textures are Roblox's own (look-alikes without Studio). When you only care

@@ -93,6 +93,8 @@ local PROPS = {
   -- SurfaceAppearance and MaterialVariant images; a part's MaterialVariant by name
   "ColorMap", "StudsPerTile", "BaseMaterial", "MaterialVariant", "AlphaMode",
   "NormalMap", "RoughnessMap", "MetalnessMap",
+  -- Terrain: grass decoration on or off and its length; water colour
+  "Decoration", "GrassLength", "WaterColor",
   -- Which built-in texture set parts and terrain use (current or pre-2022)
   "Use2022Materials", "Use2022MaterialsXml",
   -- Unions: the render mesh asset, the size it was made at, per-face colours or not

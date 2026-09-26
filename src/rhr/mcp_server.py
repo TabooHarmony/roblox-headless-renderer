@@ -25,6 +25,7 @@ except ImportError as exc:  # pragma: no cover - depends on the optional extra
     ) from exc
 
 from rhr.paths import CACHE
+from rhr.procs import no_window
 
 RHR = [sys.executable, "-m", "rhr"]
 MCP_OUT = CACHE / "mcp"
@@ -66,6 +67,7 @@ class _CommandWorker:
             encoding="utf-8",
             errors="replace",
             bufsize=1,
+            **no_window(),
         )
 
     def stop(self) -> None:
@@ -127,6 +129,7 @@ def _run_process(args: list[str], *, timeout: int = 180) -> subprocess.Completed
         stdin=subprocess.DEVNULL,
         capture_output=True,
         text=True,
+        **no_window(),
         encoding="utf-8",
         errors="replace",
         timeout=timeout,

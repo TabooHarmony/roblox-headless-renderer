@@ -179,9 +179,13 @@ def _cleanup_stale() -> None:
 
 
 def _detached() -> dict:
-    """Popen options that keep the worker alive after the calling `rhr` exits."""
+    """Popen options that keep the worker alive after the calling `rhr` exits.
+
+    On Windows it gets a hidden console of its own (not DETACHED_PROCESS: a process
+    with no console gives every console program it starts, such as Playwright's
+    driver, a new window)."""
     if sys.platform == "win32":
-        flags = subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS
+        flags = subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW
         return {"creationflags": flags}
     return {"start_new_session": True}
 

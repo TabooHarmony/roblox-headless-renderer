@@ -188,7 +188,13 @@ side-by-side check against Studio for what it touched.
      in Roblox's order reaches half a voxel into the other), blended by texture height
      and noise, and top/side textures fade by slope. Also fixed: terrain with an
      unknown material id (63, next to edited regions) no longer fails to decode, and
-     curved terrain no longer smears its textures. Next: grass decoration.
+     curved terrain no longer smears its textures. **Grass decoration done
+     (2026-09-26)**: blades on Grass tops when Terrain.Decoration is on, drawn at rest,
+     fitted to Studio measurements (a one-voxel strip seen side-on and from above,
+     and decoration on/off over a field and hills); the ground under the grass is
+     darkened as in Studio. Also: helper processes (Lune, Rojo, the workers) start
+     without a console window on Windows, and part surfaces (studs...) are drawn on
+     Plastic only, as in Studio.
    - **Sky effects**: `Clouds` and `SunRays` (reported as not drawn today).
    - **UI edge cases already known**: `UIPageLayout`, `FillEmptySpace` in flex and
      table layouts, clipping of overflowing non-wrapped text, and the small-text gap.

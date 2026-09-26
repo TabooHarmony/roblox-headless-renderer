@@ -330,6 +330,7 @@ def signed_in(ids: list[str]) -> dict[str, bytes | str]:
     import tempfile
 
     from rhr.ir import lune_executable
+    from rhr.procs import no_window
 
     if not ids:
         return {}
@@ -345,7 +346,7 @@ def signed_in(ids: list[str]) -> dict[str, bytes | str]:
             out: dict[str, bytes | str] = {}
             try:
                 proc = subprocess.run([lune, "run", str(script), directory, *chunk], capture_output=True,
-                                      text=True, timeout=600, stdin=subprocess.DEVNULL)
+                                      text=True, timeout=600, stdin=subprocess.DEVNULL, **no_window())
             except (OSError, subprocess.TimeoutExpired) as exc:
                 return {i: f"missing (signed in: {exc})" for i in chunk}
             if proc.stdout.strip() == "nologin":
