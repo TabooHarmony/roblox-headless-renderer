@@ -114,6 +114,8 @@ local PROPS = {
   "ShirtTemplate", "PantsTemplate", "Graphic", "TextureId", "BodyPart", "BaseTextureId",
   "OverlayTextureId", "HeadColor3", "TorsoColor3", "LeftArmColor3", "RightArmColor3",
   "LeftLegColor3", "RightLegColor3", "RigType", "VertexColor",
+  -- Layered clothing: the item's cages and the body's, which fit it to the body
+  "CageMeshId", "CageOrigin", "ReferenceMeshId", "ReferenceOrigin", "Order", "ImportOrigin",
   -- Containers. (No "Name" here: it is already listed above, and this is a list, so a
   -- duplicate is a second read of the same property on every instance.)
 }
@@ -125,6 +127,8 @@ local CONTENT_PROPERTY_ALIASES = {
   MeshId = "MeshContent",
   TextureID = "TextureContent",
   TextureId = "TextureContent",
+  CageMeshId = "CageMeshContent",
+  ReferenceMeshId = "ReferenceMeshContent",
   SkyboxBk = "SkyboxBackContent",
   SkyboxDn = "SkyboxDownContent",
   SkyboxFt = "SkyboxFrontContent",
@@ -165,7 +169,7 @@ local VISUAL_CLASSES = {
   MaterialService = true,
   -- Characters: what a rig wears, its body colours and R6 body package meshes.
   Humanoid = true, Shirt = true, Pants = true, ShirtGraphic = true, BodyColors = true,
-  CharacterMesh = true,
+  CharacterMesh = true, WrapLayer = true, WrapTarget = true,
 }
 
 local VISUAL_XML_RECOVERY = {

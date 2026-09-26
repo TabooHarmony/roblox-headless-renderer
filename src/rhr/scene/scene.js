@@ -271,6 +271,8 @@ function geometryFromExpanded(vertices, normals, uvs) {
   return geometry;
 }
 
+// Text meshes (1.00 is in half-studs). Unlike binary meshes they keep V from the
+// bottom (Studio: old hats with 1.00 meshes, an R6 body package's 1.01 meshes).
 function parseMeshV1(bytes, offset, version) {
   const text = dataViewString(bytes, offset, bytes.length);
   const lines = text.split(/\r?\n/);
@@ -296,7 +298,7 @@ function parseMeshV1(bytes, offset, version) {
         Number(p[2]) * positionScale,
       );
       normals.push(Number(n[0]), Number(n[1]), Number(n[2]));
-      uvs.push(Number(uv[0]), 1 - Number(uv[1]));
+      uvs.push(Number(uv[0]), Number(uv[1]));
     }
   }
   return geometryFromExpanded(positions, normals, uvs);
@@ -1679,7 +1681,7 @@ async function addTerrain(index) {
 // (a body package) for the parts it replaces. The head is not part of it.
 // R15: a texture per body part: the torso's layout is 388x272, an arm's or a leg's
 // 264x284 (legs use the arm layouts with the Pants template), drawn with the body
-// part MeshPart's UVs over its TextureID when it has one.
+// part MeshPart's UVs. A part with its own TextureID (a body package) wears none.
 const AVATAR = 'rbxasset://avatar/';
 const R6_BODY = {
   Torso: {mesh: 'torso', bodyPart: 'Torso', color: 'TorsoColor3'},
@@ -1715,6 +1717,11 @@ const R15_BODY = {
 // Painted at twice the layout's size: the templates' own detail survives filtering.
 const CLOTHING_SCALE = 2;
 let charactersDressed = 0;
+let layeredClothingFitted = 0;
+// Character parts whose decals Roblox does not draw (see dressCharacters).
+const partsWithoutDecals = new Set();
+// The clothing images painted for this render (render targets, freed by resetScene).
+const clothingTargets = [];
 
 function childOfClass(node, className) {
   return Object.values(node?.children || {}).find(child => child.className === className) || null;
@@ -1758,6 +1765,7 @@ function paintLayout(width, height, items) {
     type: THREE.HalfFloatType,
     depthBuffer: false,
   });
+  clothingTargets.push(target);
   const camera = new THREE.OrthographicCamera(0, width, height, 0, -1000, 1000);
   const canvasScene = new THREE.Scene();
   items.forEach((item, order) => {
@@ -1824,23 +1832,30 @@ async function dressR6(model, layers) {
   const charMeshes = Object.values(model.children || {}).filter(child => child.className === 'CharacterMesh');
   const items = [];
   const layout = async name => loadMeshGeometry(`${AVATAR}compositing/${name}.mesh`);
-  const baseTexture = charMeshes.map(c => c.props?.BaseTextureId).find(id => id && String(id) !== '0');
-  const overlayTexture = charMeshes.map(c => c.props?.OverlayTextureId).find(id => id && String(id) !== '0');
   const idUri = id => (/^\d+$/.test(String(id)) ? `rbxassetid://${id}` : id);
-  if (baseTexture) {
-    const texture = await loadSceneTexture(idUri(baseTexture));
-    if (texture) items.push({geometry: fullLayoutQuad(1024, 512), texture});
-  }
+  const textureId = id => (id && String(id) !== '0' ? idUri(id) : null);
   const pantsLayout = layers.pants ? await layout('CompositPantsTemplate') : null;
   const shirtLayout = layers.shirt || layers.graphic ? await layout('CompositShirtTemplate') : null;
-  if (pantsLayout) items.push({geometry: pantsLayout, ...layers.pants});
-  if (shirtLayout && layers.shirt) items.push({geometry: shirtLayout, ...layers.shirt});
-  if (shirtLayout && layers.graphic) items.push({geometry: shirtLayout, ...layers.graphic});
-  if (overlayTexture) {
-    const texture = await loadSceneTexture(idUri(overlayTexture));
-    if (texture) items.push({geometry: fullLayoutQuad(1024, 512), texture});
-  }
-  const atlas = items.length ? paintLayout(1024, 512, items) : null;
+  const clothing = [];
+  if (pantsLayout) clothing.push({geometry: pantsLayout, ...layers.pants});
+  if (shirtLayout && layers.shirt) clothing.push({geometry: shirtLayout, ...layers.shirt});
+  if (shirtLayout && layers.graphic) clothing.push({geometry: shirtLayout, ...layers.graphic});
+  const atlas = clothing.length ? paintLayout(1024, 512, clothing) : null;
+  // A package part's own images (base under, overlay over) replace the clothing on
+  // it, as on R15 (Studio: a package's vest shows, the Shirt and T-shirt do not).
+  const packageAtlas = new Map();
+  const packageTexture = async charMesh => {
+    const ids = [textureId(charMesh?.props?.BaseTextureId), textureId(charMesh?.props?.OverlayTextureId)].filter(Boolean);
+    if (!ids.length) return null;
+    const key = ids.join('|');
+    if (!packageAtlas.has(key)) {
+      const images = (await Promise.all(ids.map(id => loadSceneTexture(id)))).filter(Boolean);
+      packageAtlas.set(key, images.length
+        ? paintLayout(1024, 512, images.map(texture => ({geometry: fullLayoutQuad(1024, 512), texture})))
+        : null);
+    }
+    return packageAtlas.get(key);
+  };
   let dressed = false;
   for (const [name, entry] of Object.entries(R6_BODY)) {
     if (!entry.mesh) continue;
@@ -1859,7 +1874,11 @@ async function dressR6(model, layers) {
     mesh.geometry.dispose();
     mesh.geometry = geometry;
     mesh.userData.rhrMeshAsset = packaged ? meshAssetId(idUri(charMesh.props.MeshId)) : `r6-${entry.mesh}`;
-    if (atlas) dressPart(mesh, atlas);
+    const own = await packageTexture(charMesh);
+    // Nor the T-shirt image Roblox also puts on the torso as its "roblox" decal.
+    if (own) partsWithoutDecals.add(node);
+    const texture = own || atlas;
+    if (texture) dressPart(mesh, texture);
     else if (Array.isArray(mesh.material)) mesh.material = mesh.material[0];
     dressed = true;
   }
@@ -1874,29 +1893,216 @@ async function dressR15(model, layers) {
     const node = childNamed(model, name);
     const mesh = meshByNode.get(node);
     if (!mesh || node.className !== 'MeshPart' || !mesh.userData.rhrMeshAsset || surfaceAppearanceOf(node)) continue;
+    // A body part with its own image (a body package's) wears no classic clothing
+    // (Studio: clearing a package torso's TextureID brings the Shirt back).
+    if (node.props?.TextureID) continue;
     const worn = templates.filter(template => layers[template]);
     if (!worn.length) continue;
     const spec = R15_LAYOUTS[layoutName];
     if (!(layoutName in layoutGeometry)) layoutGeometry[layoutName] = await loadMeshGeometry(`${AVATAR}compositing/${spec.mesh}.mesh`);
     const layout = layoutGeometry[layoutName];
     if (!layout) continue;
-    const items = [];
-    const own = node.props?.TextureID ? await loadSceneTexture(node.props.TextureID) : null;
-    if (own) items.push({geometry: fullLayoutQuad(spec.width, spec.height), texture: own});
-    for (const template of worn) items.push({geometry: layout, ...layers[template]});
+    const items = worn.map(template => ({geometry: layout, ...layers[template]}));
     dressPart(mesh, paintLayout(spec.width, spec.height, items));
     dressed = true;
   }
   return dressed;
 }
 
+// Layered clothing. An item (an Accessory whose Handle has a WrapLayer) is modelled
+// around a reference body, its ReferenceMesh cage; every body part carries a cage of
+// its own (its WrapTarget). All of Roblox's cages share one layout: the same points
+// with the same UVs (checked: an item's 5410-point reference cage and the 15 body part
+// cages of an R15 rig, 1709 distinct UVs, match one to one). Each point of the item's
+// reference cage is paired with the body's point of the same UV, and every vertex of
+// the item moves by the distance-weighted offsets of its nearest reference points, so
+// the item follows how this body differs from the one it was made on.
+//
+// Layers are fitted in their Order, each onto what is under it, as Roblox does: once
+// a layer is fitted, its own outer cage (CageMeshId), moved the same way, is the
+// surface the next layer is fitted to.
+const CAGE_NEIGHBOURS = 8;
+
+// Anchors ([x, y, z, dx, dy, dz]) in a grid of CAGE_CELL-stud cells, so a point only
+// looks at the anchors around it.
+const CAGE_CELL = 0.5;
+// A cell's number, exact in a double: cells within 2^16 of the origin (32768 studs)
+// are distinct; further out two cells can share a number, which only adds anchors to
+// look at, never loses one.
+function cageCell(x, y, z) {
+  const wrap = n => (((n + 65536) % 131072) + 131072) % 131072;
+  return (wrap(x) * 131072 + wrap(y)) * 131072 + wrap(z);
+}
+
+function anchorGrid(anchors) {
+  const cells = new Map();
+  for (const anchor of anchors) {
+    const key = cageCell(Math.floor(anchor[0] / CAGE_CELL), Math.floor(anchor[1] / CAGE_CELL), Math.floor(anchor[2] / CAGE_CELL));
+    if (!cells.has(key)) cells.set(key, []);
+    cells.get(key).push(anchor);
+  }
+  return {cells, all: anchors, found: []};
+}
+
+// The anchors in the cells around a point: rings of cells outwards until there are
+// enough, plus one more ring so a nearer anchor just across a cell edge is not missed.
+function anchorsNear(grid, p) {
+  const cx = Math.floor(p.x / CAGE_CELL), cy = Math.floor(p.y / CAGE_CELL), cz = Math.floor(p.z / CAGE_CELL);
+  const found = grid.found;
+  found.length = 0;
+  for (let ring = 0, extra = -1; ring <= 8; ring += 1) {
+    for (let x = cx - ring; x <= cx + ring; x += 1) {
+      for (let y = cy - ring; y <= cy + ring; y += 1) {
+        for (let z = cz - ring; z <= cz + ring; z += 1) {
+          if (Math.max(Math.abs(x - cx), Math.abs(y - cy), Math.abs(z - cz)) !== ring) continue;
+          const cell = grid.cells.get(cageCell(x, y, z));
+          if (cell) for (const anchor of cell) found.push(anchor);
+        }
+      }
+    }
+    if (extra < 0 && found.length >= CAGE_NEIGHBOURS) extra = ring + 1;
+    if (ring === extra) return found;
+  }
+  return found.length >= CAGE_NEIGHBOURS ? found : grid.all;
+}
+
+// Moves a point by the distance-weighted offsets of its nearest anchors; `nearest` is
+// scratch space.
+function cageOffset(p, grid, nearest) {
+  nearest.fill(null);
+  for (const anchor of anchorsNear(grid, p)) {
+    const dx = anchor[0] - p.x, dy = anchor[1] - p.y, dz = anchor[2] - p.z;
+    const d = dx * dx + dy * dy + dz * dz;
+    if (nearest[CAGE_NEIGHBOURS - 1] && d >= nearest[CAGE_NEIGHBOURS - 1][0]) continue;
+    let k = CAGE_NEIGHBOURS - 1;
+    while (k > 0 && (!nearest[k - 1] || d < nearest[k - 1][0])) {
+      nearest[k] = nearest[k - 1];
+      k -= 1;
+    }
+    nearest[k] = [d, anchor];
+  }
+  let wx = 0, wy = 0, wz = 0, total = 0;
+  for (const entry of nearest) {
+    if (!entry) continue;
+    const weight = 1 / (entry[0] * entry[0] + 1e-8);
+    wx += entry[1][3] * weight;
+    wy += entry[1][4] * weight;
+    wz += entry[1][5] * weight;
+    total += weight;
+  }
+  return p.set(p.x + wx / total, p.y + wy / total, p.z + wz / total);
+}
+
+function uvKey(u, v) {
+  return `${Math.round(u * 4096)},${Math.round(v * 4096)}`;
+}
+
+// A cage's points in world space: part CFrame x cage origin, scaled as the part's
+// mesh is scaled to its Size.
+function cagePoints(geometry, partNode, origin, scale) {
+  const matrix = cframeMatrix(partNode.props.CFrame)
+    .multiply(new THREE.Matrix4().makeScale(scale.x, scale.y, scale.z))
+    .multiply(origin ? cframeMatrix(origin) : new THREE.Matrix4());
+  const position = geometry.attributes.position;
+  const uv = geometry.attributes.uv1 || geometry.attributes.uv;
+  const points = [];
+  const p = new THREE.Vector3();
+  for (let i = 0; i < position.count; i += 1) {
+    p.fromBufferAttribute(position, i).applyMatrix4(matrix);
+    points.push({key: uvKey(uv.getX(i), uv.getY(i)), x: p.x, y: p.y, z: p.z});
+  }
+  return points;
+}
+
+// How a part's mesh was stretched to its Size (fitMeshGeometryToPart).
+async function meshScale(node) {
+  const base = node.props?.MeshId ? await loadMeshGeometry(node.props.MeshId) : null;
+  if (!base) return new THREE.Vector3(1, 1, 1);
+  base.computeBoundingBox();
+  const raw = base.boundingBox.getSize(new THREE.Vector3());
+  const [x, y, z] = dimensions(node.props?.Size);
+  return new THREE.Vector3(x / Math.max(raw.x, 1e-6), y / Math.max(raw.y, 1e-6), z / Math.max(raw.z, 1e-6));
+}
+
+async function fitLayeredClothing(model) {
+  const children = Object.values(model.children || {});
+  const items = children
+    .filter(child => child.className === 'Accessory')
+    .map(accessory => childNamed(accessory, 'Handle'))
+    .filter(handle => handle?.className === 'MeshPart' && childOfClass(handle, 'WrapLayer') && meshByNode.get(handle)?.userData.rhrMeshAsset)
+    .sort((a, b) => Number(childOfClass(a, 'WrapLayer').props?.Order ?? 0) - Number(childOfClass(b, 'WrapLayer').props?.Order ?? 0));
+  if (!items.length) return 0;
+  // The body's cage, by UV.
+  const body = new Map();
+  for (const part of children) {
+    const target = childOfClass(part, 'WrapTarget');
+    if (part.className !== 'MeshPart' || !target?.props?.CageMeshId || !part.props?.CFrame) continue;
+    const cage = await loadMeshGeometry(target.props.CageMeshId);
+    if (!cage) continue;
+    for (const point of cagePoints(cage, part, target.props.CageOrigin, await meshScale(part))) {
+      if (!body.has(point.key)) body.set(point.key, point);
+    }
+  }
+  if (!body.size) return 0;
+  let fitted = 0;
+  for (const handle of items) {
+    const layer = childOfClass(handle, 'WrapLayer');
+    const reference = layer.props?.ReferenceMeshId ? await loadMeshGeometry(layer.props.ReferenceMeshId) : null;
+    if (!reference) continue;
+    const scale = await meshScale(handle);
+    // Reference points with their offsets onto the body, one per UV.
+    const seen = new Set();
+    const anchors = [];
+    for (const point of cagePoints(reference, handle, layer.props.ReferenceOrigin, scale)) {
+      const onBody = body.get(point.key);
+      if (!onBody || seen.has(point.key)) continue;
+      seen.add(point.key);
+      anchors.push([point.x, point.y, point.z, onBody.x - point.x, onBody.y - point.y, onBody.z - point.z]);
+    }
+    if (anchors.length < CAGE_NEIGHBOURS) continue;
+    const grid = anchorGrid(anchors);
+    const mesh = meshByNode.get(handle);
+    const toWorld = cframeMatrix(handle.props.CFrame);
+    const toLocal = toWorld.clone().invert();
+    const geometry = mesh.geometry.clone();
+    const position = geometry.attributes.position;
+    const p = new THREE.Vector3();
+    const nearest = new Array(CAGE_NEIGHBOURS);
+    for (let i = 0; i < position.count; i += 1) {
+      cageOffset(p.fromBufferAttribute(position, i).applyMatrix4(toWorld), grid, nearest).applyMatrix4(toLocal);
+      position.setXYZ(i, p.x, p.y, p.z);
+    }
+    // This layer's outer cage, fitted the same way, is what the next layer goes over.
+    const outer = layer.props?.CageMeshId ? await loadMeshGeometry(layer.props.CageMeshId) : null;
+    if (outer) {
+      for (const point of cagePoints(outer, handle, layer.props.CageOrigin, scale)) {
+        if (!body.has(point.key)) continue;
+        cageOffset(p.set(point.x, point.y, point.z), grid, nearest);
+        body.set(point.key, {key: point.key, x: p.x, y: p.y, z: p.z});
+      }
+    }
+    position.needsUpdate = true;
+    geometry.computeBoundingBox();
+    geometry.computeBoundingSphere();
+    mesh.geometry.dispose();
+    mesh.geometry = geometry;
+    fitted += 1;
+  }
+  return fitted;
+}
+
 async function dressCharacters(index) {
-  if (flatMaterials) return;
   for (const humanoid of nodesOfClass(index, 'Humanoid')) {
     const model = index.parentByNode.get(humanoid);
     if (!model) continue;
     const r15 = humanoid.props?.RigType?.name === 'R15' || Boolean(childNamed(model, 'UpperTorso'));
+    if (r15) layeredClothingFitted += await fitLayeredClothing(model);
+    if (flatMaterials) continue;
     applyBodyColors(model, r15 ? R15_BODY : R6_BODY);
+    // A head with its own image (a dynamic head, its face drawn in) shows no face decal
+    // (Studio: an R6 rig with a dynamic head keeps its face.png decal, not drawn).
+    const head = childNamed(model, 'Head');
+    if (head && meshTextureUri(head)) partsWithoutDecals.add(head);
     const layers = await clothingLayers(model);
     if (await (r15 ? dressR15(model, layers) : dressR6(model, layers))) charactersDressed += 1;
   }
@@ -2100,7 +2306,7 @@ async function addSurfaceImages(index) {
   for (const className of ['Decal', 'Texture']) {
     for (const node of nodesOfClass(index, className)) {
       const parent = index.parentByNode.get(node);
-      if (parent) jobs.push(addSurfaceImage(node, parent));
+      if (parent && !partsWithoutDecals.has(parent)) jobs.push(addSurfaceImage(node, parent));
     }
   }
   await Promise.all(jobs);
@@ -4571,6 +4777,11 @@ function resetScene() {
   sunDirection = null;
   postEffects = null;
   localLightsDropped = 0;
+  charactersDressed = 0;
+  layeredClothingFitted = 0;
+  partsWithoutDecals.clear();
+  for (const target of clothingTargets) target.dispose();
+  clothingTargets.length = 0;
   Object.assign(particleState, {emitters: [], time: null, auto: false, idle: [], orphan: 0, missingTextures: new Set(), drawn: 0});
   Object.assign(highlightState, {drawn: 0, skipped: 0});
   document.querySelector('#rhr-overlay').replaceChildren();

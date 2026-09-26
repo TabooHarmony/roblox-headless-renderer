@@ -206,9 +206,14 @@ stderr says so on every 3D render.
   install), over the body's colour; R6 bodies use Roblox's rounded body part meshes
   and a body package's `CharacterMesh` meshes; the R6 head is the classic head mesh
   (a `Head` SpecialMesh, sized as measured in Studio); `BodyColors` colours the body
-  parts. Without a Studio install, clothing is not drawn. Not modelled: layered
-  clothing (3D clothing is drawn as its undeformed mesh), poses (a rig stands as
-  saved; animations are never played), and facial animation.
+  parts. A body part with its own image (a body package, R6 or R15) wears no
+  classic clothing, as in Studio; a head with its own image shows no face decal.
+  Layered clothing is fitted to the body through its cages (reference cage to the
+  body's cages, matched by UV; layers stacked in Order on each other's outer cage):
+  close to Studio's shape, not exact. Old version 1 meshes keep V from the bottom
+  (checked on old hats and an R6 package). Without a Studio install, clothing is not
+  drawn. Not modelled: poses (a rig stands as saved; animations are never played)
+  and facial animation.
 
 **Drawn as stand-ins, and reported as such:**
 

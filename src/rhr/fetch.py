@@ -104,8 +104,9 @@ def collect_refs(ir: dict) -> tuple[set[str], set[str]]:
         if not isinstance(props, dict):
             continue
         for key, value in props.items():
-            if key in IMAGE_PROPERTIES and isinstance(value, str):
-                ref = asset_id(value)
+            # A CharacterMesh's texture ids are plain numbers, not asset URLs.
+            if key in IMAGE_PROPERTIES and isinstance(value, (str, int)) and not isinstance(value, bool):
+                ref = asset_id(str(value))
                 if ref:
                     images.add(ref)
         cls = node.get("className")
@@ -115,6 +116,11 @@ def collect_refs(ir: dict) -> tuple[set[str], set[str]]:
             ref = asset_id(props.get("MeshId"))
             if ref:
                 meshes.add(ref)
+        if cls in ("WrapLayer", "WrapTarget"):  # layered clothing cages
+            for key in ("CageMeshId", "ReferenceMeshId"):
+                ref = asset_id(props.get(key))
+                if ref:
+                    meshes.add(ref)
     return images, meshes
 
 
