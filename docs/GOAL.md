@@ -177,12 +177,20 @@ side-by-side check against Studio for what it touched.
    - **Characters**, audited first because nearly every game has them: R6 and R15 rigs,
      `Shirt`, `Pants`, `ShirtGraphic`, `Accessory`, `BodyColors`, faces, and
      `HumanoidDescription`. The aim: a character model reads as that character.
-   - **Terrain**: material blending where materials meet, and grass decoration.
+     **Done (2026-09-25)**, checked against Studio on 13 rigs (plain, classic,
+     body packages, layered clothing): clothing painted with Roblox's own layouts from
+     the install, R6 body and head meshes, package textures, mesh textures, faces on
+     mesh heads, layered clothing fitted through its cages. Left: a rig built only
+     from a `HumanoidDescription` (no body parts) is not assembled; poses are as saved.
+   - **Terrain**: material blending where materials meet, and grass decoration. Next.
    - **Sky effects**: `Clouds` and `SunRays` (reported as not drawn today).
    - **UI edge cases already known**: `UIPageLayout`, `FillEmptySpace` in flex and
      table layouts, clipping of overflowing non-wrapped text, and the small-text gap.
-   - **VFX leftovers**: `TextureSpeed`, `LightInfluence` as lit or not, and Roblox's
-     built-in `rbxasset://` particle textures from the Studio install.
+   - **VFX leftovers**: `TextureSpeed`, `LightInfluence` as lit or not. (Roblox's
+     built-in `rbxasset://` particle textures now load from the install; not yet
+     checked against Studio.)
+   - **Before tagging 0.7**: the full test suite, then CI on all three systems once
+     we agree to release.
 3. **0.8: scale and a regression corpus.**
    - **Large places**: time and memory on real games with tens of thousands of parts
      (merged or instanced geometry in the page, streaming the IR), with targets set
