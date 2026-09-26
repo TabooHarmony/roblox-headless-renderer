@@ -194,8 +194,16 @@ stderr says so on every 3D render.
 - Post-processing (experimental): `BloomEffect` (what is brighter than its Threshold,
   blurred by its Size, added at its Intensity) and `ColorCorrectionEffect` (Brightness,
   Contrast, Saturation, TintColor) are drawn, set by eye; Studio's own at low quality
-  levels draws neither. `SunRaysEffect`, `DepthOfFieldEffect` and `BlurEffect` are
-  not drawn and are listed under `unsupportedVisualClasses`.
+  levels draws neither. `DepthOfFieldEffect` and `BlurEffect` are not drawn and are
+  listed under `unsupportedVisualClasses`.
+- `SunRaysEffect` is drawn as screen-space light scattering: a glow around the sun
+  (narrower and brighter at low Spread), blurred toward the sun through what is sky,
+  so anything in front of the sun casts a long shadow through it, plus a haze over
+  objects. Fitted to Studio at the highest quality (a bar half across the sun,
+  Intensity 0.1 and 0.25, Spread 0.1, 0.3 and 1) on how much light it adds at each
+  distance from the sun, on the open and the shadowed side. Studio's fine spokes near
+  the sun are not reproduced, and objects in front of the sun come out a little
+  lighter than in Studio. It still shows with the sun just off screen, as in Studio.
 - `Clouds` are drawn as one still layer in the sky, from the flat cloud tile Roblox
   ships for devices without 3D textures (so only with Studio installed; without it
   they are listed as unsupported). Fitted to Studio at the highest quality looking

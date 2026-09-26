@@ -529,7 +529,7 @@ EXPERIMENTAL_CLASSES = (
     "PointLight", "SpotLight", "SurfaceLight", "Texture",
 )
 # Present in Lighting but not drawn at all.
-NOT_DRAWN_CLASSES = ("SunRaysEffect", "DepthOfFieldEffect", "BlurEffect")
+NOT_DRAWN_CLASSES = ("DepthOfFieldEffect", "BlurEffect")
 # Drawn with a texture from the Studio install (Clouds: its cloud tile), so not
 # drawn without one.
 STUDIO_DRAWN_CLASSES = ("Clouds",)

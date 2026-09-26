@@ -48,6 +48,7 @@ const TUNE_DEFAULTS = {
   exposure: 1.475, tone: 3, sunR: 1.0, sunG: 0.965, sunB: 0.91, pRough: 0.72, spRough: 0.33, aoK: 1.0, aoReach: 64,
   tBlendH: 0.4, tBlendD: 0.35, tBlendN: 0.25,
   gDensity: 1.0, gMin: 1.8, gMax: 3.6, gLean: 60, gBend: 0, gMargin: 0.15, gWidth: 0.5, gShadeR: 0.30, gShadeG: 0.33, gShadeB: 0.13,
+  rGain: 2.5, rW0: 2, rW1: 30, rDensity: 0.9, rDecay: 0.9825, rVeil: 1.15, rSpread: -1, rK: 1.0, rLeak: 0.075, rVeilW: 1.3,
   sunScale: 1.16, sunGain: 0.7, sunBlur: 3.0,
   cTile: 4200, cHeight: 900, cOct: 0.4, cLod: 0.5, cHaze: 0.25, cDensPow: 1.7, cCurve: 0.0004, cEdge: 0.007, cCov0: 0.48, cCov1: 1.4, cSoft: 0.08, cOpacity: 4.0, cBright: 0.87, cCore: 0.68, cDark: 0.64, cCover: -1, cDensity: -1,
   gNear: 40, gFar: 200, gCarpet: 0.75, gCarpetNear: 20, gCarpetFar: 150, gOn: 1,
@@ -4834,6 +4835,7 @@ function readPostEffects(index) {
   const children = lighting ? Object.values(lighting.children || {}) : [];
   const enabled = node => node.props?.Enabled !== false;
   const bloom = children.find(c => c.className === 'BloomEffect' && enabled(c)) || null;
+  const rays = children.find(c => c.className === 'SunRaysEffect' && enabled(c)) || null;
   const corrections = children.filter(c => c.className === 'ColorCorrectionEffect' && enabled(c));
   const neon = [];
   scene.traverse(object => {
@@ -4843,6 +4845,10 @@ function readPostEffects(index) {
   return {
     lighting: lightingIndex,
     neon,
+    sunRays: rays && sunDirection ? {
+      intensity: Math.max(0, Number(rays.props?.Intensity ?? 0.25)),
+      spread: TUNE.rSpread >= 0 ? TUNE.rSpread : Math.max(0, Math.min(1, Number(rays.props?.Spread ?? 1))),
+    } : null,
     bloom: bloom ? {
       intensity: Math.max(0, Number(bloom.props?.Intensity ?? 1)),
       size: Math.max(0, Number(bloom.props?.Size ?? 24)),
@@ -4963,12 +4969,96 @@ function renderNeonBuffer(camera, target) {
   scene.fog = fog;
 }
 
+// SunRaysEffect, fitted to Studio at its highest quality (a bar half across the sun,
+// Intensity 0.1 / 0.25, Spread 0.1 / 0.3 / 1): a glow around the sun, as wide as
+// Spread makes it, blurred toward the sun on screen through what is sky, so anything
+// in front of the sun casts a long shadow through it (GPU Gems 3's light
+// scattering). Drawn at quarter resolution and added before tone mapping; it still
+// shows with the sun just off screen.
+function renderSunRays(camera, rays, size, out) {
+  const view = sunDirection.clone().transformDirection(camera.matrixWorldInverse);
+  if (view.z > -0.05) return false;  // the sun is behind the camera
+  const tanY = Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2);
+  const tanX = tanY * camera.aspect;
+  const sunUv = new THREE.Vector2(0.5 + 0.5 * (view.x / -view.z) / tanX, 0.5 + 0.5 * (view.y / -view.z) / tanY);
+  // What is sky: white, geometry black.
+  const mask = makeTarget(...size);
+  const hidden = [];
+  scene.traverse(object => { if (object.userData?.rhrSkyDome && object.visible) { object.visible = false; hidden.push(object); } });
+  const background = scene.background, fog = scene.fog;
+  scene.background = new THREE.Color(1, 1, 1);
+  scene.fog = null;
+  const black = new THREE.MeshBasicMaterial({color: 0x000000});
+  scene.overrideMaterial = black;
+  renderer.setRenderTarget(mask);
+  renderer.render(scene, camera);
+  scene.overrideMaterial = null;
+  black.dispose();
+  scene.background = background;
+  scene.fog = fog;
+  for (const object of hidden) object.visible = true;
+  const material = new THREE.ShaderMaterial({
+    uniforms: {
+      mask: {value: mask.texture}, sunUv: {value: sunUv}, sunView: {value: view.normalize()},
+      tans: {value: new THREE.Vector2(tanX, tanY)},
+      width: {value: THREE.MathUtils.degToRad(TUNE.rW0 + TUNE.rW1 * rays.spread)},
+      // Narrower rays are brighter near the sun: the same light over a smaller glow.
+      gain: {value: TUNE.rGain * rays.intensity * Math.pow((TUNE.rW0 + TUNE.rW1) / (TUNE.rW0 + TUNE.rW1 * rays.spread), TUNE.rK)}, density: {value: TUNE.rDensity}, decay: {value: TUNE.rDecay},
+      veil: {value: TUNE.rVeil}, leak: {value: TUNE.rLeak}, veilWidth: {value: TUNE.rVeilW},
+      sunColor: {value: sunColorForRays()},
+    },
+    vertexShader: FULLSCREEN_VERTEX,
+    fragmentShader: `
+uniform sampler2D mask; uniform vec2 sunUv; uniform vec3 sunView; uniform vec2 tans;
+uniform float width; uniform float gain; uniform float density; uniform float decay; uniform vec3 sunColor; uniform float veil; uniform float leak; uniform float veilWidth;
+varying vec2 vUv;
+float glowAt( vec2 uv, float w ) {
+  vec3 d = normalize( vec3( ( uv.x * 2.0 - 1.0 ) * tans.x, ( uv.y * 2.0 - 1.0 ) * tans.y, -1.0 ) );
+  float angle = acos( clamp( dot( d, sunView ), -1.0, 1.0 ) );
+  return exp( - angle / w );
+}
+float glow( vec2 uv ) { return glowAt( uv, width ); }
+void main() {
+  const int N = 64;
+  vec2 stepUv = ( sunUv - vUv ) * density / float( N );
+  vec2 uv = vUv;
+  float weight = 1.0, sum = 0.0, total = 0.0;
+  for ( int i = 0; i < N; i ++ ) {
+    float inside = step( 0.0, uv.x ) * step( uv.x, 1.0 ) * step( 0.0, uv.y ) * step( uv.y, 1.0 );
+    float sky = inside > 0.5 ? texture2D( mask, uv ).r : 1.0;
+    sum += sky * glow( uv ) * weight;
+    total += weight;
+    weight *= decay;
+    uv += stepUv;
+  }
+  // The sky gets the rays, shadows and all, plus a little glow that nothing blocks;
+  // objects get a haze of the glow on top (Studio lightens the object in front of the
+  // sun as well).
+  float object = 1.0 - texture2D( mask, vUv ).r;
+  float haze = glowAt( vUv, width * veilWidth );
+  gl_FragColor = vec4( sunColor * gain * ( sum / total + ( veil * object + leak * ( 1.0 - object ) ) * haze ), 1.0 );
+}`,
+    depthTest: false,
+    depthWrite: false,
+  });
+  drawFullscreen(material, out);
+  material.dispose();
+  mask.dispose();
+  return true;
+}
+
+function sunColorForRays() {
+  return new THREE.Color(TUNE.sunR, TUNE.sunG, TUNE.sunB);
+}
+
 function compositeMaterial(effects) {
   const corrections = effects.corrections;
   const uniforms = {
     scene: {value: null},
     neon: {value: null},
     bloom: {value: null},
+    rays: {value: null},
+    raysStrength: {value: 0},
     neonStrength: {value: effects.neon.length ? NEON_GLOW_STRENGTH : 0},
     bloomStrength: {value: effects.bloom ? effects.bloom.intensity : 0},
     exposure: {value: Math.pow(2, effects.exposure) * (effects.modern ? TUNE.exposure : 1)},
@@ -4983,6 +5073,7 @@ function compositeMaterial(effects) {
     vertexShader: FULLSCREEN_VERTEX,
     fragmentShader: `
 uniform sampler2D scene; uniform sampler2D neon; uniform sampler2D bloom;
+uniform sampler2D rays; uniform float raysStrength;
 uniform float neonStrength; uniform float bloomStrength; uniform float exposure; uniform int tone;
 uniform float ccBrightness; uniform float ccContrast; uniform float ccSaturation; uniform vec3 ccTint;
 varying vec2 vUv;
@@ -4994,6 +5085,7 @@ void main() {
   vec3 color = texture2D(scene, vUv).rgb * exposure;
   color += texture2D(neon, vUv).rgb * neonStrength;
   color += texture2D(bloom, vUv).rgb * bloomStrength;
+  color += texture2D(rays, vUv).rgb * raysStrength;
   color *= ccTint;
   if (tone == 1) {
     // ACES filmic (Narkowicz fit).
@@ -5109,7 +5201,7 @@ function renderFrame(camera) {
   if (!postEffects) postEffects = readPostEffects(sceneIndex);
   const effects = postEffects;
   const separateParticles = !viewportMode && !effects.modern && particleState.drawn > 0;
-  if (viewportMode || (!separateParticles && !effects.modern && !effects.neon.length && !effects.bloom && !effects.corrections.length && !effects.exposure)) {
+  if (viewportMode || (!separateParticles && !effects.modern && !effects.neon.length && !effects.bloom && !effects.sunRays && !effects.corrections.length && !effects.exposure)) {
     renderer.setRenderTarget(null);
     renderer.render(scene, camera);
     return;
@@ -5157,13 +5249,17 @@ void main() {
     gaussian(neonScratch, scratch, bloomBlur, (effects.bloom.size * scale) / 8);
     scratch.dispose();
   }
+  const raysOut = makeTarget(...quarter);
+  const raysOn = effects.sunRays ? renderSunRays(camera, effects.sunRays, quarter, raysOut) : false;
   const composite = compositeMaterial(effects);
+  composite.uniforms.rays.value = raysOut.texture;
+  composite.uniforms.raysStrength.value = raysOn ? 1 : 0;
   composite.uniforms.scene.value = main.texture;
   composite.uniforms.neon.value = neonBlur.texture;
   composite.uniforms.bloom.value = bloomBlur.texture;
   drawFullscreen(composite, null);
   composite.dispose();
-  for (const target of [main, neonRaw, neonScratch, neonBlur, bloomBlur]) target.dispose();
+  for (const target of [main, neonRaw, neonScratch, neonBlur, bloomBlur, raysOut]) target.dispose();
 }
 
 async function main() {
