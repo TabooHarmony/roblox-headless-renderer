@@ -75,6 +75,19 @@ SMOKE = {
 }
 
 
+@pytest.fixture(scope="session", autouse=True)
+def _warm_worker(request):
+    """Start the warm 3D worker once, before the first browser test.
+
+    Starting it (Chromium, then the page) is a one-time cost: on a slow machine (CI's
+    Macs draw WebGL in software) it would otherwise land in whichever test renders
+    first and push it past its timeout.
+    """
+    if any(item.get_closest_marker("browser") for item in request.session.items):
+        subprocess.run([sys.executable, "-m", "rhr", "browser", "start"], capture_output=True, timeout=300)
+    yield
+
+
 def pytest_configure(config):
     config.addinivalue_line("markers", "browser: renders through headless Chromium")
     config.addinivalue_line("markers", "lune: converts Roblox files through lune")
