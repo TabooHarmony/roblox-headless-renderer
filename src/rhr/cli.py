@@ -128,6 +128,10 @@ def _stored_gui_note(ir_path) -> str | None:
 
 def _finish_picture(args, report: dict) -> int:
     """A picture command's stdout: the PNG's path, or with --json the whole report."""
+    from rhr import browsers
+
+    # {name, version, path} of the browser that drew it; null when none was needed.
+    report.setdefault("browser", browsers.used)
     if args.json:
         print(json.dumps(stamp("render", report), indent=2, sort_keys=True))
     else:
@@ -723,9 +727,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--version", action="version", version=f"rhr {__version__}")
     sub = parser.add_subparsers(dest="command", required=True)
 
-    p_setup = sub.add_parser("setup", help="download Lune, Rojo and Chromium if they are missing")
+    p_setup = sub.add_parser("setup", help="download Lune, Rojo and a headless browser if they are missing")
     p_setup.add_argument("--no-rojo", action="store_true", help="skip Rojo (only needed for Rojo projects)")
-    p_setup.set_defaults(func=lambda a: __import__("rhr.tools").tools.setup(rojo=not a.no_rojo))
+    p_setup.add_argument("--browser", action="store_true",
+                         help="download the pinned headless browser even when another browser is installed")
+    p_setup.set_defaults(func=lambda a: __import__("rhr.tools").tools.setup(rojo=not a.no_rojo, browser=a.browser))
 
     p_fetch = sub.add_parser(
         "fetch", help="download the images, meshes, unions and Roblox material textures a model uses "

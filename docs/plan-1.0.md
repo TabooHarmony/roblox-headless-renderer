@@ -12,14 +12,15 @@ commits on `main`, and pushing or running CI waits until we agree to release.
 | 1. Interface review and freeze | **Done.** docs/interface-1.0.md (decided 2026-09-27); `rhr ui`, `--json` reports (`rhr.render/1`), `rhr.compare/2`, exit codes 0/1/2, dead flags removed. Commit 6e8b2cb. |
 | 2. Drop the MCP server | **Done.** Commit 010f073. |
 | 1b. Shape tests | **Done.** tests/test_contract.py and tests/contract/interface.json (`--update` after an intentional change). Commit 378ca64. |
-| 3. Own browser client instead of Playwright | **Next.** Below. |
-| 4. pinevex becomes our own code | To do. Below. |
+| 3. Own browser client instead of Playwright | **Done locally** (CI jobs written, not yet run). Results below. |
+| 4. pinevex becomes our own code | **Next.** Below. |
 | 5. PyPI, `uvx`, fresh-machine CI | To do. Below. |
 | 6. Basic large-place check | To do. Below. |
 | 7. Candidate period, tag 1.0 | To do. |
 
 The full suite was green after step 1b (77 passed, 1 skipped: the Studio-models test
-that needs `RHR_STUDIO_MODELS`).
+that needs `RHR_STUDIO_MODELS`), and after step 3 (79 passed, 1 skipped) with
+Playwright uninstalled.
 
 ## 3. Own browser client (replaces Playwright)
 
@@ -29,8 +30,29 @@ headless shell only when there is none. Same pixels, less to install (Playwright
 104 MB, 86 MB of it a bundled Node), faster cold renders (0.7-1 s less each), no Node
 process. Measurements and reasons: docs/renderer-options.md (Option 2 and 3).
 
+**Results (2026-09-27, step 3 done locally).** `src/rhr/cdp.py` (the client, the job
+object, profiles), `src/rhr/browsers.py` (discovery, the pinned download),
+`scripts/browser_stress.py`, tests/test_browsers.py and tests/test_browser_lifetime.py.
+Measured on the maintainer's Windows machine:
+
+- Pixels: eight scenes (place, lighting, materials, particles, VFX, world UI, tower, a
+  ViewportFrame) rendered by the old Playwright code and the new client, software
+  WebGL: **identical**, every pixel. The pinned shell is Chrome for Testing
+  145.0.7632.6, byte for byte the build Playwright 1.58 installed.
+- Time (8 interleaved runs each, tower at 800x600, GPU): cold render 6.37 s -> 4.63 s
+  inside RHR (launch 1.7 s -> 0.3 s); warm render 768 ms both.
+- Lifetime: a process holding a browser killed outright leaves no browser process (6
+  processes checked; with the job object disabled all 6 survived); its profile is
+  removed by the next launch. Stress (`scripts/browser_stress.py`): 22 cycles each on
+  the shell, Chrome and Brave, two at once in the middle: no failure, no window, no
+  profile left.
+- Not yet checked: the CI jobs (Linux system libraries for the shell, the runner's own
+  Chrome, Edge on Windows), lifetime on macOS and Linux (parent-death signal, process
+  group), Edge locally (not installed here). The full suite also passes with
+  `RHR_BROWSER` at the installed Chrome (81 passed, 1 skipped).
+
 **Starting point:** a working prototype, standard library only, outside the repo in
-`C:\Users\taboo\rhr-browser-proto\`:
+`C:\Users\taboo\Desktop\Files\rhr-browser-proto\`:
 
 - `rhrcdp.py`: a minimal WebSocket client, CDP for the Chromium family (and a WebDriver
   BiDi class for Firefox, which is **not** to be ported: Firefox is out), launch with a
@@ -185,8 +207,10 @@ to PyPI.
 ## Notes for whoever picks this up
 
 - Studio is connected through its MCP plugin for measurements; the scratch place is
-  Place1. Private benches live outside the repo (`C:\Users\taboo\rhr-*-bench`, and the
-  browser prototype in `C:\Users\taboo\rhr-browser-proto`); never commit their files.
+  Place1. Private benches live outside the repo (`C:\Users\taboo\Desktop\Files\rhr-*-bench`,
+  and the browser prototype in `C:\Users\taboo\Desktop\Files\rhr-browser-proto`); never
+  commit their files. The repo is `C:\Users\taboo\Desktop\Files\roblox-headless-renderer`
+  (moved there 2026-09-27; after a move, re-run `pip install -e ".[dev]"` in `.venv-win`).
 - The machine has Chrome, Brave and Firefox installed for testing, no Edge; assume most
   Windows users have Edge.
 - Local Python is 3.14, CI uses 3.12.

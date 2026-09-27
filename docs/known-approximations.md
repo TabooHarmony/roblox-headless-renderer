@@ -102,7 +102,9 @@ invisible element that swallows clicks is exactly the bug this command is for.
 ## 3D scenes
 
 `rhr scene` and `rhr preview` draw a static authoring preview with THREE.js in
-headless Chromium.
+a headless Chromium-family browser (Chrome, Edge, Brave, Chromium, or Chrome for
+Testing's headless shell; the `--json` report names it). They all draw the same
+page; the tests pin the headless shell for identical pixels.
 
 **Measured:** part positions, sizes and rotations (`rhr scene-dump`) match Studio.
 Compared with Studio screenshots of the same scene, geometry, camera framing,
@@ -281,7 +283,7 @@ stderr says so on every 3D render.
 
 ## Rendering speed and the GPU
 
-3D renders use the machine's GPU through Chromium's WebGL, which is about eight
+3D renders use the machine's GPU through the browser's WebGL, which is about eight
 times faster than software rendering (a textured test scene: 2 s instead of 17 s).
 Pixels can then differ slightly between GPUs: on the development machine a GPU render
 differed from a software one on 0.13% of pixels, by 0.4/255 on average.
@@ -289,7 +291,7 @@ differed from a software one on 0.13% of pixels, by 0.4/255 on average.
 the tests and CI use it. A machine without a usable GPU falls back to software by
 itself.
 
-The first 3D render starts a warm worker (Chromium with the 3D page loaded), which
+The first 3D render starts a warm worker (a browser with the 3D page loaded), which
 later renders reuse; it stops after 10 idle minutes. A render on the kept page is
 pixel for pixel the same as one on a fresh page (tests/test_kept_page.py).
 `RHR_PROFILE=1` prints where a command's time went.

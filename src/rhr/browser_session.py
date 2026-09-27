@@ -40,7 +40,8 @@ def code_stamp() -> str:
     digest = hashlib.sha1(__version__.encode())
     package = Path(__file__).resolve().parent
     files = [*sorted((package / "scene").glob("*.js")), *sorted((package / "particles").glob("*.js")),
-             package / "browser_render.py", package / "browser_daemon.py"]
+             package / "browser_render.py", package / "browser_daemon.py", package / "cdp.py",
+             package / "browsers.py"]
     for path in files:
         try:
             info = path.stat()
@@ -133,6 +134,8 @@ def status() -> dict:
         # before this field existed drew in software.
         "webgl": payload.get("webgl", "software"),
         "code": payload.get("code"),
+        # {name, version, path} of the browser it draws with
+        "browser": payload.get("browser"),
     }
 
 
@@ -153,9 +156,9 @@ def usable_worker() -> bool:
     if current.get("running"):
         if current.get("webgl") != webgl_mode():
             return setting in {"1", "true", "yes", "on"}
-        if current.get("code") == code_stamp():
+        if current.get("code") == code_stamp() and _same_browser(current):
             return True
-        stop()  # older code: replace it
+        stop()  # older code, or another RHR_BROWSER: replace it
     try:
         ensure()
     except (RuntimeError, OSError):
@@ -182,20 +185,40 @@ def _detached() -> dict:
     """Popen options that keep the worker alive after the calling `rhr` exits.
 
     On Windows it gets a hidden console of its own (not DETACHED_PROCESS: a process
-    with no console gives every console program it starts, such as Playwright's
-    driver, a new window)."""
+    with no console gives every console program it starts a new window)."""
     if sys.platform == "win32":
         flags = subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW
         return {"creationflags": flags}
     return {"start_new_session": True}
 
 
+def _same_browser(current: dict) -> bool:
+    """Whether a running worker uses the browser RHR_BROWSER names (if it names one)."""
+    from rhr.browsers import configured
+
+    chosen = configured()
+    return not chosen or (current.get("browser") or {}).get("path") == chosen
+
+
+def _browser_available() -> None:
+    """Download the headless shell here, before the worker starts, if RHR has no
+    browser: the notice reaches the user, and the worker's start does not time out."""
+    from rhr import browsers
+
+    if browsers.candidates():
+        return
+    if browsers.configured() or not browsers.download_allowed():
+        raise RuntimeError(browsers.none_found_message())
+    browsers.download_shell()
+
+
 def ensure() -> tuple[dict, bool]:
     current = status()
     from rhr.browser_render import webgl_mode
 
-    if current.get("running") and (current.get("webgl") != webgl_mode() or current.get("code") != code_stamp()):
-        stop()  # another WebGL mode, or older code: restart it
+    if current.get("running") and (current.get("webgl") != webgl_mode() or current.get("code") != code_stamp()
+                                   or not _same_browser(current)):
+        stop()  # another WebGL mode, older code or another RHR_BROWSER: restart it
         current = status()
     if current.get("running"):
         state = _read_state()
@@ -204,6 +227,7 @@ def ensure() -> tuple[dict, bool]:
         return {"pid": pid, "port": port, "token": token}, False
 
     _cleanup_stale()
+    _browser_available()
     SESSION_ROOT.mkdir(parents=True, exist_ok=True, mode=0o700)
     os.chmod(SESSION_ROOT, 0o700)
     token = secrets.token_hex(24)
@@ -288,8 +312,10 @@ def render(
         raise RuntimeError(
             "persistent browser render failed: " + str(payload.get("error", payload))
         )
+    from rhr import browsers
     from rhr.profile import add
 
+    browsers.used = payload.get("browser") or None
     for name, seconds in (payload.get("timings") or {}).items():
         add(f"  worker: {name}", seconds)
     return started

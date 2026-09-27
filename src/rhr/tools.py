@@ -1,15 +1,14 @@
 """The external programs RHR runs, where it finds them, and `rhr setup` / `rhr doctor`.
 
-RHR needs Lune (to read Roblox files) and Chromium (for 3D); Rojo only for Rojo
-projects. A program on PATH wins; otherwise RHR looks in <cache>/bin, which is
-where `rhr setup` puts the exact versions it is tested with. Nothing is downloaded
-unless the user runs `rhr setup`.
+RHR needs Lune (to read Roblox files) and a Chromium-family browser (for 3D,
+found or downloaded by rhr.browsers); Rojo only for Rojo projects. A program on PATH
+wins; otherwise RHR looks in <cache>/bin, which is where `rhr setup` puts the exact
+versions it is tested with. Lune and Rojo are downloaded only by `rhr setup`.
 """
 
 from __future__ import annotations
 
 import io
-import os
 import platform
 import shutil
 import stat
@@ -141,46 +140,33 @@ def _tool_version(path: str) -> str:
     return (proc.stdout or proc.stderr).strip().splitlines()[0] if proc.returncode == 0 else "cannot run"
 
 
-def chromium_path() -> str | None:
-    """The Chromium RHR launches if it is installed, else None.
+def browser_report() -> tuple[dict | None, list[str]]:
+    """The browser a 3D render would use ({name, version, path}, found by starting it),
+    and why each browser before it was skipped."""
+    from rhr import browsers
+    from rhr.browser_render import launch_args
+    from rhr.cdp import Browser, BrowserError
 
-    RHR always runs Chromium headless, which Playwright does with its "headless shell"
-    build, installed next to full Chromium (same revision, `chromium_headless_shell-N`).
-    Full Chromium is not needed; `rhr setup` installs the shell alone (about 260 MB
-    instead of 650). RHR_CHROME, if set, is used as it is.
+    skipped = []
+    for candidate in browsers.candidates():
+        try:
+            browser = Browser(candidate.path, launch_args(), headless_shell=candidate.headless_shell)
+        except (BrowserError, OSError) as exc:
+            skipped.append(f"{candidate.name} ({candidate.path}): {exc}")
+            continue
+        try:
+            return {**browsers.describe(candidate, browser.version), "source": candidate.source}, skipped
+        finally:
+            browser.close()
+    return None, skipped
+
+
+def setup(*, rojo: bool = True, browser: bool = False) -> int:
+    """`rhr setup`: fetch what is missing. Returns a process exit code.
+
+    The headless shell is downloaded when no browser is found, or always with
+    `browser` (`--browser`: CI and offline machines that should use the pinned build).
     """
-    if os.environ.get("RHR_CHROME"):
-        chrome = os.environ["RHR_CHROME"]
-        return chrome if Path(chrome).exists() else None
-    try:
-        from playwright.sync_api import sync_playwright
-
-        with sync_playwright() as p:
-            full = Path(p.chromium.executable_path)
-    except Exception:
-        return None
-    # .../ms-playwright/chromium-1208/chrome-win64/chrome.exe -> .../chromium_headless_shell-1208/*/chrome-headless-shell*
-    revision = next((part.split("-", 1)[1] for part in full.parts if part.startswith("chromium-")), None)
-    if revision:
-        for root in full.parents:
-            if root.name.startswith("chromium-"):
-                shells = sorted((root.parent / f"chromium_headless_shell-{revision}").glob("*/chrome-headless-shell*"))
-                shells = [shell for shell in shells if shell.is_file() and shell.suffix in {"", ".exe"}]
-                if shells:
-                    return str(shells[0])
-                break
-    return None
-
-
-def _install_chromium() -> int:
-    args = [sys.executable, "-m", "playwright", "install", "--only-shell", "chromium"]
-    if sys.platform.startswith("linux") and os.geteuid() == 0:
-        args.insert(-1, "--with-deps")
-    return subprocess.run(args).returncode
-
-
-def setup(*, rojo: bool = True) -> int:
-    """`rhr setup`: fetch what is missing. Returns a process exit code."""
     failed = False
     for name in ["lune", "rojo"] if rojo else ["lune"]:
         found = find_tool(name)
@@ -193,16 +179,30 @@ def setup(*, rojo: bool = True) -> int:
         except Exception as exc:  # network, HTTP, unsupported platform
             print(f"{name:9} FAILED   {exc}")
             failed = True
-    if chromium_path():
-        print(f"{'chromium':9} ok       {chromium_path()}")
-    else:
-        print(f"{'chromium':9} ...      python -m playwright install --only-shell chromium", flush=True)
-        if _install_chromium() != 0:
-            print(f"{'chromium':9} FAILED   run `python -m playwright install --with-deps --only-shell chromium`")
+    from rhr import browsers
+
+    shell = browsers.shell_path()
+    if browser or not browsers.candidates():
+        if shell is not None and shell.is_file():
+            print(f"{'browser':9} ok       headless shell {browsers.SHELL_VERSION}  {shell}")
+        elif shell is None:
+            print(f"{'browser':9} FAILED   {browsers.none_found_message()}")
             failed = True
+        else:
+            print(f"{'browser':9} ...      downloading Chrome for Testing's headless shell "
+                  f"{browsers.SHELL_VERSION}", flush=True)
+            try:
+                print(f"{'browser':9} ok       {browsers.download_shell(quiet=True)}")
+            except Exception as exc:  # network, HTTP, a damaged download
+                print(f"{'browser':9} FAILED   {exc}")
+                failed = True
+    else:
+        found = browsers.candidates()[0]
+        print(f"{'browser':9} ok       {found.name}  {found.path}  (`rhr setup --browser` downloads "
+              "the pinned headless shell anyway)")
     if sys.platform.startswith("linux") and not failed:
-        print("On a bare Linux machine Chromium may also need system libraries: "
-              "`python -m playwright install-deps chromium` (needs sudo).")
+        print("On a bare Linux machine the browser may also need system libraries "
+              "(libnss3, libatk-bridge2.0-0, libgbm1, ...): see the README.")
     return 1 if failed else 0
 
 
@@ -235,12 +235,21 @@ def doctor() -> int:
         if sys.platform.startswith("linux"):
             print("          install libegl1 and libgl1 (apt) or mesa-libEGL/mesa-libGL")
         problems += 1
-    chromium = chromium_path()
-    if chromium:
-        print(f"{'chromium':9} ok       {chromium}")
+    found, skipped = browser_report()
+    for reason in skipped:
+        print(f"{'browser':9} skipped  {reason}")
+    if found:
+        print(f"{'browser':9} ok       {found['name']} {found['version']}  {found['path']}")
     else:
-        print(f"{'chromium':9} MISSING  needed for 3D (scene, preview, ViewportFrame)")
-        problems += 1
+        from rhr import browsers
+
+        if browsers.configured() or not browsers.download_allowed() or browsers.shell_platform() is None:
+            print(f"{'browser':9} MISSING  needed for 3D (scene, preview, ViewportFrame): "
+                  f"{browsers.none_found_message()}")
+            problems += 1
+        else:
+            print(f"{'browser':9} none     the first 3D render downloads Chrome for Testing's headless "
+                  f"shell (about 100 MB, once; `rhr setup --browser` does it now)")
     from rhr.studio import studio_install
 
     studio = studio_install()

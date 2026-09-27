@@ -401,11 +401,11 @@ def _render_browser(
             try:
                 render_persistent(url=url, out=out, width=width, height=height, transparent=transparent, reuse=reuse)
             except (RuntimeError, OSError) as exc:
-                # The worker failed (or crashed): draw this one in a Chromium of its own.
+                # The worker failed (or crashed): draw this one in a browser of its own.
                 from rhr.browser_render import render_once
 
                 if notes_out is not None:
-                    notes_out.append(f"the warm browser worker failed ({str(exc)[:160]}); drew with a fresh Chromium")
+                    notes_out.append(f"the warm browser worker failed ({str(exc)[:160]}); drew with a fresh browser")
                 render_once(url=url, out=out, width=width, height=height, transparent=transparent)
         else:
             from rhr.browser_render import render_once
@@ -415,7 +415,7 @@ def _render_browser(
         server.shutdown()
         thread.join(timeout=2)
     if not out.is_file() or out.stat().st_size == 0:
-        raise RuntimeError(f"Chromium did not write a screenshot: {out}")
+        raise RuntimeError(f"the browser did not write a screenshot: {out}")
     actual = _png_size(out)
     expected = (width, height)
     if actual != expected:

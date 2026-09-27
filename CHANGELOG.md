@@ -20,6 +20,24 @@
   - `--no-effects` leaves out Beams and Trails too, not only particles.
   - A command that fails exits 2; 1 now only ever means `check` found errors.
   - `--texture-dir` and `--mesh-dir` are test hooks, hidden from `--help`.
+- **Playwright is gone.** RHR drives the browser itself over the DevTools protocol,
+  with a browser you already have: Chrome, Edge, Brave or Chromium. With none, the
+  first 3D render downloads Chrome for Testing's headless shell once (about 100 MB,
+  the same build as before, so pictures are unchanged); `rhr setup --browser` does
+  that ahead of time and `RHR_BROWSER_DOWNLOAD=0` forbids it. `RHR_CHROME` is now
+  **`RHR_BROWSER`** (the old name still works in this release). The old Playwright
+  Chromium in `ms-playwright` is no longer used and can be deleted.
+- The `--json` report and `rhr browser status` name the browser used (`browser`:
+  name, version, path); `rhr doctor` names the browser it will use and why any other
+  was skipped.
+
+### Changes
+
+- Cold 3D renders are about 1.7 s faster (no Node driver to start); warm renders are
+  unchanged. Installing RHR no longer pulls in Playwright (104 MB).
+- A browser never outlives RHR: on Windows it runs in a job object that ends it with
+  the process that started it, even on a crash; on Linux it gets a parent-death
+  signal. Profiles left by a killed RHR are removed on the next launch.
 
 ## 0.7.0 (alpha)
 

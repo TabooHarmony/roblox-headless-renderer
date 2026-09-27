@@ -407,6 +407,11 @@
   },
   "setup": {
    "flags": {
+    "--browser": {
+     "choices": [],
+     "default": false,
+     "takesValue": false
+    },
     "--no-rojo": {
      "choices": [],
      "default": false,
@@ -980,6 +985,19 @@
    "fields": {
     ".": [
      "object"
+    ],
+    "browser": [
+     "null",
+     "object"
+    ],
+    "browser.name": [
+     "string"
+    ],
+    "browser.path": [
+     "string"
+    ],
+    "browser.version": [
+     "string"
     ],
     "camera": [
      "object"

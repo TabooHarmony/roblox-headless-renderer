@@ -1,6 +1,6 @@
 """Test markers, applied by file so each script stays a plain `main()` script.
 
-    browser  renders through headless Chromium (Playwright)
+    browser  renders through a headless browser (rhr.cdp)
     lune     converts .rbxm/.rbxmx files to IR through `lune`
     studio   needs local Roblox Studio model files (RHR_STUDIO_MODELS)
     smoke    one quick test per area (about a minute): run before every commit
@@ -49,6 +49,13 @@ if not os.environ.get("RHR_TEST_KEEP_CACHE"):
     _test_cache = Path(tempfile.mkdtemp(prefix="rhr-test-cache-"))
     if _bin.is_dir():
         shutil.copytree(_bin, _test_cache / "bin")
+    # The pinned headless shell (`rhr setup --browser`), used where it lies: the same
+    # build draws the same pixels on every machine. Without it, the machine's browser.
+    from rhr.browsers import shell_path
+
+    _shell = shell_path()
+    if _shell is not None and _shell.is_file() and not os.environ.get("RHR_BROWSER"):
+        os.environ["RHR_BROWSER"] = str(_shell)
     os.environ["RHR_CACHE_DIR"] = str(_test_cache)
 
     def _cleanup_test_cache() -> None:
@@ -60,18 +67,18 @@ if not os.environ.get("RHR_TEST_KEEP_CACHE"):
 BROWSER = {
     "test_billboard", "test_browser_session", "test_particles",
     "test_preview", "test_preview_particles", "test_surface", "test_viewport_frame", "test_kept_page",
-    "test_visual_gallery", "test_place_realism", "test_terrain", "test_contract",
+    "test_visual_gallery", "test_place_realism", "test_terrain", "test_contract", "test_browser_lifetime",
 }
 NOT_LUNE = {
     "test_compare", "test_groundtruth_diff", "test_mesh_assets", "test_project", "test_roblox_assets", "test_cache",
-    "test_scroll_scale", "test_text_newlines", "test_textscaled_stroke",
+    "test_scroll_scale", "test_text_newlines", "test_textscaled_stroke", "test_browsers", "test_browser_lifetime",
 }
 STUDIO = {"test_studio_smoke"}
 SMOKE = {
     "test_fixtures", "test_layout_dump", "test_hitmap", "test_checks",       # 2D UI
     "test_ir_profiles", "test_ir_cache",                                      # file conversion
     "test_preview", "test_scene_highlight", "test_scene_vfx",                 # 3D
-    "test_tools", "test_cache",                                               # tools, cache
+    "test_tools", "test_cache", "test_browsers",                              # tools, cache, browsers
 }
 
 

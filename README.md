@@ -30,14 +30,21 @@ You need Python 3.12 or newer, on Windows, macOS or Linux.
 
 ```sh
 pip install git+https://github.com/TabooHarmony/roblox-headless-renderer
-rhr setup     # downloads Lune (reads Roblox files), Rojo and headless Chromium (for 3D)
+rhr setup     # downloads Lune (reads Roblox files) and Rojo
 rhr doctor    # checks everything is in place
 ```
 
 `rhr setup` puts the exact tool versions RHR is tested with (Lune 0.10.5, Rojo 7.7.0)
-in RHR's own cache folder. Tools you already have on `PATH` are used first. On a bare
-Linux machine Chromium may also need system libraries:
-`python -m playwright install-deps chromium`.
+in RHR's own cache folder. Tools you already have on `PATH` are used first.
+
+For 3D, RHR drives a browser you already have: Chrome, Edge, Brave or Chromium, in
+that order (`RHR_BROWSER=<path>` picks one). With none installed, the first 3D render
+downloads Chrome for Testing's headless shell once (about 100 MB) into the cache;
+`rhr setup --browser` does that ahead of time, and `RHR_BROWSER_DOWNLOAD=0` forbids
+it. `rhr doctor` names the browser it will use. On a bare Linux machine the headless
+shell also needs system libraries (on Ubuntu: `libnss3 libatk-bridge2.0-0t64 libgbm1
+libxkbcommon0 libxcomposite1 libxdamage1 libxrandr2 libcups2t64 libasound2t64
+libpango-1.0-0`).
 
 ## Try it
 
@@ -109,7 +116,7 @@ until it is run.
 
 3D renders use the GPU (about 8x faster than software rendering; set
 `RHR_WEBGL=software` for identical pixels on every machine, as the tests do). The first
-3D render starts a warm Chromium worker in the background, which keeps the 3D page
+3D render starts a warm browser worker in the background, which keeps the 3D page
 loaded; later renders reuse it and it stops itself after 10 idle minutes
 (`RHR_PERSISTENT_BROWSER=0` turns it off). RHR also remembers the last conversion of
 each file, so several commands on an unchanged file only read it once.

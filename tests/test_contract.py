@@ -26,6 +26,10 @@ import sys
 import tempfile
 from pathlib import Path
 
+# Offline and without Studio even when run by hand (`--update`): otherwise assets
+# download, the missing-asset lists come out empty, and their fields leave the snapshot.
+import _harness  # noqa: E402,F401
+
 ROOT = Path(__file__).resolve().parents[1]
 RHR = [sys.executable, "-m", "rhr"]
 SNAPSHOT = ROOT / "tests" / "contract" / "interface.json"

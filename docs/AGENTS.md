@@ -36,7 +36,7 @@ failed (the reason is on stderr).
 5. After the next edit, `rhr compare` the two PNGs to confirm only what you meant to
    change moved.
 
-The first 3D render starts a warm Chromium worker; later renders reuse its loaded
+The first 3D render starts a warm browser worker; later renders reuse its loaded
 page and take well under a second inside RHR on a machine with a GPU. It stops by
 itself after 10 idle minutes. `RHR_PROFILE=1` prints where a command's time went.
 
@@ -97,8 +97,11 @@ builds or moves at runtime is previewed as saved in the file.
 ## Setup reminders
 
 - `rhr doctor` says whether everything RHR needs is installed; `rhr setup` downloads
-  what is missing (Lune 0.10.5, Rojo 7.7.0, Chromium's headless shell). `rhr cache`
-  shows or clears the cache.
+  what is missing (Lune 0.10.5, Rojo 7.7.0). 3D uses Chrome, Edge, Brave or Chromium if
+  one is installed, else downloads a headless browser once on the first 3D render
+  (stderr says so); `rhr doctor` names the browser, and the `--json` report's
+  `browser` field says which one drew the picture. `rhr cache` shows or clears the
+  cache.
 - A standard `--view` frames the build, not the Baseplate: a thin ground slab much
   larger than everything else is left out of the framing (still drawn), and a `note`
   line says so. `--focus <path>` frames exactly what you name.
