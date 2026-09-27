@@ -87,8 +87,13 @@ test fixtures).
 | new: `rhr.render/1` | none | the `--json` report of `ui`, `scene`, `preview` (rule 2): `{command, source, out, size, notes}`, plus `screens` (`ui`, `preview`) and `camera {position, lookDirection, fieldOfView}`, `fallbacks`, `materialFallbacks`, `unsupportedVisualClasses`, `experimental`, `missingAssets` (`scene`, `preview`) |
 | `rhr.ir/1` | internal format | not contract |
 
-Each kept schema gets a shape test: a fixture's output checked key by key, so a
-renamed or dropped field fails the suite.
+**Shape tests** (tests/test_contract.py, snapshot in tests/contract/interface.json):
+every public command with its flags, choices and defaults; every JSON output's fields
+and their types, from real runs on fixtures and a contract scene that fills every
+list; the schema versions; and the exit codes. A removed or retyped field, a removed
+or changed flag, a version bump or a changed exit code fails the suite; a new field
+or flag is allowed and printed. After an intentional change:
+`python tests/test_contract.py --update`, and review the snapshot's diff.
 
 ## Environment variables
 

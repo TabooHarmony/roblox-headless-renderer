@@ -1,0 +1,1624 @@
+{
+ "commands": {
+  "browser": {
+   "flags": {},
+   "positionals": [
+    {
+     "choices": [
+      "start",
+      "status",
+      "stop"
+     ],
+     "name": "action"
+    }
+   ]
+  },
+  "cache": {
+   "flags": {
+    "--clear": {
+     "choices": [],
+     "default": null,
+     "takesValue": true
+    }
+   },
+   "positionals": []
+  },
+  "check": {
+   "flags": {
+    "--all-guis": {
+     "choices": [],
+     "default": false,
+     "takesValue": false
+    },
+    "--out": {
+     "choices": [],
+     "default": null,
+     "takesValue": true
+    },
+    "--topbar-height": {
+     "choices": [],
+     "default": null,
+     "takesValue": true
+    },
+    "--viewport": {
+     "choices": [],
+     "default": [
+      1615,
+      1080
+     ],
+     "takesValue": true
+    }
+   },
+   "positionals": [
+    {
+     "choices": [],
+     "name": "file"
+    }
+   ]
+  },
+  "compare": {
+   "flags": {
+    "--background": {
+     "choices": [],
+     "default": [
+      32,
+      36,
+      43,
+      255
+     ],
+     "takesValue": true
+    },
+    "--silhouette-threshold": {
+     "choices": [],
+     "default": 8.0,
+     "takesValue": true
+    }
+   },
+   "positionals": [
+    {
+     "choices": [],
+     "name": "before"
+    },
+    {
+     "choices": [],
+     "name": "after"
+    }
+   ]
+  },
+  "doctor": {
+   "flags": {},
+   "positionals": []
+  },
+  "fetch": {
+   "flags": {
+    "--images-only": {
+     "choices": [],
+     "default": false,
+     "takesValue": false
+    },
+    "--meshes-only": {
+     "choices": [],
+     "default": false,
+     "takesValue": false
+    },
+    "--no-studio-login": {
+     "choices": [],
+     "default": false,
+     "takesValue": false
+    }
+   },
+   "positionals": [
+    {
+     "choices": [],
+     "name": "file"
+    }
+   ]
+  },
+  "hitmap": {
+   "flags": {
+    "--all-guis": {
+     "choices": [],
+     "default": false,
+     "takesValue": false
+    },
+    "--out": {
+     "choices": [],
+     "default": null,
+     "takesValue": true
+    },
+    "--topbar-height": {
+     "choices": [],
+     "default": null,
+     "takesValue": true
+    },
+    "--viewport": {
+     "choices": [],
+     "default": [
+      1615,
+      1080
+     ],
+     "takesValue": true
+    }
+   },
+   "positionals": [
+    {
+     "choices": [],
+     "name": "file"
+    }
+   ]
+  },
+  "ir": {
+   "flags": {
+    "--out": {
+     "choices": [],
+     "default": null,
+     "takesValue": true
+    }
+   },
+   "positionals": [
+    {
+     "choices": [],
+     "name": "file"
+    }
+   ]
+  },
+  "layout": {
+   "flags": {
+    "--all-guis": {
+     "choices": [],
+     "default": false,
+     "takesValue": false
+    },
+    "--out": {
+     "choices": [],
+     "default": null,
+     "takesValue": true
+    },
+    "--rich": {
+     "choices": [],
+     "default": false,
+     "takesValue": false
+    },
+    "--topbar-height": {
+     "choices": [],
+     "default": null,
+     "takesValue": true
+    },
+    "--viewport": {
+     "choices": [],
+     "default": [
+      1615,
+      1080
+     ],
+     "takesValue": true
+    }
+   },
+   "positionals": [
+    {
+     "choices": [],
+     "name": "file"
+    }
+   ]
+  },
+  "preview": {
+   "flags": {
+    "--all-guis": {
+     "choices": [],
+     "default": false,
+     "takesValue": false
+    },
+    "--camera": {
+     "choices": [],
+     "default": null,
+     "takesValue": true
+    },
+    "--effect-time": {
+     "choices": [],
+     "default": null,
+     "takesValue": true
+    },
+    "--flat-materials": {
+     "choices": [],
+     "default": false,
+     "takesValue": false
+    },
+    "--focus": {
+     "choices": [],
+     "default": null,
+     "takesValue": true
+    },
+    "--fov": {
+     "choices": [],
+     "default": null,
+     "takesValue": true
+    },
+    "--json": {
+     "choices": [],
+     "default": false,
+     "takesValue": false
+    },
+    "--look-at": {
+     "choices": [],
+     "default": null,
+     "takesValue": true
+    },
+    "--no-effects": {
+     "choices": [],
+     "default": false,
+     "takesValue": false
+    },
+    "--no-shadows": {
+     "choices": [],
+     "default": false,
+     "takesValue": false
+    },
+    "--offline": {
+     "choices": [],
+     "default": false,
+     "takesValue": false
+    },
+    "--out": {
+     "choices": [],
+     "default": null,
+     "takesValue": true
+    },
+    "--seed": {
+     "choices": [],
+     "default": 0,
+     "takesValue": true
+    },
+    "--topbar-height": {
+     "choices": [],
+     "default": null,
+     "takesValue": true
+    },
+    "--view": {
+     "choices": [
+      "iso",
+      "front",
+      "back",
+      "left",
+      "right",
+      "top"
+     ],
+     "default": null,
+     "takesValue": true
+    },
+    "--viewport": {
+     "choices": [],
+     "default": [
+      1615,
+      1080
+     ],
+     "takesValue": true
+    }
+   },
+   "positionals": [
+    {
+     "choices": [],
+     "name": "file"
+    }
+   ]
+  },
+  "scene": {
+   "flags": {
+    "--camera": {
+     "choices": [],
+     "default": null,
+     "takesValue": true
+    },
+    "--effect-time": {
+     "choices": [],
+     "default": null,
+     "takesValue": true
+    },
+    "--flat-materials": {
+     "choices": [],
+     "default": false,
+     "takesValue": false
+    },
+    "--focus": {
+     "choices": [],
+     "default": null,
+     "takesValue": true
+    },
+    "--fov": {
+     "choices": [],
+     "default": null,
+     "takesValue": true
+    },
+    "--json": {
+     "choices": [],
+     "default": false,
+     "takesValue": false
+    },
+    "--look-at": {
+     "choices": [],
+     "default": null,
+     "takesValue": true
+    },
+    "--no-effects": {
+     "choices": [],
+     "default": false,
+     "takesValue": false
+    },
+    "--no-shadows": {
+     "choices": [],
+     "default": false,
+     "takesValue": false
+    },
+    "--offline": {
+     "choices": [],
+     "default": false,
+     "takesValue": false
+    },
+    "--out": {
+     "choices": [],
+     "default": null,
+     "takesValue": true
+    },
+    "--seed": {
+     "choices": [],
+     "default": 0,
+     "takesValue": true
+    },
+    "--view": {
+     "choices": [
+      "iso",
+      "front",
+      "back",
+      "left",
+      "right",
+      "top"
+     ],
+     "default": null,
+     "takesValue": true
+    },
+    "--viewport": {
+     "choices": [],
+     "default": [
+      1615,
+      1080
+     ],
+     "takesValue": true
+    }
+   },
+   "positionals": [
+    {
+     "choices": [],
+     "name": "file"
+    }
+   ]
+  },
+  "scene-dump": {
+   "flags": {
+    "--out": {
+     "choices": [],
+     "default": null,
+     "takesValue": true
+    }
+   },
+   "positionals": [
+    {
+     "choices": [],
+     "name": "file"
+    }
+   ]
+  },
+  "setup": {
+   "flags": {
+    "--no-rojo": {
+     "choices": [],
+     "default": false,
+     "takesValue": false
+    }
+   },
+   "positionals": []
+  },
+  "ui": {
+   "flags": {
+    "--all-guis": {
+     "choices": [],
+     "default": false,
+     "takesValue": false
+    },
+    "--background": {
+     "choices": [],
+     "default": [
+      255,
+      255,
+      255,
+      255
+     ],
+     "takesValue": true
+    },
+    "--dump-layout": {
+     "choices": [],
+     "default": null,
+     "takesValue": true
+    },
+    "--json": {
+     "choices": [],
+     "default": false,
+     "takesValue": false
+    },
+    "--offline": {
+     "choices": [],
+     "default": false,
+     "takesValue": false
+    },
+    "--out": {
+     "choices": [],
+     "default": null,
+     "takesValue": true
+    },
+    "--topbar-height": {
+     "choices": [],
+     "default": null,
+     "takesValue": true
+    },
+    "--transparent": {
+     "choices": [],
+     "default": false,
+     "takesValue": false
+    },
+    "--viewport": {
+     "choices": [],
+     "default": [
+      1615,
+      1080
+     ],
+     "takesValue": true
+    }
+   },
+   "positionals": [
+    {
+     "choices": [],
+     "name": "file"
+    }
+   ]
+  }
+ },
+ "exitCodes": {
+  "bad flag": 2,
+  "browser status": 0,
+  "browser stop": 0,
+  "check (error finding)": 1,
+  "check (warnings only)": 0,
+  "compare": 0,
+  "hitmap": 0,
+  "layout": 0,
+  "layout --rich": 0,
+  "missing file": 2,
+  "preview --json": 0,
+  "scene --json": 0,
+  "scene --json (contract scene)": 0,
+  "scene --json (placeholder meshes)": 0,
+  "scene-dump (contract scene)": 0,
+  "scene-dump (placeholder meshes)": 0,
+  "scene-dump beam_transparency": 0,
+  "scene-dump particle_scene": 0,
+  "scene-dump preview_world_ui": 0,
+  "scene-dump scene_lighting": 0,
+  "scene-dump scene_material_textures": 0,
+  "scene-dump scene_two_cameras": 0,
+  "scene-dump trail_motion": 0,
+  "ui --json": 0,
+  "ui --json (second)": 0
+ },
+ "json": {
+  "browser": {
+   "fields": {
+    ".": [
+     "object"
+    ],
+    "running": [
+     "boolean"
+    ],
+    "schema": [
+     "string"
+    ],
+    "stopped": [
+     "boolean"
+    ]
+   },
+   "version": 1
+  },
+  "check": {
+   "fields": {
+    ".": [
+     "object"
+    ],
+    "findings": [
+     "array"
+    ],
+    "findings[]": [
+     "object"
+    ],
+    "findings[].check": [
+     "string"
+    ],
+    "findings[].detail": [
+     "string"
+    ],
+    "findings[].paths": [
+     "array"
+    ],
+    "findings[].paths[]": [
+     "string"
+    ],
+    "findings[].severity": [
+     "string"
+    ],
+    "model": [
+     "string"
+    ],
+    "schema": [
+     "string"
+    ]
+   },
+   "version": 1
+  },
+  "compare": {
+   "fields": {
+    ".": [
+     "object"
+    ],
+    "after": [
+     "string"
+    ],
+    "afterSize": [
+     "array"
+    ],
+    "afterSize[]": [
+     "number"
+    ],
+    "before": [
+     "string"
+    ],
+    "beforeSize": [
+     "array"
+    ],
+    "beforeSize[]": [
+     "number"
+    ],
+    "changedPct": [
+     "number"
+    ],
+    "diffBox": [
+     "object"
+    ],
+    "diffBox.px": [
+     "number"
+    ],
+    "diffBox.x": [
+     "array"
+    ],
+    "diffBox.x[]": [
+     "number"
+    ],
+    "diffBox.y": [
+     "array"
+    ],
+    "diffBox.y[]": [
+     "number"
+    ],
+    "identicalPct": [
+     "number"
+    ],
+    "maxDelta": [
+     "number"
+    ],
+    "meanDelta": [
+     "number"
+    ],
+    "nonTransparentPct": [
+     "object"
+    ],
+    "nonTransparentPct.after": [
+     "number"
+    ],
+    "nonTransparentPct.before": [
+     "number"
+    ],
+    "schema": [
+     "string"
+    ],
+    "silhouette": [
+     "object"
+    ],
+    "silhouette.afterPixels": [
+     "number"
+    ],
+    "silhouette.beforePixels": [
+     "number"
+    ],
+    "silhouette.intersectionPixels": [
+     "number"
+    ],
+    "silhouette.iou": [
+     "number"
+    ],
+    "silhouette.threshold": [
+     "number"
+    ],
+    "silhouette.unionPixels": [
+     "number"
+    ],
+    "sizeMatch": [
+     "boolean"
+    ],
+    "within2Pct": [
+     "number"
+    ],
+    "within8Pct": [
+     "number"
+    ]
+   },
+   "version": 2
+  },
+  "hitmap": {
+   "fields": {
+    ".": [
+     "object"
+    ],
+    "hitTests": [
+     "array"
+    ],
+    "hitTests[]": [
+     "object"
+    ],
+    "hitTests[].point": [
+     "object"
+    ],
+    "hitTests[].point.x": [
+     "number"
+    ],
+    "hitTests[].point.y": [
+     "number"
+    ],
+    "hitTests[].stack": [
+     "array"
+    ],
+    "hitTests[].stack[]": [
+     "string"
+    ],
+    "hitTests[].target": [
+     "string"
+    ],
+    "hitTests[].targetVisible": [
+     "boolean"
+    ],
+    "model": [
+     "string"
+    ],
+    "nodes": [
+     "array"
+    ],
+    "nodes[]": [
+     "object"
+    ],
+    "nodes[].activatedTargetCandidate": [
+     "boolean"
+    ],
+    "nodes[].active": [
+     "boolean"
+    ],
+    "nodes[].capturesClicks": [
+     "boolean"
+    ],
+    "nodes[].class": [
+     "string"
+    ],
+    "nodes[].clearTextOnFocus": [
+     "boolean"
+    ],
+    "nodes[].pane": [
+     "number"
+    ],
+    "nodes[].path": [
+     "string"
+    ],
+    "nodes[].rect": [
+     "object"
+    ],
+    "nodes[].rect.h": [
+     "number"
+    ],
+    "nodes[].rect.w": [
+     "number"
+    ],
+    "nodes[].rect.x": [
+     "number"
+    ],
+    "nodes[].rect.y": [
+     "number"
+    ],
+    "nodes[].selectable": [
+     "boolean"
+    ],
+    "nodes[].textEditable": [
+     "boolean"
+    ],
+    "nodes[].visible": [
+     "boolean"
+    ],
+    "nodes[].zOrder": [
+     "number"
+    ],
+    "panes": [
+     "array"
+    ],
+    "panes[]": [
+     "object"
+    ],
+    "panes[].index": [
+     "number"
+    ],
+    "panes[].inset": [
+     "string"
+    ],
+    "panes[].name": [
+     "string"
+    ],
+    "schema": [
+     "string"
+    ],
+    "viewport": [
+     "array"
+    ],
+    "viewport[]": [
+     "number"
+    ]
+   },
+   "version": 1
+  },
+  "layout": {
+   "fields": {
+    ".": [
+     "object"
+    ],
+    "rects": [
+     "object"
+    ],
+    "rects.*": [
+     "object"
+    ],
+    "rects.*.h": [
+     "number"
+    ],
+    "rects.*.w": [
+     "number"
+    ],
+    "rects.*.x": [
+     "number"
+    ],
+    "rects.*.y": [
+     "number"
+    ],
+    "schema": [
+     "string"
+    ],
+    "viewport": [
+     "array"
+    ],
+    "viewport[]": [
+     "number"
+    ]
+   },
+   "version": 1
+  },
+  "layout-rich": {
+   "fields": {
+    ".": [
+     "object"
+    ],
+    "model": [
+     "string"
+    ],
+    "nodes": [
+     "array"
+    ],
+    "nodes[]": [
+     "object"
+    ],
+    "nodes[].background": [
+     "object"
+    ],
+    "nodes[].background.color": [
+     "array"
+    ],
+    "nodes[].background.color[]": [
+     "number"
+    ],
+    "nodes[].background.transparency": [
+     "number"
+    ],
+    "nodes[].class": [
+     "string"
+    ],
+    "nodes[].clipsDescendants": [
+     "boolean"
+    ],
+    "nodes[].gradient": [
+     "object"
+    ],
+    "nodes[].gradient.colors": [
+     "array"
+    ],
+    "nodes[].gradient.colors[]": [
+     "array"
+    ],
+    "nodes[].gradient.colors[][]": [
+     "number",
+     "string"
+    ],
+    "nodes[].gradient.offset": [
+     "array"
+    ],
+    "nodes[].gradient.offset[]": [
+     "number"
+    ],
+    "nodes[].gradient.rotation": [
+     "number"
+    ],
+    "nodes[].gradient.transparency": [
+     "array"
+    ],
+    "nodes[].gradient.transparency[]": [
+     "array"
+    ],
+    "nodes[].gradient.transparency[][]": [
+     "number"
+    ],
+    "nodes[].gridCellPx": [
+     "array"
+    ],
+    "nodes[].gridCellPx[]": [
+     "number"
+    ],
+    "nodes[].paintOrder": [
+     "number"
+    ],
+    "nodes[].path": [
+     "string"
+    ],
+    "nodes[].rect": [
+     "object"
+    ],
+    "nodes[].rect.h": [
+     "number"
+    ],
+    "nodes[].rect.w": [
+     "number"
+    ],
+    "nodes[].rect.x": [
+     "number"
+    ],
+    "nodes[].rect.y": [
+     "number"
+    ],
+    "nodes[].strokes": [
+     "array"
+    ],
+    "nodes[].strokes[]": [
+     "object"
+    ],
+    "nodes[].strokes[].applyMode": [
+     "string"
+    ],
+    "nodes[].strokes[].color": [
+     "array"
+    ],
+    "nodes[].strokes[].color[]": [
+     "number"
+    ],
+    "nodes[].strokes[].thickness": [
+     "number"
+    ],
+    "nodes[].strokes[].transparency": [
+     "number"
+    ],
+    "nodes[].text": [
+     "object"
+    ],
+    "nodes[].text.bounds": [
+     "array"
+    ],
+    "nodes[].text.bounds[]": [
+     "number"
+    ],
+    "nodes[].text.color": [
+     "array"
+    ],
+    "nodes[].text.color[]": [
+     "number"
+    ],
+    "nodes[].text.content": [
+     "string"
+    ],
+    "nodes[].text.drawnSize": [
+     "number"
+    ],
+    "nodes[].text.lines": [
+     "number"
+    ],
+    "nodes[].text.scaled": [
+     "boolean"
+    ],
+    "nodes[].text.size": [
+     "number"
+    ],
+    "nodes[].text.transparency": [
+     "number"
+    ],
+    "nodes[].text.truncate": [
+     "string"
+    ],
+    "nodes[].text.wrapped": [
+     "boolean"
+    ],
+    "nodes[].visible": [
+     "boolean"
+    ],
+    "nodes[].zIndex": [
+     "number"
+    ],
+    "schema": [
+     "string"
+    ],
+    "viewport": [
+     "array"
+    ],
+    "viewport[]": [
+     "number"
+    ]
+   },
+   "version": 1
+  },
+  "render": {
+   "fields": {
+    ".": [
+     "object"
+    ],
+    "camera": [
+     "object"
+    ],
+    "camera.fieldOfView": [
+     "number"
+    ],
+    "camera.lookDirection": [
+     "array"
+    ],
+    "camera.lookDirection[]": [
+     "number"
+    ],
+    "camera.position": [
+     "array"
+    ],
+    "camera.position[]": [
+     "number"
+    ],
+    "command": [
+     "string"
+    ],
+    "experimental": [
+     "object"
+    ],
+    "experimental.*": [
+     "number"
+    ],
+    "fallbacks": [
+     "object"
+    ],
+    "fallbacks.*": [
+     "number"
+    ],
+    "materialFallbacks": [
+     "object"
+    ],
+    "materialFallbacks.*": [
+     "number"
+    ],
+    "missingAssets": [
+     "array"
+    ],
+    "missingAssets[]": [
+     "object"
+    ],
+    "missingAssets[].class": [
+     "string"
+    ],
+    "missingAssets[].path": [
+     "string"
+    ],
+    "missingAssets[].uri": [
+     "string"
+    ],
+    "notes": [
+     "array"
+    ],
+    "notes[]": [
+     "string"
+    ],
+    "out": [
+     "string"
+    ],
+    "schema": [
+     "string"
+    ],
+    "screens": [
+     "array"
+    ],
+    "screens[]": [
+     "object"
+    ],
+    "screens[].inset": [
+     "object"
+    ],
+    "screens[].inset.bottom": [
+     "number"
+    ],
+    "screens[].inset.left": [
+     "number"
+    ],
+    "screens[].inset.mode": [
+     "string"
+    ],
+    "screens[].inset.right": [
+     "number"
+    ],
+    "screens[].inset.top": [
+     "number"
+    ],
+    "screens[].name": [
+     "string"
+    ],
+    "size": [
+     "array"
+    ],
+    "size[]": [
+     "number"
+    ],
+    "source": [
+     "string"
+    ],
+    "unsupportedVisualClasses": [
+     "object"
+    ],
+    "unsupportedVisualClasses.*": [
+     "number"
+    ]
+   },
+   "version": 1
+  },
+  "scene-dump": {
+   "fields": {
+    ".": [
+     "object"
+    ],
+    "assetReferences": [
+     "array"
+    ],
+    "assetReferences[]": [
+     "object"
+    ],
+    "assetReferences[].assetId": [
+     "string"
+    ],
+    "assetReferences[].available": [
+     "boolean"
+    ],
+    "assetReferences[].class": [
+     "string"
+    ],
+    "assetReferences[].path": [
+     "string"
+    ],
+    "assetReferences[].property": [
+     "string"
+    ],
+    "assetReferences[].uri": [
+     "string"
+    ],
+    "atmosphere": [
+     "null",
+     "object"
+    ],
+    "atmosphere.color": [
+     "array"
+    ],
+    "atmosphere.color[]": [
+     "number"
+    ],
+    "atmosphere.decay": [
+     "array"
+    ],
+    "atmosphere.decay[]": [
+     "number"
+    ],
+    "atmosphere.density": [
+     "number"
+    ],
+    "atmosphere.glare": [
+     "number"
+    ],
+    "atmosphere.haze": [
+     "number"
+    ],
+    "atmosphere.offset": [
+     "number"
+    ],
+    "atmosphere.path": [
+     "string"
+    ],
+    "beams": [
+     "array"
+    ],
+    "beams[]": [
+     "object"
+    ],
+    "beams[].attachment0": [
+     "string"
+    ],
+    "beams[].attachment1": [
+     "string"
+    ],
+    "beams[].curveSize0": [
+     "number"
+    ],
+    "beams[].curveSize1": [
+     "number"
+    ],
+    "beams[].enabled": [
+     "boolean"
+    ],
+    "beams[].path": [
+     "string"
+    ],
+    "beams[].segments": [
+     "number"
+    ],
+    "beams[].width0": [
+     "number"
+    ],
+    "beams[].width1": [
+     "number"
+    ],
+    "bounds": [
+     "object"
+    ],
+    "bounds.center": [
+     "array"
+    ],
+    "bounds.center[]": [
+     "number"
+    ],
+    "bounds.max": [
+     "array"
+    ],
+    "bounds.max[]": [
+     "number"
+    ],
+    "bounds.min": [
+     "array"
+    ],
+    "bounds.min[]": [
+     "number"
+    ],
+    "bounds.size": [
+     "array"
+    ],
+    "bounds.size[]": [
+     "number"
+    ],
+    "cameras": [
+     "array"
+    ],
+    "cameras[]": [
+     "object"
+    ],
+    "cameras[].fieldOfView": [
+     "number"
+    ],
+    "cameras[].name": [
+     "string"
+    ],
+    "cameras[].path": [
+     "string"
+    ],
+    "cameras[].position": [
+     "array"
+    ],
+    "cameras[].position[]": [
+     "number"
+    ],
+    "cameras[].preferred": [
+     "boolean"
+    ],
+    "classCounts": [
+     "object"
+    ],
+    "classCounts.*": [
+     "number"
+    ],
+    "experimental": [
+     "object"
+    ],
+    "experimental.*": [
+     "number"
+    ],
+    "fallbacks": [
+     "object"
+    ],
+    "fallbacks.*": [
+     "number"
+    ],
+    "lighting": [
+     "null",
+     "object"
+    ],
+    "lighting.ambient": [
+     "array"
+    ],
+    "lighting.ambient[]": [
+     "number"
+    ],
+    "lighting.brightness": [
+     "number"
+    ],
+    "lighting.clockTime": [
+     "number"
+    ],
+    "lighting.geographicLatitude": [
+     "number"
+    ],
+    "lighting.globalShadows": [
+     "boolean"
+    ],
+    "lighting.outdoorAmbient": [
+     "array"
+    ],
+    "lighting.outdoorAmbient[]": [
+     "number"
+    ],
+    "lighting.path": [
+     "string"
+    ],
+    "lighting.shadowSoftness": [
+     "number"
+    ],
+    "lights": [
+     "array"
+    ],
+    "lights[]": [
+     "object"
+    ],
+    "lights[].angle": [
+     "number"
+    ],
+    "lights[].brightness": [
+     "number"
+    ],
+    "lights[].class": [
+     "string"
+    ],
+    "lights[].color": [
+     "array"
+    ],
+    "lights[].color[]": [
+     "number"
+    ],
+    "lights[].face": [
+     "string"
+    ],
+    "lights[].path": [
+     "string"
+    ],
+    "lights[].range": [
+     "number"
+    ],
+    "lights[].shadows": [
+     "boolean"
+    ],
+    "materialFallbacks": [
+     "object"
+    ],
+    "materialFallbacks.*": [
+     "number"
+    ],
+    "meshReferences": [
+     "array"
+    ],
+    "meshReferences[]": [
+     "object"
+    ],
+    "meshReferences[].assetId": [
+     "string"
+    ],
+    "meshReferences[].available": [
+     "boolean"
+    ],
+    "meshReferences[].class": [
+     "string"
+    ],
+    "meshReferences[].path": [
+     "string"
+    ],
+    "meshReferences[].property": [
+     "string"
+    ],
+    "meshReferences[].uri": [
+     "string"
+    ],
+    "parts": [
+     "array"
+    ],
+    "parts[]": [
+     "object"
+    ],
+    "parts[].bounds": [
+     "object"
+    ],
+    "parts[].bounds.max": [
+     "array"
+    ],
+    "parts[].bounds.max[]": [
+     "number"
+    ],
+    "parts[].bounds.min": [
+     "array"
+    ],
+    "parts[].bounds.min[]": [
+     "number"
+    ],
+    "parts[].castShadow": [
+     "boolean"
+    ],
+    "parts[].class": [
+     "string"
+    ],
+    "parts[].geometry": [
+     "string"
+    ],
+    "parts[].material": [
+     "string"
+    ],
+    "parts[].name": [
+     "string"
+    ],
+    "parts[].orientation": [
+     "array"
+    ],
+    "parts[].orientation[]": [
+     "number"
+    ],
+    "parts[].path": [
+     "string"
+    ],
+    "parts[].position": [
+     "array"
+    ],
+    "parts[].position[]": [
+     "number"
+    ],
+    "parts[].reflectance": [
+     "number"
+    ],
+    "parts[].size": [
+     "array"
+    ],
+    "parts[].size[]": [
+     "number"
+    ],
+    "parts[].transparency": [
+     "number"
+    ],
+    "preferredCamera": [
+     "null",
+     "string"
+    ],
+    "schema": [
+     "string"
+    ],
+    "sky": [
+     "null",
+     "object"
+    ],
+    "sky.celestialBodiesShown": [
+     "boolean"
+    ],
+    "sky.complete": [
+     "boolean"
+    ],
+    "sky.faces": [
+     "object"
+    ],
+    "sky.faces.SkyboxBk": [
+     "object"
+    ],
+    "sky.faces.SkyboxBk.assetId": [
+     "string"
+    ],
+    "sky.faces.SkyboxBk.available": [
+     "boolean"
+    ],
+    "sky.faces.SkyboxBk.uri": [
+     "string"
+    ],
+    "sky.faces.SkyboxDn": [
+     "object"
+    ],
+    "sky.faces.SkyboxDn.assetId": [
+     "string"
+    ],
+    "sky.faces.SkyboxDn.available": [
+     "boolean"
+    ],
+    "sky.faces.SkyboxDn.uri": [
+     "string"
+    ],
+    "sky.faces.SkyboxFt": [
+     "object"
+    ],
+    "sky.faces.SkyboxFt.assetId": [
+     "string"
+    ],
+    "sky.faces.SkyboxFt.available": [
+     "boolean"
+    ],
+    "sky.faces.SkyboxFt.uri": [
+     "string"
+    ],
+    "sky.faces.SkyboxLf": [
+     "object"
+    ],
+    "sky.faces.SkyboxLf.assetId": [
+     "string"
+    ],
+    "sky.faces.SkyboxLf.available": [
+     "boolean"
+    ],
+    "sky.faces.SkyboxLf.uri": [
+     "string"
+    ],
+    "sky.faces.SkyboxRt": [
+     "object"
+    ],
+    "sky.faces.SkyboxRt.assetId": [
+     "string"
+    ],
+    "sky.faces.SkyboxRt.available": [
+     "boolean"
+    ],
+    "sky.faces.SkyboxRt.uri": [
+     "string"
+    ],
+    "sky.faces.SkyboxUp": [
+     "object"
+    ],
+    "sky.faces.SkyboxUp.assetId": [
+     "string"
+    ],
+    "sky.faces.SkyboxUp.available": [
+     "boolean"
+    ],
+    "sky.faces.SkyboxUp.uri": [
+     "string"
+    ],
+    "sky.moonAngularSize": [
+     "number"
+    ],
+    "sky.orientation": [
+     "array"
+    ],
+    "sky.orientation[]": [
+     "number"
+    ],
+    "sky.path": [
+     "string"
+    ],
+    "sky.starCount": [
+     "number"
+    ],
+    "sky.sunAngularSize": [
+     "number"
+    ],
+    "source": [
+     "string"
+    ],
+    "specialMeshes": [
+     "array"
+    ],
+    "specialMeshes[]": [
+     "object"
+    ],
+    "specialMeshes[].meshId": [
+     "string"
+    ],
+    "specialMeshes[].meshType": [
+     "string"
+    ],
+    "specialMeshes[].offset": [
+     "array"
+    ],
+    "specialMeshes[].offset[]": [
+     "number"
+    ],
+    "specialMeshes[].path": [
+     "string"
+    ],
+    "specialMeshes[].scale": [
+     "array"
+    ],
+    "specialMeshes[].scale[]": [
+     "number"
+    ],
+    "specialMeshes[].supported": [
+     "boolean"
+    ],
+    "terrain": [
+     "array"
+    ],
+    "terrain[]": [
+     "object"
+    ],
+    "terrain[].drawn": [
+     "null"
+    ],
+    "terrain[].empty": [
+     "null"
+    ],
+    "terrain[].path": [
+     "string"
+    ],
+    "terrain[].rawAvailable": [
+     "boolean"
+    ],
+    "terrain[].smoothGridBytes": [
+     "null"
+    ],
+    "trails": [
+     "array"
+    ],
+    "trails[]": [
+     "object"
+    ],
+    "trails[].attachment0": [
+     "string"
+    ],
+    "trails[].attachment1": [
+     "string"
+    ],
+    "trails[].enabled": [
+     "boolean"
+    ],
+    "trails[].historySource": [
+     "string"
+    ],
+    "trails[].lifetime": [
+     "number"
+    ],
+    "trails[].maxLength": [
+     "number"
+    ],
+    "trails[].minLength": [
+     "number"
+    ],
+    "trails[].path": [
+     "string"
+    ],
+    "trails[].supported": [
+     "boolean"
+    ],
+    "unsupportedVisualClasses": [
+     "object"
+    ],
+    "unsupportedVisualClasses.*": [
+     "number"
+    ]
+   },
+   "version": 1
+  }
+ }
+}
