@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased (1.0)
+
+### When upgrading
+
+- The MCP server (`rhr-mcp`, the `mcp` extra) is gone: RHR is a command-line tool only.
+  An agent runs `rhr` from its shell, which costs nothing in its context until it is
+  run; docs/AGENTS.md is its guide.
+
 ## 0.7.0 (alpha)
 
 Coverage of common content: characters, terrain, the sky, UI edge cases and the last

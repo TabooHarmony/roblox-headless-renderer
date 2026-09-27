@@ -23,12 +23,10 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-mcp = ["mcp>=1.10,<2"]
 dev = ["pytest==9.1.1"]
 
 [project.scripts]
 rhr = "rhr.cli:main"
-rhr-mcp = "rhr.mcp_server:main"
 
 [tool.setuptools]
 package-dir = { "" = "src" }

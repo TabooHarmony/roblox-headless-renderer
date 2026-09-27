@@ -35,8 +35,7 @@ it: a different version means the shape changed.
 
 The first 3D render starts a warm Chromium worker; later renders reuse its loaded
 page and take well under a second inside RHR on a machine with a GPU. It stops by
-itself after 10 idle minutes. Through `rhr-mcp`, every tool call also skips starting
-Python. `RHR_PROFILE=1` prints where a command's time went.
+itself after 10 idle minutes. `RHR_PROFILE=1` prints where a command's time went.
 
 ## Reading paths
 
@@ -105,5 +104,3 @@ builds or moves at runtime is previewed as saved in the file.
   what Studio shows in edit mode.
 - With a local Roblox or Studio install, RHR uses its fonts (stderr says which); without
   one it uses bundled open fonts, and a few proprietary faces fall back to look-alikes.
-- `rhr-mcp` exposes `scene-dump`, `preview`, `compare` and the browser worker as MCP
-  tools, for hosts that prefer tools to shell commands.

@@ -58,12 +58,12 @@ if not os.environ.get("RHR_TEST_KEEP_CACHE"):
     atexit.register(_cleanup_test_cache)
 
 BROWSER = {
-    "test_billboard", "test_browser_session", "test_mcp_adapter", "test_particles",
+    "test_billboard", "test_browser_session", "test_particles",
     "test_preview", "test_preview_particles", "test_surface", "test_viewport_frame", "test_kept_page",
     "test_visual_gallery", "test_place_realism", "test_terrain",
 }
 NOT_LUNE = {
-    "test_compare", "test_groundtruth_diff", "test_mesh_assets", "test_project", "test_roblox_assets", "test_cache", "test_command_worker",
+    "test_compare", "test_groundtruth_diff", "test_mesh_assets", "test_project", "test_roblox_assets", "test_cache",
     "test_scroll_scale", "test_text_newlines", "test_textscaled_stroke",
 }
 STUDIO = {"test_studio_smoke"}

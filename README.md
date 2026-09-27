@@ -100,10 +100,9 @@ Decals and Textures, and `rhr particles` (a contact sheet over time).
 ## For agents
 
 Start with [`docs/AGENTS.md`](docs/AGENTS.md): which command answers which question,
-an edit → check → preview loop, and how far to trust each output. `rhr-mcp` is an
-MCP server with a subset of the commands (scene inspection, preview, compare) for
-hosts that prefer tools to a shell. Install it with
-`pip install "roblox-headless-renderer[mcp] @ git+https://github.com/TabooHarmony/roblox-headless-renderer"`.
+an edit → check → preview loop, and how far to trust each output. RHR is a command-line
+tool only: an agent runs it from its shell, and it costs nothing in the agent's context
+until it is run.
 
 3D renders use the GPU (about 8x faster than software rendering; set
 `RHR_WEBGL=software` for identical pixels on every machine, as the tests do). The first
@@ -115,9 +114,7 @@ each file, so several commands on an unchanged file only read it once.
 Measured on a Windows machine with a GPU (`RHR_PROFILE=1` prints the same breakdown
 for any command): once the worker is warm, a small 3D scene takes about 0.7 s inside
 RHR, a 4,400-particle effect about 1.5 s, and a 2D UI render about 0.3 s. Starting
-Python itself adds 0.1-3 s per command depending on the machine; the MCP server
-(`rhr-mcp`) runs every command in one long-lived process, so its tool calls do not
-pay that again. `rhr cache` shows what the cache holds (it stays under 2 GB,
+Python itself adds 0.1-3 s per command depending on the machine. `rhr cache` shows what the cache holds (it stays under 2 GB,
 `RHR_CACHE_LIMIT_MB`).
 
 ## Good to know
@@ -166,7 +163,7 @@ pay that again. `rhr cache` shows what the cache holds (it stays under 2 GB,
 ```sh
 git clone https://github.com/TabooHarmony/roblox-headless-renderer && cd roblox-headless-renderer
 python -m venv .venv && . .venv/bin/activate      # Windows: .venv\Scripts\activate
-pip install -e ".[dev,mcp]" && rhr setup
+pip install -e ".[dev]" && rhr setup
 python -m pytest                                    # -m smoke: a quick check; -m "not browser": no 3D
 ```
 
@@ -174,7 +171,7 @@ CI runs the suite on Ubuntu, Windows and macOS. [`docs/GOAL.md`](docs/GOAL.md) i
 project's direction and scope. `tests/studio/` holds places built in Studio with
 Studio's own measurements saved inside; its README explains how to add one.
 
-- `src/rhr/`: the package (file reading, UI layout and drawing, 3D scene, CLI, MCP).
+- `src/rhr/`: the package (file reading, UI layout and drawing, 3D scene, CLI).
 - `src/rhr/vendor/pinevex/`: the 2D renderer RHR builds on (Apache-2.0), with fixes
   recorded in `patches/`.
 - `src/rhr/vendor/three/`: THREE.js for the 3D preview, bundled, so nothing is loaded

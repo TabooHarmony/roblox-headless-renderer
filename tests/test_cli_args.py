@@ -2,8 +2,8 @@
 """A vector whose first coordinate is negative is taken as a value, on every Python.
 
 Before Python 3.13, argparse read `--camera -10,5,3` as two options and failed; CI's
-Python 3.12 caught it in tests/test_scene_sun_rays.py. `rhr` (and the MCP server,
-which goes through the same `main`) joins such values to their option first.
+Python 3.12 caught it in tests/test_scene_sun_rays.py. `rhr` joins such values to
+their option first.
 
     python tests/test_cli_args.py
 """
