@@ -71,6 +71,8 @@ docs/known-approximations.md).
   window on Windows.
 - Fixed: without a Studio install, a file with Lighting and particles showed only the
   sky and the particles (parts, Beams and Trails vanished behind the flat sky).
+- Fixed: on Python 3.12, `--camera` and `--look-at` rejected a vector whose first
+  coordinate is negative (`--camera -10,5,3`).
 
 ## 0.6.0 (alpha)
 

@@ -29,6 +29,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import re
 import sys
 import tempfile
 import time
@@ -911,12 +912,28 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+_NEGATIVE_LIST = re.compile(r"^-(\d|\.\d)[\d.eE+-]*(,\s*-?[\d.eE+-]+)+$")
+
+
+def _join_negative_lists(argv: list[str]) -> list[str]:
+    """`--camera -10,5,3` -> `--camera=-10,5,3`. Before Python 3.13, argparse takes a
+    value that starts with `-` for an option unless it is a single number, so a vector
+    with a negative first coordinate was rejected."""
+    out: list[str] = []
+    for token in argv:
+        if out and out[-1].startswith("--") and "=" not in out[-1] and _NEGATIVE_LIST.match(token):
+            out[-1] = f"{out[-1]}={token}"
+        else:
+            out.append(token)
+    return out
+
+
 def main(argv: list[str] | None = None) -> int:
     # Instance names can be any Unicode; a Windows console's code page must not crash output.
     for stream in (sys.stdout, sys.stderr):
         if hasattr(stream, "reconfigure"):
             stream.reconfigure(encoding="utf-8", errors="replace")
-    args = build_parser().parse_args(argv)
+    args = build_parser().parse_args(_join_negative_lists(sys.argv[1:] if argv is None else list(argv)))
     if args.func is not _cache:
         from rhr.cache import maybe_prune
 
