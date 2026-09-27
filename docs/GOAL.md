@@ -145,7 +145,7 @@ exact visuals, Studio's own MCP is the tool for that.
 **Out of scope for good:** running scripts, physics or animation playback (see
 "What it is not").
 
-## Road to v1.0 (agreed 2026-09-25)
+## Road to v1.0 (agreed 2026-09-25, shortened 2026-09-26)
 
 **What 1.0 means: an agent can rely on RHR without a human checking.**
 
@@ -160,81 +160,59 @@ exact visuals, Studio's own MCP is the tool for that.
 
 **Standing decisions:**
 
-- **Chromium stays**, with three.js. Playwright goes in 0.9: RHR drives Chromium's
-  headless shell itself. A native renderer (wgpu/pygfx) was investigated and is not
-  worth it before 1.0 (docs/renderer-options.md).
+- **Chromium stays**, with three.js. A native renderer (wgpu/pygfx) was investigated
+  and is not worth it (docs/renderer-options.md). Replacing Playwright with RHR's own
+  DevTools client waits until after 1.0: it saves start-up time and disk, not pixels.
 - **The vendored UI engine (pinevex) stays frozen** with our patches. Upstream changes
   are pulled in by hand, on purpose, as now (src/rhr/vendor/VENDOR.md).
+- **No pushes or CI runs until we both agree to release.** Work lands as local commits
+  on `main`; the full suite runs locally before each release.
 - Out of scope, as before: scripts, physics, animation playback, and pixel parity with
   Studio.
 
-**Milestones.** Each one ends with the full suite green on all three CI systems and a
-side-by-side check against Studio for what it touched.
+**Milestones.** The old 0.8 (scale, regression corpus) and 0.9 (contract,
+distribution) are folded into one 1.0 release candidate: only what 1.0's definition
+needs goes in, the rest moves after 1.0.
 
-1. **0.6: release what exists.** VFX as a still frame, the optimization pass (see
-   above).
-2. **0.7: coverage of common content.**
-   - **Characters**, audited first because nearly every game has them: R6 and R15 rigs,
-     `Shirt`, `Pants`, `ShirtGraphic`, `Accessory`, `BodyColors`, faces, and
-     `HumanoidDescription`. The aim: a character model reads as that character.
-     **Done (2026-09-25)**, checked against Studio on 13 rigs (plain, classic,
-     body packages, layered clothing): clothing painted with Roblox's own layouts from
-     the install, R6 body and head meshes, package textures, mesh textures, faces on
-     mesh heads, layered clothing fitted through its cages. Left: a rig built only
-     from a `HumanoidDescription` (no body parts) is not assembled; poses are as saved.
-   - **Terrain**: material blending where materials meet, and grass decoration.
-     **Blending done (2026-09-26)**, checked against Studio on nine material pairs and a
-     generated 256-stud landscape: seams sit where Studio's do (the earlier material
-     in Roblox's order reaches half a voxel into the other), blended by texture height
-     and noise, and top/side textures fade by slope. Also fixed: terrain with an
-     unknown material id (63, next to edited regions) no longer fails to decode, and
-     curved terrain no longer smears its textures. **Grass decoration done
-     (2026-09-26)**: blades on Grass tops when Terrain.Decoration is on, drawn at rest,
-     fitted to Studio measurements (a one-voxel strip seen side-on and from above,
-     and decoration on/off over a field and hills); the ground under the grass is
-     darkened as in Studio. Also: helper processes (Lune, Rojo, the workers) start
-     without a console window on Windows, and part surfaces (studs...) are drawn on
-     Plastic only, as in Studio.
-   - **Sky effects**: `Clouds` and `SunRays` (reported as not drawn today).
-     **Clouds done (2026-09-26)**: one still layer from Roblox's own cloud tile, fitted
-     to Studio (coverage, size, brightness per band of sky across Cover and Density).
-     Also fixed: the sky's top face was turned a quarter (a seam when looking up).
-     The sun disc is drawn too, matched to Studio's. **SunRays done (2026-09-26)**:
-     light scattering fitted to Studio across Intensity and Spread.
-   - **UI edge cases already known**: `UIPageLayout`, `FillEmptySpace` in flex and
-     table layouts, clipping of overflowing non-wrapped text, and the small-text gap.
-     **Done (2026-09-26)**, against a new Studio fixture (tests/studio/ui_edge_cases,
-     52/52 rects): table FillEmptySpace and page spacing laid out as Studio does,
-     flex already matched, overflowing text no longer clipped to its label, and glyph
-     advances rounded up to whole pixels as Roblox does (text width error 5.6% ->
-     1.3%). Left: RHR's bundled Roboto differs from Studio's.
-   - **VFX leftovers**: `TextureSpeed`, `LightInfluence` as lit or not. (Roblox's
-     built-in `rbxasset://` particle textures now load from the install; not yet
-     checked against Studio.)
-   - **Before tagging 0.7**: the full test suite, then CI on all three systems once
-     we agree to release.
-3. **0.8: scale and a regression corpus.**
-   - **Large places**: time and memory on real games with tens of thousands of parts
-     (merged or instanced geometry in the page, streaming the IR), with targets set
-     from measurements.
-   - **A private regression corpus**: UI, places, characters and VFX that stay on the
-     maintainer's machine, like the VFX bench. The Studio side-by-side tooling from the
-     VFX passes moves into `scripts/` so the corpus is re-checked before every release.
-4. **0.9: contract and distribution.**
-   - **Freeze the public interface**: CLI commands and flags, and every JSON schema
-     (`rhr.layout/1`, `rhr.check/1`, ...), with tests that fail when one changes shape.
+1. **0.6: released 2026-09-26.** VFX as a still frame and the optimization pass.
+2. **0.7: coverage of common content.** Everything below was checked side by side
+   against Studio (details in docs/known-approximations.md and the CHANGELOG):
+   - **Done:** characters (R6/R15, classic and layered clothing, packages, faces);
+     terrain material blending and grass decoration; Clouds, the sun disc and
+     SunRays; UI edge cases (UIPageLayout spacing, UITableLayout FillEmptySpace,
+     overflowing text not clipped, glyph advances rounded up as Roblox does: text
+     width error 5.6% -> 1.3%, tests/studio/ui_edge_cases). Also fixed on the way: the
+     sky's top face orientation, terrain with unknown material ids, part surfaces on
+     Plastic only, no console windows on Windows.
+   - **Left:** the VFX leftovers, `ParticleEmitter.TextureSpeed` (flipbook speed) and
+     `LightInfluence` (lit or not), and a Studio check of Roblox's built-in
+     `rbxasset://` particle textures.
+   - **Then:** CHANGELOG entry for 0.7, the full suite, CI on all three systems once we
+     agree, tag and publish.
+3. **1.0 release candidate.** Four pieces, then a short candidate period:
+   - **Freeze the public interface.** Review every CLI command and flag and every JSON
+     schema (`rhr.layout/1`, `rhr.check/1`, the scene dump, ...), clean up anything
+     awkward now (after 1.0 a change needs 2.0), and add tests that fail when a
+     command, flag or schema changes shape.
+   - **Published on PyPI**, with a CI job that installs the package on fresh Windows,
+     macOS and Linux runners, runs `rhr setup` and renders a UI, a place and an
+     effect. Versioned docs and an upgrade note per release.
    - **The MCP server gets the full command set**, not the current subset.
-   - **Playwright replaced by RHR's own DevTools client** and a pinned Chrome for Testing
-     headless shell downloaded by `rhr setup`: about 100 MB and a Node process fewer,
-     about 0.4 s off every cold start, same pixels.
-   - **Published on PyPI**, with versioned docs and an upgrade note per release.
-5. **1.0: release candidate**, then tag. A release candidate period with the corpus
-   green on all three systems and no open issue that misleads an agent.
+   - **A basic large-place check.** Render one or two real places with tens of
+     thousands of parts, measure time and memory, and fix only what actually breaks
+     (a timeout, running out of memory, a crash). No streaming or geometry merging
+     unless the check shows it is needed.
+   - **Candidate period:** a handful of the maintainer's real game files checked once
+     against Studio, CI green on all three systems, no open issue that misleads an
+     agent. Then tag 1.0.
 
-**After 1.0, not ruled out:** animated VFX (GIFs, timelines), other special effects
-(depth of field, custom shader tricks), further lighting tuning, particle positions
-that match Roblox's randomness, and a native renderer if Chromium ever becomes a
-blocker.
+**After 1.0, not ruled out:** replacing Playwright with RHR's own DevTools client (a
+pinned Chrome for Testing shell; about 100 MB and 0.4 s per cold start less), a
+private regression corpus re-checked before every release, deeper large-place work
+(merged or instanced geometry, streaming the IR), animated VFX (GIFs, timelines),
+other special effects (depth of field, custom shader tricks), the moon and stars,
+further lighting tuning, particle positions that match Roblox's randomness, and a
+native renderer if Chromium ever becomes a blocker.
 
 ## Rules for new work
 
