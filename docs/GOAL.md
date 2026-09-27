@@ -17,8 +17,9 @@ is clickable, and what looks broken.
 - **Accuracy bar:** a *useful preview*. Roughly right is fine. It has to catch
   obvious mistakes and must never be **silently** wrong: anything it cannot draw
   faithfully is reported in its output. Matching Studio pixel for pixel is not a goal.
-- **Interface:** the CLI (`rhr`) comes first. The MCP server is a thin wrapper
-  over the same commands.
+- **Interface:** the CLI (`rhr`) only, with `docs/AGENTS.md` as the agent's guide. No
+  MCP server (decided 2026-09-26): an MCP server puts its tool descriptions in the
+  agent's context on every turn, where a CLI costs nothing until it is run.
 - **Inputs:** `.rbxm`, `.rbxmx`, `.rbxl`, `.rbxlx` files, and Rojo projects (built
   with `rojo build`).
 - **Studio's role:** RHR assumes the person using it has Roblox Studio installed and
@@ -151,8 +152,10 @@ exact visuals, Studio's own MCP is the tool for that.
 
 - **A stable contract.** Commands, flags and JSON schemas do not change without a
   major version.
-- **Installs cleanly everywhere.** One `pip install` from PyPI plus `rhr setup` works on
-  a fresh Windows, macOS and Linux machine, proven in CI.
+- **Installs cleanly everywhere.** `uvx roblox-headless-renderer` (or `pip install`)
+  works on a fresh Windows, macOS and Linux machine, proven in CI. No separate setup
+  step on the usual path: 3D uses a browser already installed, or downloads one the
+  first time it is needed.
 - **Honest.** Every approximation is reported in the output, and none of them would
   mislead an agent into a wrong edit on common content.
 - **Covers what people actually make**: typical games' UI, places, characters and
@@ -161,10 +164,15 @@ exact visuals, Studio's own MCP is the tool for that.
 **Standing decisions:**
 
 - **Chromium stays**, with three.js. A native renderer (wgpu/pygfx) was investigated
-  and is not worth it (docs/renderer-options.md). Replacing Playwright with RHR's own
-  DevTools client waits until after 1.0: it saves start-up time and disk, not pixels.
-- **The vendored UI engine (pinevex) stays frozen** with our patches. Upstream changes
-  are pulled in by hand, on purpose, as now (src/rhr/vendor/VENDOR.md).
+  and is not worth it (docs/renderer-options.md).
+- **Playwright goes** (decided 2026-09-26): RHR drives the browser with its own small
+  DevTools client. It uses a Chromium-family browser already installed (Chrome, Edge,
+  Brave, Chromium), measured to draw the same pixels as the pinned build, and
+  downloads the pinned headless shell only when none is found. Firefox is not
+  supported (docs/renderer-options.md).
+- **pinevex becomes our own code** (decided 2026-09-26): a fork, no longer rebuilt
+  from upstream plus patches. The patch history stays as notes on why the code is the
+  way it is.
 - **No pushes or CI runs until we both agree to release.** Work lands as local commits
   on `main`; the full suite runs locally before each release.
 - Out of scope, as before: scripts, physics, animation playback, and pixel parity with
@@ -194,15 +202,24 @@ needs goes in, the rest moves after 1.0.
    - **Released:** CHANGELOG entry, full suite, CI green on Windows, macOS and Linux
      (it caught `--camera -10,5,3` failing on Python 3.12, fixed), tagged v0.7.0 and
      published as a GitHub pre-release.
-3. **1.0 release candidate.** Four pieces, then a short candidate period:
+3. **1.0 release candidate** (plan agreed 2026-09-26), in this order, then a short
+   candidate period:
    - **Freeze the public interface.** Review every CLI command and flag and every JSON
-     schema (`rhr.layout/1`, `rhr.check/1`, the scene dump, ...), clean up anything
-     awkward now (after 1.0 a change needs 2.0), and add tests that fail when a
-     command, flag or schema changes shape.
-   - **Published on PyPI**, with a CI job that installs the package on fresh Windows,
-     macOS and Linux runners, runs `rhr setup` and renders a UI, a place and an
-     effect. Versioned docs and an upgrade note per release.
-   - **The MCP server gets the full command set**, not the current subset.
+     schema (`rhr.layout/1`, `rhr.check/1`, the scene dump, ...): keep, rename, or make
+     internal (after 1.0 a change needs 2.0). Then tests that fail when a command,
+     flag or schema changes shape. Pictures may still change in minor versions to get
+     closer to Studio; the JSON may not.
+   - **Drop the MCP server** (`rhr-mcp`, the `mcp` extra); `docs/AGENTS.md` is the
+     agent's entry point.
+   - **Own DevTools client instead of Playwright**, with the browser order above, a
+     one-line notice when it downloads, a switch to forbid downloading, the browser
+     named in the output and in `rhr doctor`, and every browser tied to RHR's life (a
+     job object on Windows) so none is ever left running.
+   - **pinevex as a fork.**
+   - **Published on PyPI** with `uvx` as the main install, and a CI job that installs
+     the package on fresh Windows, macOS and Linux runners, with and without a
+     browser already there, on the lowest supported Python too, and renders a UI, a
+     place and an effect. Versioned docs and an upgrade note per release.
    - **A basic large-place check.** Render one or two real places with tens of
      thousands of parts, measure time and memory, and fix only what actually breaks
      (a timeout, running out of memory, a crash). No streaming or geometry merging
@@ -211,9 +228,7 @@ needs goes in, the rest moves after 1.0.
      against Studio, CI green on all three systems, no open issue that misleads an
      agent. Then tag 1.0.
 
-**After 1.0, not ruled out:** replacing Playwright with RHR's own DevTools client (a
-pinned Chrome for Testing shell; about 100 MB and 0.4 s per cold start less), a
-private regression corpus re-checked before every release, deeper large-place work
+**After 1.0, not ruled out:** a private regression corpus re-checked before every release, deeper large-place work
 (merged or instanced geometry, streaming the IR), animated VFX (GIFs, timelines),
 other special effects (depth of field, custom shader tricks), the moon and stars,
 further lighting tuning, particle positions that match Roblox's randomness, and a
