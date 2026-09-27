@@ -17,8 +17,14 @@ _PIXEL_FONT_FAMILIES = set(_PIXEL_FONT_ALIAS_EM) | {"PressStart2P"}
 _FREETYPE_FONT_MGR = skia.FontMgr.New_Custom_Empty()
 
 
+_TYPEFACES_BY_FILE: dict[str, skia.Typeface | None] = {}
+
+
 def _typeface_from_file(path: str) -> skia.Typeface | None:
-    return _FREETYPE_FONT_MGR.makeFromFile(path)
+    """A font file's typeface, read once per process (a typeface never changes)."""
+    if path not in _TYPEFACES_BY_FILE:
+        _TYPEFACES_BY_FILE[path] = _FREETYPE_FONT_MGR.makeFromFile(path)
+    return _TYPEFACES_BY_FILE[path]
 
 
 _EM_SCALE_CACHE: dict[int, float] = {}
@@ -830,9 +836,21 @@ def _try_load_exact_typeface(
     return None
 
 
+_LOADED_TYPEFACES: dict[tuple, skia.Typeface] = {}
+
+
 def _load_typeface(family: str, weight: int, fonts_dir: Path | None,
                    italic: bool = False) -> skia.Typeface:
-    """Load a typeface from fonts_dir with specified weight/slant, or fall back."""
+    """Load a typeface from fonts_dir with specified weight/slant, or fall back.
+    Looked up once per process for each (family, weight, folder, italic)."""
+    key = (family, weight, str(fonts_dir), italic)
+    found = _LOADED_TYPEFACES.get(key)
+    if found is None:
+        found = _LOADED_TYPEFACES[key] = _find_typeface(family, weight, fonts_dir, italic)
+    return found
+
+
+def _find_typeface(family: str, weight: int, fonts_dir: Path | None, italic: bool) -> skia.Typeface:
     tf = _try_load_exact_typeface(family, weight, fonts_dir, italic=italic)
     if tf:
         return tf

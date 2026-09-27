@@ -29,7 +29,7 @@ import time
 from pathlib import Path
 
 from rhr.paths import IR_DIR
-from rhr.schema import stamp
+from rhr.schema import dumps, stamp
 
 
 # The reference viewport: upstream pinevex's reference renders and this project's
@@ -134,7 +134,7 @@ def _finish_picture(args, report: dict) -> int:
     # {name, version, path} of the browser that drew it; null when none was needed.
     report.setdefault("browser", browsers.used)
     if args.json:
-        print(json.dumps(stamp("render", report), indent=2, sort_keys=True))
+        print(dumps(stamp("render", report)))
     else:
         print(report["out"])
     return 0
@@ -197,7 +197,7 @@ def _ui(args) -> int:
 
     t0 = time.perf_counter()
     try:
-        ir_path = ir_for(source)
+        ir_path = ir_for(source, profile="ui")
     except (ValueError, RuntimeError) as exc:
         return _die(str(exc))
     _prepare_ui_images(ir_path, args.offline)
@@ -229,7 +229,7 @@ def _ui(args) -> int:
         layout = {path: rect_to_dict(rect) for path, rect in rect_map.items()}
         document = stamp("layout", {"viewport": [width, height], "rects": layout})
         Path(args.dump_layout).parent.mkdir(parents=True, exist_ok=True)
-        Path(args.dump_layout).write_text(json.dumps(document, indent=2, sort_keys=True), encoding="utf-8")
+        Path(args.dump_layout).write_text(dumps(document), encoding="utf-8")
         print(f"layout {args.dump_layout}  {len(layout)} rects", file=sys.stderr)
         if not layout and screens:
             return _die("the layout dump is empty. That is a bug in the pipeline, not an "
@@ -252,7 +252,7 @@ def _layout(args) -> int:
         return _die(f"no such file: {source}")
     width, height = args.viewport
     try:
-        ir_path = ir_for(source)
+        ir_path = ir_for(source, profile="ui")
         screens = load_screens(str(ir_path), width, height, args.topbar_height)
     except (ValueError, RuntimeError) as exc:
         return _die(str(exc))
@@ -281,19 +281,11 @@ def _layout(args) -> int:
         print(f"dump {count} nodes  {elapsed}ms", file=sys.stderr)
         return 0
 
-    # A rect is resolved by laying the tree out, which is what rendering does, so
-    # this draws once and keeps the geometry. The PNG is never shown: it is the
-    # side effect that produces the map (see render_json(rect_map=...) upstream).
-    # Every ScreenGui is laid out, so the dump is the whole UI, not the top pane.
+    # A rect is resolved by the paint pass, run on a null canvas: the same geometry
+    # as a render, with nothing drawn. Every ScreenGui is laid out, so the dump is
+    # the whole UI, not the top pane.
     rect_map: dict = {}
-    render_screens(
-        screens,
-        IR_DIR / f"{source.stem}-layout.png",
-        width,
-        height,
-        bg_color=(0, 0, 0, 0),
-        rect_map=rect_map,
-    )
+    render_screens(screens, None, width, height, rect_map=rect_map, draw=False)
     for _, _, inset, name in screens:
         label = f"{name}: " if len(screens) > 1 else ""
         print(f"inset  {label}{inset.describe()}", file=sys.stderr)
@@ -306,10 +298,10 @@ def _layout(args) -> int:
     document = stamp("layout", {"viewport": [width, height], "rects": layout})
     if args.out:
         Path(args.out).parent.mkdir(parents=True, exist_ok=True)
-        Path(args.out).write_text(json.dumps(document, indent=2, sort_keys=True), encoding="utf-8")
+        Path(args.out).write_text(dumps(document), encoding="utf-8")
         print(args.out, file=sys.stderr)
     else:
-        print(json.dumps(document, indent=2, sort_keys=True))
+        print(dumps(document))
     return 0
 
 
@@ -344,10 +336,11 @@ def _prepare_ui_images(ir_path: Path, offline: bool) -> None:
     if offline or fetch.offline():
         return
     try:
+        from rhr.adapter import ui_nodes
         from rhr.ir import load_ir
 
         ir = load_ir(ir_path)
-        images, _ = fetch.collect_refs(ir)
+        images, _ = fetch.collect_refs(ir, ui_nodes(ir))  # the UI's images, not the 3D world's
         fetch.ensure({"images": images}, log=lambda message: print(message, file=sys.stderr))
     except Exception as exc:  # noqa: BLE001 - a failed download must not fail the render
         print(f"note   fetching images failed ({type(exc).__name__}: {exc}); drawing with what is cached",
@@ -404,7 +397,7 @@ def _check(args) -> int:
     width, height = args.viewport
     t0 = time.perf_counter()
     try:
-        result = check_model(ir_for(source), width, height, topbar_height=args.topbar_height)
+        result = check_model(ir_for(source, profile="ui"), width, height, topbar_height=args.topbar_height)
     except (ValueError, RuntimeError, OSError) as exc:
         return _die(str(exc))
     elapsed = int((time.perf_counter() - t0) * 1000)
@@ -442,7 +435,7 @@ def _browser(args) -> int:
             result = status()
     except (OSError, RuntimeError) as exc:
         return _die(str(exc))
-    print(json.dumps(stamp("browser", result), sort_keys=True))
+    print(dumps(stamp("browser", result)))
     return 0
 
 
@@ -455,7 +448,7 @@ def _compare(args) -> int:
         if not path.exists():
             return _die(f"no such file: {path}")
     metrics = compare(before, after, bg=args.background[:3], silhouette_threshold=args.silhouette_threshold)
-    print(json.dumps(stamp("compare", metrics), indent=2, sort_keys=True))
+    print(dumps(stamp("compare", metrics)))
     print(format_report(metrics), file=sys.stderr)
     return 0 if metrics.get("sizeMatch") else 2
 
@@ -469,7 +462,7 @@ def _hitmap(args) -> int:
     width, height = args.viewport
     t0 = time.perf_counter()
     try:
-        ir_path = ir_for(source)
+        ir_path = ir_for(source, profile="ui")
         hitmap = build_hitmap(ir_path, width, height, topbar_height=args.topbar_height)
     except (ValueError, RuntimeError) as exc:
         return _die(str(exc))
@@ -537,7 +530,7 @@ def _scene(args) -> int:
 
         with phase("notes (scene dump)"):
             scene_dump = build_scene_dump(ir_path, texture_dir=texture_dir, mesh_dir=mesh_dir,
-                                          world=True, focus=args.focus)
+                                          world=True, focus=args.focus, parts=False)
             if scene_dump.get("_storedNote"):
                 page_notes.append(scene_dump["_storedNote"])
     except (ValueError, RuntimeError, OSError) as exc:
@@ -634,7 +627,7 @@ def _preview(args) -> int:
 
     try:
         scene_dump = build_scene_dump(world_path, texture_dir=texture_dir, mesh_dir=mesh_dir,
-                                      world=True, focus=args.focus)
+                                      world=True, focus=args.focus, parts=False)
         if scene_dump.get("_storedNote"):
             page_notes.append(scene_dump["_storedNote"])
     except (ValueError, RuntimeError, OSError) as exc:

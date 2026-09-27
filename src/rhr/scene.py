@@ -10,6 +10,7 @@ import threading
 from pathlib import Path
 from urllib.parse import urlencode, urlparse
 
+from rhr.listing import listing as _listing
 from rhr.paths import ICON_CACHE, MESH_CACHE, PACKAGE
 
 
@@ -193,29 +194,25 @@ class _SceneHandler(http.server.SimpleHTTPRequestHandler):
 _ASSET_EXTENSIONS = ("png", "webp", "jpg", "jpeg", "svg")
 
 
-def _asset_files(roots: list[Path]) -> dict[str, Path]:
+def _files_with(roots: list[Path], suffixes) -> dict[str, tuple[Path, int, int]]:
+    """asset id -> (path, size, mtime_ns), the first root and suffix that has it winning."""
+    found: dict[str, tuple[Path, int, int]] = {}
+    for root in roots:
+        listing = _listing(root)
+        for suffix in suffixes:
+            for stem, entry in listing.get(suffix, {}).items():
+                found.setdefault(stem, entry)
+    return found
+
+
+def _asset_files(roots: list[Path]) -> dict[str, tuple[Path, int, int]]:
     """Return asset-id -> local image file, preserving root/extension priority."""
-    found: dict[str, Path] = {}
-    for root in roots:
-        if not root.is_dir():
-            continue
-        for extension in _ASSET_EXTENSIONS:
-            for path in sorted(root.glob(f"*.{extension}")):
-                if path.stem.isdigit() and path.stem not in found:
-                    found[path.stem] = path.resolve()
-    return found
+    return _files_with(roots, _ASSET_EXTENSIONS)
 
 
-def _mesh_files(roots: list[Path]) -> dict[str, Path]:
+def _mesh_files(roots: list[Path]) -> dict[str, tuple[Path, int, int]]:
     """Return asset-id -> local decompressed Roblox mesh file, in root priority order."""
-    found: dict[str, Path] = {}
-    for root in roots:
-        if not root.is_dir():
-            continue
-        for path in sorted(root.glob("*.mesh")):
-            if path.stem.isdigit() and path.stem not in found:
-                found[path.stem] = path.resolve()
-    return found
+    return _files_with(roots, ("mesh",))
 
 
 def _inline_unions(ir_path: Path) -> dict[str, Path]:
@@ -223,18 +220,25 @@ def _inline_unions(ir_path: Path) -> dict[str, Path]:
 
     Decoded once per distinct mesh into the union cache, named by the bytes' hash.
     """
+    from rhr.ir import derived, load_ir
+
+    try:
+        ir = load_ir(ir_path)
+    except (OSError, ValueError):
+        return {}
+    found = derived(ir, "inline_unions", _decode_inline_unions)
+    if all(path.is_file() for path in found.values()):
+        return found
+    return _decode_inline_unions(ir)  # the union cache was cleared since
+
+
+def _decode_inline_unions(ir: dict) -> dict[str, Path]:
     import base64
     import hashlib
 
     from rhr import unions
     from rhr.paths import UNION_CACHE
 
-    from rhr.ir import load_ir
-
-    try:
-        ir = load_ir(ir_path)
-    except (OSError, ValueError):
-        return {}
     found: dict[str, Path] = {}
 
     def visit(node: dict, parent: str) -> None:
@@ -264,14 +268,18 @@ def _inline_unions(ir_path: Path) -> dict[str, Path]:
 
 def _content_refs(ir_path: Path) -> set[str]:
     """Every `rbxasset://` file the IR names (see rhr.studio.content_path)."""
-    from rhr.studio import content_path
-
-    from rhr.ir import load_ir
+    from rhr.ir import derived, load_ir
 
     try:
         ir = load_ir(ir_path)
     except (OSError, ValueError):
         return set()
+    return derived(ir, "content_refs", _find_content_refs)
+
+
+def _find_content_refs(ir: dict) -> set[str]:
+    from rhr.studio import content_path
+
     found: set[str] = set()
 
     def visit(value) -> None:
@@ -297,15 +305,10 @@ def _extras(ir_path: Path | None = None) -> dict:
     from rhr.paths import MATERIAL_CACHE, UNION_CACHE
     from rhr.studio import AVATAR_CONTENT, SKY_CONTENT, studio_content, studio_install, studio_textures
 
-    def by_stem(root: Path, suffix: str) -> dict[str, Path]:
-        if not root.is_dir():
-            return {}
-        return {p.stem: p.resolve() for p in root.glob(f"*{suffix}") if p.stem.isdigit()}
-
-    unions = by_stem(UNION_CACHE, ".json")
+    unions: dict = dict(_listing(UNION_CACHE).get("json", {}))
     if ir_path is not None:
         unions.update(_inline_unions(ir_path))
-    materials = by_stem(MATERIAL_CACHE, ".png")
+    materials = _listing(MATERIAL_CACHE).get("png", {})
     studio = studio_textures()
     # Files the client ships with (rbxasset://), by path: what the IR names plus what
     # characters are drawn with. Served next to the Studio textures under a name
@@ -321,21 +324,28 @@ def _extras(ir_path: Path | None = None) -> dict:
         "studioInstalled": studio_install() is not None,
     }
     return {
-        "union_files": unions,
-        "material_files": materials,
+        "union_files": _paths(unions),
+        "material_files": _paths(materials),
         "studio_files": {**studio, **{content_names[key]: path for key, path in content.items()}},
         "extras_manifest_payload": json.dumps(manifest).encode(),
     }
 
 
-def _versioned(prefix: str, key: str, path: Path) -> str:
+def _versioned(prefix: str, key: str, path) -> str:
     """`prefix/key?v=<size>-<mtime>`: the page keeps what it loaded from an address
-    between renders, so a file that changed must get another address."""
+    between renders, so a file that changed must get another address. `path` is a
+    Path, or a (path, size, mtime_ns) listing entry."""
+    if isinstance(path, tuple):
+        return f"{prefix}{key}?v={path[1]}-{path[2]}"
     try:
         info = path.stat()
         return f"{prefix}{key}?v={info.st_size}-{info.st_mtime_ns}"
     except OSError:
         return f"{prefix}{key}"
+
+
+def _paths(files: dict) -> dict[str, Path]:
+    return {key: value[0] if isinstance(value, tuple) else value for key, value in files.items()}
 
 
 def _png_size(path: Path) -> tuple[int, int]:
@@ -372,12 +382,12 @@ def _render_browser(
                 asset_id: _versioned("/__rhr_asset__/", asset_id, path)
                 for asset_id, path in (asset_files or {}).items()
             }).encode(),
-            "asset_files": asset_files or {},
+            "asset_files": _paths(asset_files or {}),
             "mesh_manifest_payload": json.dumps({
                 asset_id: _versioned("/__rhr_mesh__/", asset_id, path)
                 for asset_id, path in (mesh_files or {}).items()
             }).encode(),
-            "mesh_files": mesh_files or {},
+            "mesh_files": _paths(mesh_files or {}),
             **_extras(ir_path),
         },
     )

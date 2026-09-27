@@ -55,7 +55,9 @@ def load_ir(path) -> dict:
         raise ValueError(f"{path} is not an IR file: no 'roots' key")
     ensure_paths(data["roots"])
     _LOADED.clear()
+    _DERIVED.clear()
     _LOADED[key] = data
+    _DERIVED[(id(data), "paths")] = (data, None)
     return data
 
 
@@ -63,7 +65,32 @@ def _remember_ir(path, document: dict) -> None:
     """Keep an IR this process just wrote, so reading it back costs nothing."""
     ensure_paths(document["roots"])
     _LOADED.clear()
+    _DERIVED.clear()
     _LOADED[_ir_key(path)] = document
+    _DERIVED[(id(document), "paths")] = (document, None)
+
+
+# What commands work out from a loaded IR (which branches hold UI, a path index...),
+# kept while that IR is: (id(ir), name) -> (ir, value).
+_DERIVED: dict[tuple[int, str], tuple[dict, object]] = {}
+
+
+def derived(ir: dict, name: str, compute):
+    """`compute(ir)`, once per loaded IR (load_ir). An IR built by the caller is not
+    kept, so its value is computed every time."""
+    key = (id(ir), name)
+    hit = _DERIVED.get(key)
+    if hit is not None and hit[0] is ir:
+        return hit[1]
+    value = compute(ir)
+    if any(loaded is ir for loaded in _LOADED.values()):
+        _DERIVED[key] = (ir, value)
+    return value
+
+
+def ensure_ir_paths(ir: dict) -> None:
+    """ensure_paths on a whole IR, skipped for one load_ir already did."""
+    derived(ir, "paths", lambda document: ensure_paths(document["roots"]))
 
 
 def _segment(node: dict) -> str:
@@ -98,6 +125,11 @@ def resolve_path(roots: list[dict], wanted: str) -> dict:
     A bare name that matches several indexed siblings (`Card` when the file has
     `Card[1]` and `Card[2]`) is an error listing them, never a silent pick.
     """
+    if not any(document.get("roots") is roots for document in _LOADED.values()):
+        ensure_paths(roots)  # load_ir did it for a loaded IR
+    found = _find_path(roots, wanted)
+    if found is not None:
+        return found
     by_path: dict[str, dict] = {}
 
     def walk(node: dict) -> None:
@@ -105,7 +137,6 @@ def resolve_path(roots: list[dict], wanted: str) -> dict:
         for child in node.get("children") or []:
             walk(child)
 
-    ensure_paths(roots)
     for root in roots:
         walk(root)
     if wanted in by_path:
@@ -234,6 +265,8 @@ def cached_ir(source_path, *, profile: str = "full") -> Path:
     if not source_path.is_file():
         raise FileNotFoundError(f"no such file: {source_path}")
     data = source_path.read_bytes()
+    if profile == "ui" and not _own_reader(data):
+        profile = "full"  # Lune's script has no "ui" profile; the full IR holds the UI too
     digest = hashlib.sha256()
     digest.update(data)
     digest.update(LUAU_IR_SCRIPT.read_bytes())
@@ -247,7 +280,8 @@ def cached_ir(source_path, *, profile: str = "full") -> Path:
     # bytes in another folder are a different entry, so that path is never stale.
     digest.update(str(source_path).encode("utf-8"))
     folder = IR_DIR / digest.hexdigest()[:20]
-    suffix = ".json" if profile == "full" else f".{profile}.json"
+    # (the folder is per profile: the "ui" IR keeps the plain name the reports show)
+    suffix = ".json" if profile in ("full", "ui") else f".{profile}.json"
     target = folder / f"{source_path.stem}{suffix}"
     report = target.with_name(target.name + ".report.txt")
     if target.is_file() and report.is_file():
@@ -317,7 +351,7 @@ def emit_ir(source_path, out_path, *, profile: str = "full", report_path=None) -
     measured identical on 63 real files, 10-60x faster); XML files by the Lune script
     (rbx-dom detects binary versus XML by content, so both go through it).
     """
-    if profile not in {"full", "visual", "static"}:
+    if profile not in {"full", "visual", "static", "ui"}:
         raise ValueError(f"unknown IR profile: {profile}")
     source_path, out_path = Path(source_path).resolve(), Path(out_path)
     if not source_path.is_file():
@@ -326,6 +360,8 @@ def emit_ir(source_path, out_path, *, profile: str = "full", report_path=None) -
     data = source_path.read_bytes()
     if _own_reader(data) and _emit_own(source_path, data, out_path, profile, report_path):
         return out_path
+    if profile == "ui":
+        profile = "full"  # the Lune script has no "ui" profile: the full IR holds the UI too
     command = [lune_executable(), "run", str(LUAU_IR_SCRIPT), str(source_path), str(out_path)]
     if profile != "full":
         command.append(profile)

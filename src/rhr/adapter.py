@@ -136,18 +136,83 @@ def ir_node_to_raw(node: dict) -> dict:
     }
 
 
+# The only nodes the 2D pipeline draws, lays out or checks (with their whole subtrees:
+# a ViewportFrame's parts, UI modifiers): every GuiBase2d class.
+from rhr.rbx.props import GUI_CLASSES  # noqa: E402
+
+
+def _ui_branches(ir: dict) -> frozenset[int]:
+    """id() of every node that is GUI or has GUI below it."""
+    found: set[int] = set()
+
+    def walk(node: dict) -> bool:
+        has = node.get("className") in GUI_CLASSES
+        for child in node.get("children") or []:
+            has = walk(child) or has
+        if has:
+            found.add(id(node))
+        return has
+
+    for root in ir["roots"]:
+        walk(root)
+    return frozenset(found)
+
+
+def ui_branches(ir: dict) -> frozenset[int]:
+    from rhr.ir import derived
+
+    return derived(ir, "ui_branches", _ui_branches)
+
+
+def ui_nodes(ir: dict):
+    """Every node the 2D pipeline can see: GUI nodes with their whole subtrees and the
+    nodes above them. Skips the rest of a place (its 3D world)."""
+    branches = ui_branches(ir)
+
+    def walk(node: dict, inside: bool):
+        yield node
+        inside = inside or node.get("className") in GUI_CLASSES
+        for child in node.get("children") or []:
+            if inside or id(child) in branches:
+                yield from walk(child, inside)
+
+    for root in ir["roots"]:
+        yield from walk(root, False)
+
+
+def ui_index(ir: dict) -> dict[str, dict]:
+    """path -> IR node, for ui_nodes()."""
+    from rhr.ir import derived
+
+    return derived(ir, "ui_index", lambda document: {node["path"]: node for node in ui_nodes(document)})
+
+
+def _ui_skeleton(node: dict, branches: frozenset[int]) -> dict:
+    """`ir_node_to_raw` of the UI in `node`'s subtree: GUI nodes whole, the nodes above
+    them with only the children that lead to UI, nothing else. A place's 3D world
+    (100k parts) is never converted for a UI command."""
+    if node.get("className") in GUI_CLASSES:
+        return ir_node_to_raw(node)
+    raw = ir_node_to_raw({**node, "children": []})
+    raw["children"] = [_ui_skeleton(child, branches) for child in node.get("children") or []
+                       if id(child) in branches]
+    return raw
+
+
 def ir_to_raw_nodes(ir: dict) -> list[dict]:
-    """Roots in paint order: highest `ScreenGui.DisplayOrder` first.
+    """The UI of the file (see _ui_skeleton), roots in paint order: highest
+    `ScreenGui.DisplayOrder` first.
 
     Roblox draws a higher DisplayOrder on top, and pinevex has no DisplayOrder
     handling at all, so a multi-ScreenGui file would stack in whatever order the file
     happens to list them. pinevex draws one root, so "first" is the pane you end up
     seeing: the top one. Ties keep file order (fixture: display_order).
     """
-    from rhr.ir import ensure_paths
+    from rhr.ir import ensure_ir_paths
 
-    ensure_paths(ir["roots"])
-    nodes = [ir_node_to_raw(root) for root in ir["roots"]]
+    ensure_ir_paths(ir)
+    branches = ui_branches(ir)
+    nodes = [_ui_skeleton(root, branches) for root in ir["roots"]]  # roots are always kept
     nodes.sort(key=_display_order, reverse=True)
     return nodes
 

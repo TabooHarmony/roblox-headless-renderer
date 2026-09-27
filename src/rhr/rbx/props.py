@@ -116,6 +116,15 @@ VISUAL_CLASSES = frozenset({
     'BodyColors', 'CharacterMesh', 'WrapLayer', 'WrapTarget',
 })
 
+# Every class that descends from GuiBase2d in the reflection data: what the "ui"
+# profile keeps (whole subtrees), and all the 2D pipeline draws (rhr.adapter).
+GUI_CLASSES = frozenset({
+    'AdGui', 'BillboardGui', 'CanvasGroup', 'DockWidgetPluginGui', 'Frame', 'GuiBase2d', 'GuiButton',
+    'GuiLabel', 'GuiMain', 'GuiObject', 'ImageButton', 'ImageLabel', 'LayerCollector', 'PluginGui',
+    'QWidgetPluginGui', 'RelativeGui', 'ScreenGui', 'ScrollingFrame', 'SurfaceGui', 'SurfaceGuiBase',
+    'TextBox', 'TextButton', 'TextChannelWindow', 'TextLabel', 'VideoDisplay', 'VideoFrame', 'ViewportFrame',
+})
+
 # The only names the visual/static profiles recover from the XML view.
 VISUAL_XML_RECOVERY = frozenset(['BorderSizePixel', 'DisplayOrder', 'ClockTime', 'TimeOfDay'])
 

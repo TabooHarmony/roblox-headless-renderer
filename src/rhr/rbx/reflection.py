@@ -37,6 +37,7 @@ class Reflection:
                            for name, items in self.enums.items()}
         self._canonical: dict = {}
         self._info: dict = {}
+        self._found: dict = {}
 
     def chain(self, class_name: str):
         """The class and its superclasses that the database knows, nearest first."""
@@ -54,6 +55,13 @@ class Reflection:
         return class_name in self.classes
 
     def _find(self, class_name: str, name: str):
+        key = (class_name, name)
+        found = self._found.get(key)
+        if found is None:
+            found = self._found[key] = self._search(class_name, name)
+        return found
+
+    def _search(self, class_name: str, name: str):
         for cname, cls in self.chain(class_name):
             entry = cls["props"].get(name)
             if entry is not None:

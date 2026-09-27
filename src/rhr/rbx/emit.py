@@ -17,7 +17,8 @@ import math
 import numpy as np
 
 from rhr.rbx.binary import Document, Instance, V
-from rhr.rbx.props import ATTRIBUTE_CLASSES, CONTENT_PROPERTY_ALIASES, PROPS, VISUAL_CLASSES, VISUAL_XML_RECOVERY
+from rhr.rbx.props import (ATTRIBUTE_CLASSES, CONTENT_PROPERTY_ALIASES, GUI_CLASSES, PROPS, VISUAL_CLASSES,
+                           VISUAL_XML_RECOVERY)
 from rhr.rbx.reflection import Reflection, reflection
 
 PROPS_SET = frozenset(PROPS)
@@ -67,6 +68,8 @@ class Emitter:
     def __init__(self, doc: Document, profile: str, db: Reflection):
         self.doc = doc
         self.profile = profile
+        # "ui" is "full" for the nodes it keeps: GUI subtrees and what holds them.
+        self.full = profile in ("full", "ui")
         self.db = db
         self.ids: dict[int, int] = {}
         self.paths: dict[int, str] = {}
@@ -75,6 +78,8 @@ class Emitter:
         self._unknown: set[str] = set()
         self._xml_present: dict[str, frozenset] = {}
         self._plans: dict[str, list] = {}
+        self._canonical_names: dict[tuple, str | None] = {}
+        self.inside_ui: set[int] = set()  # "ui": instances in a GUI subtree (emitted whole)
         self.unreadable_nodes = 0
         self.unreadable_names: dict[str, int] = {}
         self.unmapped_nodes = 0
@@ -118,6 +123,21 @@ class Emitter:
             return keep
         for root in self.doc.roots:
             rec(root)
+
+    def mark_ui(self) -> None:
+        """Keep GUI nodes with everything below them, the nodes above them, and roots."""
+        def rec(inst: Instance, inside: bool) -> bool:
+            inside = inside or inst.class_name in GUI_CLASSES
+            keep = inside
+            if inside:
+                self.inside_ui.add(inst.index)
+            for child in inst.children:
+                keep = rec(child, inside) or keep
+            self.keep[inst.index] = keep
+            return keep
+        for root in self.doc.roots:
+            rec(root, False)
+            self.keep[root.index] = True
 
     # --- what the Luau emitter reads ------------------------------------------------
 
@@ -290,10 +310,13 @@ class Emitter:
     def _canonical_for_serialized(self, inst: Instance, serialized: str) -> str | None:
         if serialized == "Name":
             return None
-        for canonical in inst.names():
-            if self.db.serialized_name(inst.class_name, canonical) == serialized:
-                return canonical
-        return None
+        # The same for every instance of a class group (they share its columns).
+        key = (id(inst.group), serialized)
+        if key not in self._canonical_names:
+            self._canonical_names[key] = next(
+                (canonical for canonical in inst.names()
+                 if self.db.serialized_name(inst.class_name, canonical) == serialized), None)
+        return self._canonical_names[key]
 
     # --- the walk -------------------------------------------------------------------
 
@@ -338,11 +361,11 @@ class Emitter:
             return None, None, ref_id
         if child_fallback:
             return "notprop", f"{name} (child {child_fallback})", ref_id
-        if self.profile == "full" or name in VISUAL_XML_RECOVERY:
+        if self.full or name in VISUAL_XML_RECOVERY:
             found, present = self.xml_value(inst, name)
             if found is not None:
                 return "prop", found, ref_id
-            if self.profile == "full" and present:
+            if self.full and present:
                 return "unreadable", name, ref_id
         return None, None, ref_id
 
@@ -426,7 +449,7 @@ class Emitter:
             return None
         # Neither reads (the `...Content` name is not a property: without a child of
         # that name, an error): the XML fallback.
-        if not (self.profile == "full" or name in VISUAL_XML_RECOVERY) or name not in present:
+        if not (self.full or name in VISUAL_XML_RECOVERY) or name not in present:
             return None
         canonical = self._canonical_for_serialized(inst, name)
         if canonical is None or canonical not in columns:
@@ -456,7 +479,7 @@ class Emitter:
         unknown = inst.class_name in self._unknown
         entries = []
         for name in PROPS:
-            if name not in valid and not (self.profile == "full" or name in VISUAL_XML_RECOVERY):
+            if name not in valid and not (self.full or name in VISUAL_XML_RECOVERY):
                 continue
             if name not in valid and name not in present:
                 continue
@@ -476,7 +499,10 @@ class Emitter:
             return None
         node = {"id": self.ids[inst.index], "path": self.paths[inst.index],
                 "className": inst.class_name, "name": inst.name}
-        if self.profile != "full" and inst.class_name not in VISUAL_CLASSES:
+        if (not self.full and inst.class_name not in VISUAL_CLASSES) or (
+                self.profile == "ui" and inst.index not in self.inside_ui):
+            # (a "ui" IR keeps what holds the UI for its paths only: a SurfaceGui's Part
+            # would otherwise read every Part column of a 100k-part place)
             node["props"] = {}
             node["children"] = [c for c in (self.walk(child) for child in inst.children) if c is not None]
             return node
@@ -707,7 +733,9 @@ def emit(doc: Document, *, profile: str = "full", source_path: str = "", db: Ref
     sys.setrecursionlimit(max(limit, 50_000))  # trees are walked recursively, as in Luau
     try:
         emitter.assign_identity()
-        if profile != "full":
+        if profile == "ui":
+            emitter.mark_ui()
+        elif profile != "full":
             emitter.mark()
         nodes = [n for n in (emitter.walk(root) for root in doc.roots) if n is not None]
     finally:

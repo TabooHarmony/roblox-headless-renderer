@@ -82,24 +82,24 @@ def _prop_value(value):
 
 
 def _nodes(ir: dict):
-    def visit(node):
-        if isinstance(node, dict):
-            if "className" in node or "props" in node or "properties" in node:
-                yield node
-            for child in node.values():
-                yield from visit(child)
-        elif isinstance(node, list):
-            for child in node:
-                yield from visit(child)
+    """Every node of an IR (or of one node's subtree), parents first."""
+    stack = list(reversed(ir.get("roots") or [])) if "className" not in ir and "props" not in ir else [ir]
+    while stack:
+        node = stack.pop()
+        if not isinstance(node, dict):
+            continue
+        yield node
+        children = node.get("children") or ()
+        if isinstance(children, dict):
+            children = list(children.values())
+        stack.extend(reversed(children))
 
-    yield from visit(ir.get("roots", ir) if "className" not in ir and "props" not in ir else ir)
 
-
-def collect_refs(ir: dict) -> tuple[set[str], set[str]]:
-    """(image ids, mesh ids) referenced anywhere in an RHR IR."""
+def collect_refs(ir: dict, nodes=None) -> tuple[set[str], set[str]]:
+    """(image ids, mesh ids) referenced anywhere in an RHR IR (or in `nodes` of it)."""
     images: set[str] = set()
     meshes: set[str] = set()
-    for node in _nodes(ir):
+    for node in _nodes(ir) if nodes is None else nodes:
         props = node.get("props") or node.get("properties") or {}
         if not isinstance(props, dict):
             continue
@@ -192,6 +192,13 @@ def terrain_materials(ir: dict) -> set[str]:
         return set()
 
 
+def scene_refs(ir: dict) -> dict[str, set[str]]:
+    """collect_scene_refs, once per loaded IR (rhr.ir.derived)."""
+    from rhr.ir import derived
+
+    return derived(ir, "scene_refs", collect_scene_refs)
+
+
 def collect_scene_refs(ir: dict) -> dict[str, set[str]]:
     """Everything a 3D render of `ir` can use: images, meshes, unions, material maps."""
     images, meshes = collect_refs(ir)
@@ -229,14 +236,40 @@ def _is_unavailable(path: Path) -> bool:
         return False
 
 
+_SUFFIX = {"images": "png", "meshes": "mesh", "unions": "json", "materials": "png"}
+
+
 def _cached(kind: str, asset: str) -> bool:
-    path = _destination(kind, asset)
-    if not (path.is_file() and path.stat().st_size > 0):
-        return False
-    if kind == "images" and _is_unavailable(path):
-        path.unlink(missing_ok=True)  # a placeholder cached by an earlier RHR
-        return False
-    return True
+    """Whether the cache has a non-empty file for the asset (from the folder listing:
+    no stat per asset)."""
+    from rhr.listing import listing
+
+    destination = _destination(kind, asset)
+    if kind == "images":
+        _sweep_placeholders(destination.parent)
+    entry = listing(destination.parent).get(_SUFFIX[kind], {}).get(asset)
+    return entry is not None and entry[1] > 0
+
+
+_SWEPT: set[str] = set()
+
+
+def _sweep_placeholders(folder: Path) -> None:
+    """Remove "image unavailable" placeholders an RHR before 0.7 cached as images
+    (thumbnails are checked when downloaded since), once per cache folder."""
+    if str(folder) in _SWEPT:
+        return
+    _SWEPT.add(str(folder))
+    marker = folder / ".placeholders-swept"
+    if marker.exists() or not folder.is_dir():
+        return
+    for path in folder.glob("*.png"):
+        if _is_unavailable(path):
+            path.unlink(missing_ok=True)
+    try:
+        marker.write_text("", encoding="utf-8")
+    except OSError:
+        pass
 
 
 def _load_json(path: Path) -> dict:
@@ -498,8 +531,11 @@ def ensure_for_ir(ir_path: Path, *, log=None, focus: str | None = None) -> dict[
     from rhr.ir import load_ir, world_roots
 
     ir = load_ir(ir_path)
-    ir = {**ir, "roots": world_roots(ir.get("roots") or [], focus)[0]}
-    return ensure(collect_scene_refs(ir), log=log)
+    roots = ir.get("roots") or []
+    shown = world_roots(roots, focus)[0]
+    if len(shown) != len(roots) or any(a is not b for a, b in zip(shown, roots)):
+        ir = {**ir, "roots": shown}  # (a world slice, rhr.ir.world_ir, draws all its roots)
+    return ensure(scene_refs(ir), log=log)
 
 
 def run(ir_path: Path, *, images: bool = True, meshes: bool = True, studio_login: bool = True) -> int:

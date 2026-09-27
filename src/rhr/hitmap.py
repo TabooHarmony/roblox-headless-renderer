@@ -175,9 +175,9 @@ def build_hitmap(ir_path, width: int, height: int, topbar_height: float | None =
     probe_candidates: list[tuple[float, float, list[dict], int]] = []
     pane_records = []
 
-    from rhr.pipeline import _index_paths
+    from rhr.adapter import ui_index
 
-    ir_by_path = _index_paths(ir["roots"])
+    ir_by_path = ui_index(ir)
     for pane_index, ((obj, root_rect, inset, pane_name), raw_pane) in enumerate(zip(screens, raw_panes)):
         metadata = _raw_pane_metadata(raw_pane)
         ir_pane = ir_by_path.get(raw_pane.get("_path"))
@@ -310,4 +310,6 @@ def build_hitmap(ir_path, width: int, height: int, topbar_height: float | None =
 
 def dump_json(hitmap: dict) -> str:
     """Canonical sorted JSON for stable diffs."""
-    return json.dumps(hitmap, indent=2, sort_keys=True)
+    from rhr.schema import dumps
+
+    return dumps(hitmap)

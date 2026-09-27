@@ -75,7 +75,6 @@ import json
 import sys
 from pathlib import Path
 
-from rhr.paths import IR_DIR
 
 
 _VISUAL_CLASSES = {
@@ -263,11 +262,12 @@ def build_dump(ir_path, width: int, height: int, png_path=None, topbar_height: f
     screens = load_screens(str(ir_path), width, height, topbar_height)
     render_screens(
         screens,
-        Path(png_path) if png_path else IR_DIR / f"{Path(ir_path).stem}-layout.png",
+        Path(png_path) if png_path else None,
         width,
         height,
         bg_color=(0, 0, 0, 0),
         rect_map=rect_map,
+        draw=png_path is not None,
     )
 
     nodes: list[dict] = []
@@ -295,7 +295,9 @@ def build_dump(ir_path, width: int, height: int, png_path=None, topbar_height: f
 
 def dump_json(dump: dict) -> str:
     """The canonical serialisation: sorted keys, so two runs diff cleanly."""
-    return json.dumps(dump, indent=2, sort_keys=True)
+    from rhr.schema import dumps
+
+    return dumps(dump)
 
 
 def _parse_hex_color(text: str) -> tuple[int, int, int]:

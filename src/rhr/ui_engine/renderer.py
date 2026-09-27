@@ -1489,8 +1489,12 @@ def render_json(
     rect_map: dict | None = None,
     root_rect: Rect | None = None,
     layout_rects: dict | None = None,
+    draw: bool = True,
 ):
     """Render a complete PinevexObject to a PNG file.
+
+    With *draw* False nothing is drawn or written: the same pass runs on a null
+    canvas, for the rects it resolves (*rect_map*).
 
     If *output_path* is ``None``, returns a ``PIL.Image`` instead of writing
     to disk.
@@ -1506,15 +1510,17 @@ def render_json(
     model a screen container pass the container's content area here (e.g. a
     ScreenGui's safe area), so descendants move with it.
     """
-    surface = skia.Surface(width, height)
-    canvas = surface.getCanvas()
-
-    # Fill with background color (RGB or RGBA)
-    _annotate(canvas, "Clear canvas")
-    if len(bg_color) == 4:
-        canvas.clear(skia.Color(*bg_color))
+    if draw:
+        surface = skia.Surface(width, height)
+        canvas = surface.getCanvas()
+        # Fill with background color (RGB or RGBA)
+        _annotate(canvas, "Clear canvas")
+        if len(bg_color) == 4:
+            canvas.clear(skia.Color(*bg_color))
+        else:
+            canvas.clear(skia.Color(*bg_color, 255))
     else:
-        canvas.clear(skia.Color(*bg_color, 255))
+        surface, canvas = None, skia.MakeNullCanvas()
 
     root_rect = root_rect if root_rect is not None else Rect(0, 0, width, height)
     ctx = {
@@ -1537,10 +1543,11 @@ def render_json(
     else:
         render_node(canvas, obj, root_rect, ctx)
 
-    image = surface.makeImageSnapshot()
-
     if out is not None and "_crop_rect" in ctx:
         out["crop_rect"] = ctx["_crop_rect"]
+    if surface is None:
+        return None
+    image = surface.makeImageSnapshot()
 
     if output_path is None:
         return _pil_image_from_skia_image(image)

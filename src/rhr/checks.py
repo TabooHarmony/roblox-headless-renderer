@@ -464,15 +464,21 @@ def check_model(ir_path, width: int, height: int, topbar_height: float | None = 
 
 def _image_paths(ir: dict) -> set[str]:
     """Every node path whose IR subtree carries an Image/ImageContent property."""
-    out: set[str] = set()
+    from rhr.adapter import GUI_CLASSES, ui_branches
 
-    def walk(node: dict, prefix: str) -> None:
+    out: set[str] = set()
+    # Only the UI matters (findings are about GUI nodes): skip a place's 3D world.
+    branches = ui_branches(ir)
+
+    def walk(node: dict, prefix: str, inside: bool = False) -> None:
         here = f"{prefix}/{node['name']}" if prefix else node["name"]
         props = node.get("props") or {}
         if props.get("Image") or props.get("ImageContent"):
             out.add(here)
+        inside = inside or node.get("className") in GUI_CLASSES
         for child in node.get("children") or []:
-            walk(child, here)
+            if inside or id(child) in branches:
+                walk(child, here, inside)
 
     for root in ir.get("roots") or []:
         walk(root, "")
@@ -481,6 +487,6 @@ def _image_paths(ir: dict) -> set[str]:
 
 def findings_json(result: dict) -> str:
     """The canonical serialisation: sorted keys, deterministic."""
-    import json
+    from rhr.schema import dumps
 
-    return json.dumps(result, indent=2, sort_keys=True)
+    return dumps(result)

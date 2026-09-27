@@ -24,6 +24,14 @@ def name(kind: str) -> str:
     return f"rhr.{kind}/{VERSIONS[kind]}"
 
 
+def dumps(document: dict) -> str:
+    """How every JSON document is written: compact (agents read it; whitespace only
+    costs time and tokens), sorted keys so two runs diff cleanly, UTF-8 text."""
+    import json
+
+    return json.dumps(document, separators=(",", ":"), sort_keys=True, ensure_ascii=False)
+
+
 def stamp(kind: str, payload: dict) -> dict:
     """`payload` with its schema name as the first key."""
     return {"schema": name(kind), **{key: value for key, value in payload.items() if key != "schema"}}

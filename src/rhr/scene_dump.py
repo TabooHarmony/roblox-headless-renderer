@@ -154,10 +154,12 @@ def build_scene_dump(
     *,
     world: bool = False,
     focus: str | None = None,
+    parts: bool = True,
 ) -> dict:
     """The scene dump of an IR file. With `world`, only what a 3D view draws
     (rhr.ir.world_roots), plus `_storedNote` naming what it left out, for the
-    render commands' report."""
+    render commands' report. With `parts` False, `parts` and `bounds` are left empty:
+    what a render's notes need (counts, missing assets) without per-part geometry."""
     for lookup in (_mesh_available, _union_available, _asset_available):
         lookup.cache_clear()
     data = load_ir(ir_path)
@@ -404,7 +406,9 @@ def build_scene_dump(
                 "preferred": node.get("name") == "CurrentCamera",
             })
 
-        if class_name in PART_CLASSES:
+        if class_name in PART_CLASSES and not parts:
+            material_name = _enum_name(props.get("Material"), "Plastic")
+        elif class_name in PART_CLASSES:
             cf = props.get("CFrame") or {}
             bounds = _part_aabb(props)
             material_name = _enum_name(props.get("Material"), "Plastic")
@@ -436,6 +440,7 @@ def build_scene_dump(
                     overall_min[i] = min(overall_min[i], bounds[0][i])
                     overall_max[i] = max(overall_max[i], bounds[1][i])
             nodes.append(entry)
+        if class_name in PART_CLASSES:
             if class_name == "MeshPart":
                 mesh_id = _asset_id(props.get("MeshId"))
                 available = _mesh_available(mesh_id, mesh_dir)
@@ -589,4 +594,6 @@ def notes_line(scene_dump: dict) -> str:
 
 
 def dump_json(scene_dump: dict) -> str:
-    return json.dumps(scene_dump, indent=2, sort_keys=True)
+    from rhr.schema import dumps
+
+    return dumps(scene_dump)

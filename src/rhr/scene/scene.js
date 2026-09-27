@@ -40,6 +40,10 @@ renderer.setSize(width, height, false);
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.shadowMap.type = THREE.PCFShadowMap;
 renderer.setClearColor(viewportMode ? 0x000000 : 0x20242b, viewportMode ? 0 : 1);
+// One prefiltering generator for the page's life: making one compiles its blur shaders,
+// which a warm page would otherwise do again for every render.
+let pmrem = null;
+const pmremGenerator = () => (pmrem ||= new THREE.PMREMGenerator(renderer));
 // Constants fitted against Studio (see configureAtmosphere, configureModernEnvironment).
 // The `tune` query parameter (JSON, from RHR_SCENE_TUNE) overrides them while
 // calibrating; normal renders never set it.
@@ -4349,9 +4353,7 @@ function configureModernEnvironment(index, sky) {
   const skyScene = new THREE.Scene();
   if (sky) skyScene.add(makeSkyDome(sky));
   else skyScene.background = scene.background;
-  const generator = new THREE.PMREMGenerator(renderer);
-  const cubeCamera = generator.fromScene(skyScene, 0, 0.1, 100);
-  generator.dispose();
+  const cubeCamera = pmremGenerator().fromScene(skyScene, 0, 0.1, 100);
   scene.environment = cubeCamera.texture;
   scene.environmentIntensity = TUNE.skyK * envDiffuse;
   environmentTexture = cubeCamera.texture;
@@ -4418,9 +4420,7 @@ function configureEnvironment(index) {
     cube.colorSpace = THREE.SRGBColorSpace;
     cube.needsUpdate = true;
   }
-  const generator = new THREE.PMREMGenerator(renderer);
-  environmentTexture = generator.fromCubemap(cube).texture;
-  generator.dispose();
+  environmentTexture = pmremGenerator().fromCubemap(cube).texture;
   const lighting = findFirstClass(index, 'Lighting');
   const specular = Number(lighting?.props?.EnvironmentSpecularScale ?? 1);
   // Roblox metals stay readable with EnvironmentSpecularScale 0; keep some sky in them.
@@ -5497,6 +5497,7 @@ async function main() {
     await reportCamera(camera);
     await reportNotes();
     renderFrame(camera);
+    disposeRetired();
     mark('first frame (shaders compiled)');
   }
   await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
@@ -5518,15 +5519,25 @@ async function main() {
   document.documentElement.dataset.rhrReady = 'true';
 }
 
+// The last scene's materials, disposed once the next scene has compiled its shaders.
+let retiredMaterials = [];
+function disposeRetired() {
+  for (const material of retiredMaterials) material.dispose();
+  retiredMaterials = [];
+}
+
 // Everything one render leaves behind, back to how a fresh page starts. Kept: the
 // renderer and its compiled shaders, keptLoads, the Draco decoder, static files.
 function resetScene() {
   // Scene meshes hold copies of kept geometry (fitted, scaled), never the kept one
-  // itself, and disposing a material leaves its textures alone.
+  // itself, and disposing a material leaves its textures alone. The materials are
+  // disposed only after the next scene's first frame (disposeRetired): three.js
+  // deletes a compiled shader program with the last material that uses it, and the
+  // next scene mostly needs the same programs.
   scene.traverse(object => {
     if (object.geometry) object.geometry.dispose();
     const materials = Array.isArray(object.material) ? object.material : [object.material];
-    for (const material of materials) material?.dispose?.();
+    for (const material of materials) if (material?.dispose) retiredMaterials.push(material);
   });
   environmentTexture?.dispose?.();
   scene = new THREE.Scene();

@@ -121,16 +121,19 @@ def render_object(
     rect_map: dict | None = None,
     icons_dir=None,
     root_rect=None,
-) -> Path:
+    draw: bool = True,
+) -> Path | None:
+    """Draw one pane to `out_path`; with `draw` False only lay it out (rect_map)."""
     from rhr.ui_engine.renderer import render_json
 
     layout_rects = obj.pop("_layoutRects", None) if isinstance(obj, dict) else None
-    out_path = Path(out_path)
-    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path = Path(out_path) if out_path is not None else None
+    if draw:
+        out_path.parent.mkdir(parents=True, exist_ok=True)
     icons = Path(icons_dir) if icons_dir is not None else ICONS_DIR
     render_json(
         obj,
-        str(out_path),
+        str(out_path) if draw else None,
         width=width,
         height=height,
         icons_dir=icons,
@@ -139,8 +142,9 @@ def render_object(
         rect_map=rect_map,
         root_rect=root_rect,
         layout_rects=layout_rects,
+        draw=draw,
     )
-    return out_path
+    return out_path if draw else None
 
 
 def _strip_screens(nodes: list[dict]) -> list[dict]:
@@ -250,12 +254,12 @@ def load_screens(
     from rhr.ui_engine.layout import Rect
 
     from rhr import insets
-    from rhr.adapter import ir_to_raw_nodes
+    from rhr.adapter import ir_to_raw_nodes, ui_index
     from rhr.ir import load_ir
 
     topbar = insets.REFERENCE_TOPBAR_HEIGHT if topbar_height is None else topbar_height
     ir = load_ir(ir_path)
-    ir_by_path = _index_paths(ir["roots"])
+    ir_by_path = ui_index(ir)
     raw, _ = shown_ui_roots(ir_to_raw_nodes(ir))
     screens = _screen_nodes(raw, classes={"ScreenGui"} if screen_gui_only else None)
     if not screens:
@@ -426,14 +430,20 @@ def render_screens(
     rect_map: dict | None = None,
     icons_dir=None,
     source_ir=None,
-) -> Path:
-    """A load_screens() list -> one PNG.
+    draw: bool = True,
+) -> Path | None:
+    """A load_screens() list -> one PNG. With `draw` False nothing is drawn or written:
+    the panes are only laid out, for `rect_map` (layout, check).
 
     One ScreenGui is one engine render, which is the path the frozen gate measures and
     must not change. Several ScreenGuis are one render each, composited in paint order,
     because the engine draws exactly one root: a file that holds a HUD pane and a shop
     pane used to lose one of them entirely.
     """
+    if not draw:
+        for obj, root_rect, _, _ in screens:
+            render_object(obj, None, width, height, bg_color, rect_map, icons_dir, root_rect=root_rect, draw=False)
+        return None
     out_path = Path(out_path)
     if len(screens) == 1:
         obj, root_rect, _, _ = screens[0]
@@ -447,18 +457,30 @@ def render_screens(
 
     from PIL import Image
 
+    from rhr.ui_engine.renderer import render_json
+
     out_path.parent.mkdir(parents=True, exist_ok=True)
     canvas = Image.new("RGBA", (width, height), tuple(bg_color))
     panes = []
     try:
         for index, (obj, root_rect, _, name) in enumerate(screens):
-            pane = out_path.with_name(f".{out_path.stem}-pane{index}.png")
-            panes.append(pane)
             pane_map = {} if rect_map is not None or source_ir is not None else None
-            render_object(obj, pane, width, height, (0, 0, 0, 0), pane_map, icons_dir, root_rect=root_rect)
-            if pane_map is not None:
+            if source_ir is not None and _viewport_nodes(obj):
+                # ViewportFrames are drawn into the pane's file (_overlay_viewports).
+                pane = out_path.with_name(f".{out_path.stem}-pane{index}.png")
+                panes.append(pane)
+                render_object(obj, pane, width, height, (0, 0, 0, 0), pane_map, icons_dir, root_rect=root_rect)
                 _overlay_viewports(obj, pane, pane_map, source_ir)
-            with Image.open(pane).convert("RGBA") as image:
+                with Image.open(pane).convert("RGBA") as image:
+                    canvas.alpha_composite(image)
+            else:
+                # In memory: the pixels a PNG round trip would give, without encoding
+                # one per pane (a model with a hundred SurfaceGuis has a hundred panes).
+                layout_rects = obj.pop("_layoutRects", None)
+                image = render_json(obj, None, width=width, height=height,
+                                    icons_dir=Path(icons_dir) if icons_dir is not None else ICONS_DIR,
+                                    fonts_dir=FONTS_DIR, bg_color=(0, 0, 0, 0), rect_map=pane_map,
+                                    root_rect=root_rect, layout_rects=layout_rects)
                 canvas.alpha_composite(image)
             if rect_map is not None and pane_map is not None:
                 rect_map.update(pane_map)
