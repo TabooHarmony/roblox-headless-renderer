@@ -183,10 +183,13 @@ needs goes in, the rest moves after 1.0.
      overflowing text not clipped, glyph advances rounded up as Roblox does: text
      width error 5.6% -> 1.3%, tests/studio/ui_edge_cases). Also fixed on the way: the
      sky's top face orientation, terrain with unknown material ids, part surfaces on
-     Plastic only, no console windows on Windows.
-   - **Left:** the VFX leftovers, `ParticleEmitter.TextureSpeed` (flipbook speed) and
-     `LightInfluence` (lit or not), and a Studio check of Roblox's built-in
-     `rbxasset://` particle textures.
+     Plastic only, no console windows on Windows. Beam `TextureSpeed` (the texture
+     scrolls with the effect time; the old "ParticleEmitter.TextureSpeed" item was a
+     Beam property all along), and on the way: Beam textures were drawn upside down,
+     `Wrap` Trail tiles started at the wrong end, and trails from saved files were
+     never drawn (files keep the part's velocity as `Velocity`).
+   - **Left:** the VFX leftovers, `LightInfluence` (lit or not) and a Studio check of
+     Roblox's built-in `rbxasset://` particle textures.
    - **Then:** CHANGELOG entry for 0.7, the full suite, CI on all three systems once we
      agree, tag and publish.
 3. **1.0 release candidate.** Four pieces, then a short candidate period:

@@ -662,8 +662,9 @@ def _particles(args) -> int:
 
 def _effect_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--effect-time", type=float, metavar="T",
-                        help="draw particles T seconds after the effect starts playing "
-                             "(default: the moment with the most particles on show)")
+                        help="draw effects T seconds after they start playing: particles, and "
+                             "how far Beam textures have scrolled (default: the moment "
+                             "with the most particles on show)")
     parser.add_argument("--no-effects", action="store_true", help="leave particles out")
     parser.add_argument("--seed", type=int, default=0, help="particle randomness seed")
 

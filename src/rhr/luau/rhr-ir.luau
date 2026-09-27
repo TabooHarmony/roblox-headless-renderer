@@ -138,6 +138,9 @@ local CONTENT_PROPERTY_ALIASES = {
   SkyboxRt = "SkyboxRightContent",
   SkyboxUp = "SkyboxUpContent",
   MoonTextureId = "MoonTextureContent",
+  -- Not a ContentId, the same problem the other way round: files save the part's
+  -- velocity under its old name, and the new one has no default and cannot be read.
+  AssemblyLinearVelocity = "Velocity",
   SunTextureId = "SunTextureContent",
   ColorMap = "ColorMapContent",
   NormalMap = "NormalMapContent",

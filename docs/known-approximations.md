@@ -367,16 +367,20 @@ whether it glows; not the exact particles Roblox would draw.
   particles are not drawn (as in Studio for a texture it cannot load), and the output
   names the texture. Fire, Smoke, Sparkles and Explosion are not drawn.
 - **Beam**: curve, widths, segments, colour, texture and `LightEmission` are drawn.
-  The texture's vertical axis runs along the beam; `Stretch` repeats it `TextureLength`
-  times, `Wrap` every `TextureLength` studs (measured in Studio). Texture motion
-  (`TextureSpeed`) and `LightInfluence` are not drawn, so a still frame shows the
-  texture at its starting offset.
+  The texture's vertical axis runs along the beam, the image's top at `Attachment0`;
+  `Stretch` repeats it `TextureLength` times, `Wrap` every `TextureLength` studs, and
+  `TextureSpeed` scrolls it toward `Attachment1` by that many textures per second of
+  the effect time (all measured in Studio). The scroll's starting point in Studio
+  depends on when the beam appeared, so only its direction and speed can be matched.
+  `LightInfluence` is not drawn.
 - **Highlight**: the fill and the outline (about 3 px) are drawn, over everything
   (`AlwaysOnTop`) or only where seen (`Occluded`); fills first in order, then every
   outline, as Studio does. Only the front faces make the shape, so holes in a mesh get
   their own outline. The first four Highlights are exact; later ones get a plain fill.
 - **Trail**: built from the parent part's saved velocity. A trail with no saved
-  motion is reported as unsupported rather than guessed.
+  motion is reported as unsupported rather than guessed. The image's top is at the
+  attachments (the newest end); `Wrap` tiles start there, `Static` ones at the oldest
+  point drawn (measured in Studio).
 
 ## Reading files
 

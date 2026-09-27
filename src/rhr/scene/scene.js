@@ -2851,7 +2851,7 @@ function cubicTangent(p0, p1, p2, p3, t) {
     .addScaledVector(p3.clone().sub(p2), 3 * t * t);
 }
 
-function beamRibbonGeometry(points, tangents, widths, camera, faceCamera, normal, textureMode, textureLength, colorSequence, transparencySequence) {
+function beamRibbonGeometry(points, tangents, widths, camera, faceCamera, normal, textureMode, textureLength, colorSequence, transparencySequence, textureOffset = 0) {
   const positions = [];
   const uvs = [];
   const colors = [];
@@ -2880,10 +2880,13 @@ function beamRibbonGeometry(points, tangents, widths, camera, faceCamera, normal
     positions.push(left.x, left.y, left.z, right.x, right.y, right.z);
     // The texture's vertical axis runs along the beam and its horizontal axis across
     // it. Stretch repeats it TextureLength times over the whole beam; Wrap and Static
-    // repeat it every TextureLength studs (measured in Studio).
-    const v = textureMode === 'Stretch'
+    // repeat it every TextureLength studs (measured in Studio). The image's top is at
+    // Attachment0 (v runs down the image, as the texture is flipped on load), and
+    // textureOffset scrolls it toward Attachment1, in whole textures.
+    const along = textureMode === 'Stretch'
       ? distances[index] / totalLength * Math.max(1e-6, textureLength)
       : distances[index] / Math.max(1e-6, textureLength);
+    const v = textureOffset - along;
     uvs.push(0, v, 1, v);
     const color = sequenceColorAt(colorSequence, index / Math.max(1, points.length - 1));
     const alpha = 1 - Math.max(0, Math.min(1, sequenceValue(transparencySequence, index / Math.max(1, points.length - 1), 0)));
@@ -2949,6 +2952,9 @@ async function addBeams(index, camera) {
       textureLength,
       node.props?.Color,
       node.props?.Transparency,
+      // TextureSpeed cycles per second, from Attachment0 toward Attachment1, at the
+      // effect time (kept to one cycle so large times stay precise).
+      (Number(node.props?.TextureSpeed ?? 1) * (particleState.time ?? 0)) % 1,
     );
     const localTransparency = Math.max(0, Math.min(1, Number(node.props?.LocalTransparencyModifier ?? 0)));
     const materialOpacity = 1 - localTransparency;
@@ -3013,10 +3019,15 @@ function trailRibbonGeometry(positions0, positions1, ages, widthScale, colorSequ
     const edge0 = center.clone().sub(side);
     const edge1 = center.clone().add(side);
     positions.push(edge0.x, edge0.y, edge0.z, edge1.x, edge1.y, edge1.z);
-    // As for Beams: the texture's vertical axis runs along the trail.
+    // As for Beams: the texture's vertical axis runs along the trail, the image's top
+    // at the attachments (the newest end, measured in Studio). Wrap tiles stay put
+    // relative to the attachments, so a whole tile starts there; Static tiles are
+    // stamped where the trail began, here its oldest point.
     const v = textureMode === 'Stretch'
       ? (1 - ages[index]) * textureLength
-      : distances[index] / Math.max(1e-6, textureLength);
+      : textureMode === 'Wrap'
+        ? (distances[index] - distances.at(-1)) / Math.max(1e-6, textureLength)
+        : distances[index] / Math.max(1e-6, textureLength);
     uvs.push(0, v, 1, v);
     const color = sequenceColorAt(colorSequence, ages[index]);
     const alpha = 1 - Math.max(0, Math.min(1, sequenceValue(transparencySequence, ages[index], 0)));
