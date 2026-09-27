@@ -12,7 +12,6 @@ are a slight upper bound on string width (0-8px over a 30-char string);
 no kerning exists at small sizes (adjacent pairs sum exactly).
 """
 import json
-import os
 from pathlib import Path
 
 _DATA_DIR = Path(__file__).resolve().parent / "data"
@@ -21,7 +20,7 @@ _CACHE: dict[tuple[str, int, str], dict | None] = {}
 # smaller than the raw TTF outlines in BOTH axes; the advance ratio models x,
 # this constant models y (Studio ink height / skia ink height at the fitted
 # size). Calibrated on the RTL2PCParts title band.
-TABLE_Y_SCALE = float(os.environ.get("RHR_TABLE_Y_SCALE", "0.87"))
+TABLE_Y_SCALE = 0.87
 
 
 def _table_path(family: str, weight: int, style: str) -> Path:
@@ -118,25 +117,6 @@ def string_width(table: dict, text: str, size: float) -> float | None:
     return sum(char_advance(table, ch, size) for ch in text)
 
 
-def _draw_enabled_for(table: dict) -> bool:
-    """Calibration switch: disable table-driven drawing per family."""
-    fam = str(table.get("family", ""))
-    if os.environ.get(f"RHR_TABLE_NODRAW_{fam.upper()}"):
-        return False
-    return True
-
-
-def _y_scale_for(table: dict) -> float:
-    """Per-family vertical scale override for calibration sweeps."""
-    fam = str(table.get("family", ""))
-    for env_name in (f"RHR_TABLE_Y_SCALE_{fam.upper()}-{table.get('weight', 400)}",
-                     f"RHR_TABLE_Y_SCALE_{fam.upper()}"):
-        v = os.environ.get(env_name)
-        if v:
-            return float(v)
-    return TABLE_Y_SCALE
-
-
 def draw_line_table(canvas, text: str, x: float, baseline_y: float,
                     font, paint, table: dict, y_scale: float | None = None) -> None:
     """Draw one line at Studio-measured advances with per-glyph y scale.
@@ -147,10 +127,7 @@ def draw_line_table(canvas, text: str, x: float, baseline_y: float,
     range fall back to the font's natural advance with no scale.
     """
     if y_scale is None:
-        y_scale = _y_scale_for(table)
-    if not _draw_enabled_for(table):
-        canvas.drawString(text, x, baseline_y, font, paint)
-        return
+        y_scale = TABLE_Y_SCALE
     cursor = x
     for ch in text:
         skia_adv = float(font.measureText(ch))

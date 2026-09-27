@@ -1,6 +1,6 @@
 """Where RHR finds its bundled resources and where it writes caches.
 
-Bundled resources (the vendored renderers, the Lune IR script, the browser pages)
+Bundled resources (the UI engine's fonts, vendored three.js, the Lune IR script, the browser pages)
 live inside the `rhr` package, so an installed copy works without a git checkout.
 Everything RHR writes on its own (downloaded images and meshes, intermediate IR)
 goes to one per-user cache directory, never into the package or the caller's
@@ -25,7 +25,6 @@ from pathlib import Path
 
 PACKAGE = Path(__file__).resolve().parent
 VENDOR = PACKAGE / "vendor"
-PINEVEX = VENDOR / "pinevex"
 LUAU_IR_SCRIPT = PACKAGE / "luau" / "rhr-ir.luau"
 # Open-license copies of the font builds Roblox ships (see fonts/OFL.txt).
 FONTS = PACKAGE / "fonts"

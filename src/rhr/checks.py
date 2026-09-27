@@ -80,13 +80,13 @@ def _measure_text_width(content: str, text: dict) -> float:
 
     from rhr.pipeline import FONTS_DIR
 
-    from ui_engine.text_fonts import _typeface_from_file
+    from rhr.ui_engine.text_fonts import _typeface_from_file
 
     typeface = _typeface_from_file(str(FONTS_DIR / _DEFAULT_FONT_FILE))
     if typeface is None:
         typeface = skia.Typeface()  # skia's default face; better than guessing by chars
     font = skia.Font(typeface, float(text.get("size", 14)))
-    from ui_engine.text_runs import _measure_mixed
+    from rhr.ui_engine.text_runs import _measure_mixed
 
     return _measure_mixed(content, font, None, ())
 

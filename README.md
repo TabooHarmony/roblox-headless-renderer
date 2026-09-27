@@ -182,8 +182,8 @@ project's direction and scope. `tests/studio/` holds places built in Studio with
 Studio's own measurements saved inside; its README explains how to add one.
 
 - `src/rhr/`: the package (file reading, UI layout and drawing, 3D scene, CLI).
-- `src/rhr/vendor/pinevex/`: the 2D renderer RHR builds on (Apache-2.0), with fixes
-  recorded in `patches/`.
+- `src/rhr/ui_engine/`: the 2D UI engine, a fork of pinevex-renderer (Apache-2.0);
+  [`docs/ui-engine.md`](docs/ui-engine.md) and `patches/` say how it differs.
 - `src/rhr/vendor/three/`: THREE.js for the 3D preview, bundled, so nothing is loaded
   from a CDN.
 

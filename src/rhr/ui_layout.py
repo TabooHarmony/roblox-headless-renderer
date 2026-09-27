@@ -198,9 +198,9 @@ def _text_extent(node: dict, wrap_width: float | None) -> tuple[float, float] | 
     """(width, height) of a text object's text, measured with the drawing fonts."""
     try:
         from rhr.adapter import ir_node_to_raw
-        from rhr import pipeline  # noqa: F401  (puts the engine on sys.path)
-        from tree_to_pinevexobject import flatten_node
-        from ui_engine.layout import _measured_text_lines
+        from rhr import pipeline  # noqa: F401  (sets the engine's font folders)
+        from rhr.ui_engine.converter import flatten_node
+        from rhr.ui_engine.layout import _measured_text_lines
     except Exception:
         return None
     shallow = dict(node, children=[child for child in _children(node) if child.get("className") not in GUI_OBJECT_CLASSES])

@@ -13,8 +13,8 @@ commits on `main`, and pushing or running CI waits until we agree to release.
 | 2. Drop the MCP server | **Done.** Commit 010f073. |
 | 1b. Shape tests | **Done.** tests/test_contract.py and tests/contract/interface.json (`--update` after an intentional change). Commit 378ca64. |
 | 3. Own browser client instead of Playwright | **Done locally** (CI jobs written, not yet run). Results below. |
-| 4. pinevex becomes our own code | **Next.** Below. |
-| 5. PyPI, `uvx`, fresh-machine CI | To do. Below. |
+| 4. pinevex becomes our own code | **Done.** `src/rhr/ui_engine/`, docs/ui-engine.md. |
+| 5. PyPI, `uvx`, fresh-machine CI | **Next.** Below. |
 | 6. Basic large-place check | To do. Below. |
 | 7. Candidate period, tag 1.0 | To do. |
 
@@ -168,6 +168,15 @@ byte (src/rhr/vendor/VENDOR.md, patches/README.md). As a fork:
   `ui_engine/text_advances.py` unless still needed.
 - Done when: the suite passes, no script rebuilds the engine, and a UI fix is an
   ordinary edit.
+
+**Done (2026-09-27).** Moved to `src/rhr/ui_engine/` as a real subpackage with
+package-relative imports: RHR no longer puts the engine's folders on `sys.path`
+(which had put generic top-level names such as `ui_engine` on every user's import
+path). `converter.py` and `postprocess.py` are upstream's `tree_to_pinevexobject.py`
+and `pinevex_postprocess.py`; the one function RHR used from upstream's binary-parser
+adapter is `font_assets.py`. Removed: the parser, the web demo, the Luau exporter, the
+debug stepper, the icon manifest, `scripts/make_patches.py`, `RHR_TABLE_*`. `patches/`
+stays as history. Suite unchanged, render baselines identical.
 
 ## 5. PyPI, `uvx`, fresh-machine CI
 

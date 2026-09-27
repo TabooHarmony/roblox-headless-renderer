@@ -27,6 +27,11 @@
   that ahead of time and `RHR_BROWSER_DOWNLOAD=0` forbids it. `RHR_CHROME` is now
   **`RHR_BROWSER`** (the old name still works in this release). The old Playwright
   Chromium in `ms-playwright` is no longer used and can be deleted.
+- The UI engine is RHR's own code (`rhr.ui_engine`, a fork of pinevex-renderer):
+  nothing changes in what it draws. RHR no longer adds the engine's folders to
+  `sys.path`, so the top-level modules `ui_engine`, `tree_to_pinevexobject`,
+  `product_output` and `rbxm_parser_component` are gone. The calibration switches
+  `RHR_TABLE_Y_SCALE*` / `RHR_TABLE_NODRAW_*` are removed.
 - The `--json` report and `rhr browser status` name the browser used (`browser`:
   name, version, path); `rhr doctor` names the browser it will use and why any other
   was skipped.

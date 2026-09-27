@@ -16,25 +16,6 @@ with property dicts shaped as
 from __future__ import annotations
 
 import re
-import sys
-from pathlib import Path
-
-from rhr.paths import PINEVEX
-
-
-# Vendored helpers we reuse rather than re-derive: asset URL normalization and the
-# built-in font asset table. Imported lazily so the module stays importable in
-# environments without requests installed.
-_WEB_DEMO = PINEVEX / "web_demo"
-
-
-def _vendored_adapter():
-    if str(_WEB_DEMO) not in sys.path:
-        sys.path.insert(0, str(_WEB_DEMO))
-    from rbxm_parser_component import rbxm_adapter
-
-    return rbxm_adapter
-
 
 _RBXASSETID_RE = re.compile(r"rbxassetid://(\d+)")
 
@@ -92,7 +73,9 @@ def _convert(prop: str, v):
     if t == "Font":
         family = str(v["family"])
         if _RBXASSETID_RE.search(family):
-            family = _vendored_adapter()._resolve_font_family(family)
+            from rhr.ui_engine.font_assets import resolve_font_family
+
+            family = resolve_font_family(family)
         return {"family": family, "weight": str(v["weight"]), "style": str(v["style"])}
     if t == "Rect":
         lo, hi = v["Min"], v["Max"]

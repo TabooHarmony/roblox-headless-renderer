@@ -1,6 +1,6 @@
 # Bundled font licences
 
-The fonts in `src/rhr/vendor/pinevex/src/ui_engine/fonts/` retain their authors' copyright and licence terms. Their embedded metadata contains individual attribution; the licence texts are included here for redistribution. The repository's Apache-2.0 `LICENSE` covers the two Apache-licensed fonts.
+The fonts in `src/rhr/ui_engine/fonts/` retain their authors' copyright and licence terms. Their embedded metadata contains individual attribution; the licence texts are included here for redistribution. The repository's Apache-2.0 `LICENSE` covers the two Apache-licensed fonts.
 
 - SIL Open Font License 1.1 (`OFL-1.1.txt`): Bangers, Creepster, FredokaOne-Regular, FredokaOne, Inconsolata, IndieFlower, Jura, Kalam, Merriweather, Montserrat (all five files), Nunito, Oswald, PatrickHand, PressStart2P (both files), Roboto, Sarpanch, SourceCodePro, SourceSansPro, TitilliumWeb.
 - Apache License 2.0 (repository `LICENSE`): LuckiestGuy, PermanentMarker.

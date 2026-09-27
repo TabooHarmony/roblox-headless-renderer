@@ -13,7 +13,7 @@ from PIL import Image
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / 'src'))
 from rhr.pipeline import render_object
-from ui_engine import text_fit, text_renderers
+from rhr.ui_engine import text_fit, text_renderers
 
 
 def main():
@@ -52,8 +52,8 @@ def main():
         check(images[0] != images[1], f'{scaled}: explicit break changes output')
     # Same wrapper is used by font fitting; preserve blank and edge paragraphs.
     import skia
-    from ui_engine.text_fonts import _typeface_from_file
-    font = skia.Font(_typeface_from_file(str(REPO / "src/rhr/vendor/pinevex/src/ui_engine/fonts/FredokaOne-Regular.ttf")), 20)
+    from rhr.ui_engine.text_fonts import _typeface_from_file
+    font = skia.Font(_typeface_from_file(str(REPO / "src/rhr/ui_engine/fonts/FredokaOne-Regular.ttf")), 20)
     for text, expected in [('A\n\nB', ['A','','B']), ('\nA\n', ['', 'A', '']),
                            ('A B\nC D', ['A B','C D']), ('', [''])]:
         check(text_fit._wrap_lines(text, font, 1000) == expected, f'paragraphs {text!r}')

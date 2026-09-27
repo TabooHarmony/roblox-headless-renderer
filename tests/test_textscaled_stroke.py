@@ -16,7 +16,7 @@ from PIL import Image
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "src"))
 from rhr.pipeline import render_object
-from ui_engine import text_renderers as text
+from rhr.ui_engine import text_renderers as text
 
 OUT = REPO / "out" / "textscaled-stroke"
 

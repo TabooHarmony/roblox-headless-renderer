@@ -1,7 +1,7 @@
 """IR -> raw nodes -> pinevex object -> PNG.
 
 The order mirrors the web demo's own pipeline (FLOW read out of
-vendor/pinevex/web_demo/rbxm_parser_component/app.py):
+upstream pinevex's web demo, from which the UI engine was forked):
 
     find the renderable root -> flatten_node() -> postprocess_pinevex_object() -> render_json()
 
@@ -13,14 +13,9 @@ from __future__ import annotations
 
 import json
 import os
-import sys
 from pathlib import Path
 
-from rhr.paths import ICONS_DIR, PINEVEX
-
-ENGINE = PINEVEX / "src"
-COMPONENT = PINEVEX / "web_demo" / "rbxm_parser_component"
-PRODUCT_OUTPUT = PINEVEX / "vendor" / "product_output"
+from rhr.paths import ICONS_DIR, PACKAGE
 
 # The engine looks up faces by file name in these folders before its own bundled
 # fonts (text_fonts.py): a local Roblox install first (rhr.paths.roblox_font_dirs),
@@ -45,11 +40,7 @@ def font_source() -> str:
             "redistribution, such as Builder Sans, fall back to similar open fonts")
 
 
-for _p in (ENGINE, COMPONENT, PRODUCT_OUTPUT.parent):
-    if str(_p) not in sys.path:
-        sys.path.insert(0, str(_p))
-
-FONTS_DIR = ENGINE / "ui_engine" / "fonts"
+FONTS_DIR = PACKAGE / "ui_engine" / "fonts"
 # The engine's icon root (rhr.paths.ICONS_DIR). The engine derives its image cache
 # from the parent of this dir (`_asset_cache_dir`: <parent>/cache/icons/<asset_id>.png),
 # which is rhr.paths.ICON_CACHE, where `rhr fetch` writes.
@@ -107,7 +98,7 @@ def find_renderable(nodes: list[dict]) -> dict | None:
 
 def to_pinevex_object(raw_nodes: list[dict], postprocess: bool = True) -> dict:
     """flatten_node (+ the demo's postprocess) on the renderable root."""
-    from tree_to_pinevexobject import flatten_node
+    from rhr.ui_engine.converter import flatten_node
 
     renderable = find_renderable(raw_nodes)
     if renderable is None:
@@ -116,7 +107,7 @@ def to_pinevex_object(raw_nodes: list[dict], postprocess: bool = True) -> dict:
     if not postprocess:
         return obj
 
-    from product_output.pinevex_postprocess import postprocess_pinevex_object
+    from rhr.ui_engine.postprocess import postprocess_pinevex_object
 
     return postprocess_pinevex_object(obj)
 
@@ -131,7 +122,7 @@ def render_object(
     icons_dir=None,
     root_rect=None,
 ) -> Path:
-    from ui_engine.renderer import render_json
+    from rhr.ui_engine.renderer import render_json
 
     layout_rects = obj.pop("_layoutRects", None) if isinstance(obj, dict) else None
     out_path = Path(out_path)
@@ -256,7 +247,7 @@ def load_screens(
     which is why this is per screen rather than one rect for the file. A tree with no
     ScreenGui is a single entry, the whole-viewport case.
     """
-    from ui_engine.layout import Rect
+    from rhr.ui_engine.layout import Rect
 
     from rhr import insets
     from rhr.adapter import ir_to_raw_nodes
@@ -322,7 +313,7 @@ def _attach_layout(obj: dict, pane: dict | None, ir_by_path: dict[str, dict], re
     own layout code only runs for objects this pass has no rect for. Under UIScale the
     drawn text size and outline thickness scale with the object, as in Roblox.
     """
-    from ui_engine.layout import Rect
+    from rhr.ui_engine.layout import Rect
 
     from rhr.ui_layout import lay_out_pane
 
@@ -363,7 +354,7 @@ def load_for_screen(
     and makes scale-sized children measure against the safe area, which is what
     `_viewport_rect` is for.
     """
-    from ui_engine.layout import Rect
+    from rhr.ui_engine.layout import Rect
 
     from rhr.adapter import ir_to_raw_nodes
     from rhr import insets

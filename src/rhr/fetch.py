@@ -375,9 +375,8 @@ def signed_in(ids: list[str]) -> dict[str, bytes | str]:
 
 def _thumbnails(ids: set[str], log) -> dict[str, str]:
     """Images from Roblox's thumbnail service (no sign-in, at most 420 px)."""
-    from rhr import pipeline  # noqa: F401  (puts the vendored engine on sys.path)
-    from ui_engine.asset_fetcher import fetch_icons
-    from ui_engine.assets import _asset_cache_dir
+    from rhr.ui_engine.asset_fetcher import fetch_icons
+    from rhr.ui_engine.assets import _asset_cache_dir
 
     cache_dir = _asset_cache_dir(ICONS_DIR)
     for message in fetch_icons(ids, cache_dir):

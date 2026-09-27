@@ -45,7 +45,7 @@ def main():
         check(spacing[1] > spacing[0] > 0, f'{rich}: spacing increases: {spacing}')
     # Height-limited plain TextScaled must fit the same line step it paints.
     from unittest.mock import patch
-    from ui_engine import text_renderers
+    from rhr.ui_engine import text_renderers
     for content in ('AAAA', 'AAAA\nBBBB'):
         sizes = []
         for height in (1, 2):

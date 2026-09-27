@@ -4,10 +4,7 @@ import json
 import re
 from typing import Any
 
-try:
-    from .layout_bounds import BASE_HEIGHT, BASE_WIDTH
-except ImportError:
-    from layout_bounds import BASE_HEIGHT, BASE_WIDTH
+from .layout import BASE_HEIGHT, BASE_WIDTH
 
 _SUNBURST_ICON_KEY = "Custom/Sunburst"
 _SUNBURST_NAME_HINTS = ("sunbursteffect", "sunburst", "sunrays", "rays")

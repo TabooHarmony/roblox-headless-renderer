@@ -16,8 +16,7 @@ dependencies = [
     "numpy>=2,<3",
     "requests>=2.31,<3",
     "skia-python==144.0.post2",
-    # The vendored model parser imports it; needed whenever a font is given by asset
-    # id, as Builder Sans (Roblox's default UI font) is.
+    # Reads zstd-compressed chunks of binary place files (rhr.rbxl_raw).
     "zstandard>=0.23,<1",
 ]
 
@@ -29,7 +28,7 @@ rhr = "rhr.cli:main"
 
 [tool.setuptools]
 package-dir = { "" = "src" }
-packages = ["rhr"]
+packages = ["rhr", "rhr.ui_engine"]
 include-package-data = false
 
 [tool.setuptools.package-data]
@@ -45,17 +44,8 @@ rhr = [
     "vendor/three/lights/*",
     "vendor/draco/*",
     "vendor/licenses/*",
-    "vendor/pinevex/LICENSE",
-    "vendor/pinevex/THIRD_PARTY_NOTICES.md",
-    "vendor/pinevex/src/ui_engine/*.py",
-    "vendor/pinevex/src/ui_engine/data/*",
-    "vendor/pinevex/src/ui_engine/fonts/*",
-    "vendor/pinevex/vendor/product_output/*.py",
-    "vendor/pinevex/vendor/icon_library/*",
-    "vendor/pinevex/web_demo/__init__.py",
-    "vendor/pinevex/web_demo/rbxm_parser_component/*.py",
-    "vendor/pinevex/web_demo/rbxm_parser_component/rbxm_parser/*.py",
 ]
+"rhr.ui_engine" = ["LICENSE", "THIRD_PARTY_NOTICES.md", "data/*", "fonts/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

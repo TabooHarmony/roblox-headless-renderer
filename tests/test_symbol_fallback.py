@@ -46,8 +46,7 @@ def render(fixture: Path, name: str, fallback: bool):
 def main() -> int:
     from PIL import ImageChops
 
-    sys.path.insert(0, str(REPO / "src" / "rhr" / "vendor" / "pinevex" / "src"))
-    from ui_engine.text_fonts import system_symbol_font_files
+    from rhr.ui_engine.text_fonts import system_symbol_font_files
 
     if not system_symbol_font_files():
         print("  skip no known symbol font on this machine")

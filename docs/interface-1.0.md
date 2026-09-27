@@ -103,7 +103,7 @@ or flag is allowed and printed. After an intentional change:
 | `RHR_CHROME` | becomes **`RHR_BROWSER`** (any Chromium-family browser); `RHR_CHROME` still read for one release |
 | new: `RHR_BROWSER_DOWNLOAD=0` | never download a browser; fail with a clear message instead |
 | `RHR_ROBLOX_FONTS`, `RHR_SYSTEM_FONT_FALLBACK` | test switches: work, not contract |
-| `RHR_SCENE_TUNE`, `RHR_EFFECTS_UNDER`, `RHR_TABLE_Y_SCALE*`, `RHR_TABLE_NODRAW_*` | calibration hooks: not contract; `RHR_TABLE_*` removed with the pinevex fork unless still used |
+| `RHR_SCENE_TUNE`, `RHR_EFFECTS_UNDER`, `RHR_TABLE_Y_SCALE*`, `RHR_TABLE_NODRAW_*` | calibration hooks: not contract; `RHR_TABLE_*` removed with the pinevex fork (2026-09-27) |
 | `RHR_MCP_WORKER` | removed with the MCP server |
 | `RHR_NEEDS_FRESH_PAGE` | not a variable: an internal error marker |
 
