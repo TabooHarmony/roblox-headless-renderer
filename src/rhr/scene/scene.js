@@ -5415,8 +5415,11 @@ async function main() {
     mark('terrain grass');
     if (modernLighting(index)) buildSkyVisibility(camera);
     mark('sky visibility grid');
-    await addBeams(index, camera);
-    await addTrails(index, camera);
+    // --no-effects leaves out particles, Beams and Trails alike.
+    if (params.get('effects') !== '0') {
+      await addBeams(index, camera);
+      await addTrails(index, camera);
+    }
     await addParticles(camera);
     addHighlights(index);
     mark('effects built');

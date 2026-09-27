@@ -94,7 +94,7 @@ def main() -> None:
         unknown_ir = tmp / "unknown.json"
         write_ir(unknown_ir, [("Future", 0, "FutureMaterial", 0.6)])
         unknown_png = tmp / "unknown.png"
-        proc = run("scene", str(unknown_ir), "--viewport", "240x180", "--view", "front", "--coverage", "--out", str(unknown_png))
+        proc = run("scene", str(unknown_ir), "--viewport", "240x180", "--view", "front", "--out", str(unknown_png))
         assert proc.returncode == 0, proc.stderr
         assert "material-fallbacks=1" in proc.stderr, proc.stderr
 

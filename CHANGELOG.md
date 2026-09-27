@@ -7,6 +7,19 @@
 - The MCP server (`rhr-mcp`, the `mcp` extra) is gone: RHR is a command-line tool only.
   An agent runs `rhr` from its shell, which costs nothing in its context until it is
   run; docs/AGENTS.md is its guide.
+- The interface is settled for 1.0 (docs/interface-1.0.md):
+  - `rhr render` is now **`rhr ui`**, and its default output is `<stem>-ui.png`.
+  - `ui`, `scene` and `preview` take **`--json`**: a report (`rhr.render/1`) with the
+    PNG's path and size, the camera used, what was approximated or missing, and the
+    notes that were only on stderr before.
+  - **`rhr compare`** prints JSON by default, with camelCase keys and `before`/`after`
+    in place of `ref`/`out`: `rhr.compare/2`. Its summary for people is on stderr.
+  - Removed: `rhr particles` (the contact sheet; `--effect-time` shows other moments),
+    `--ir PATH` (use `rhr ir`), and the leftover `--shadows`, `--coverage`, `--time`
+    (use `--effect-time`) and `fetch --use-studio-login`.
+  - `--no-effects` leaves out Beams and Trails too, not only particles.
+  - A command that fails exits 2; 1 now only ever means `check` found errors.
+  - `--texture-dir` and `--mesh-dir` are test hooks, hidden from `--help`.
 
 ## 0.7.0 (alpha)
 

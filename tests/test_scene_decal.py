@@ -113,7 +113,6 @@ def main() -> None:
             "--viewport", "320x240",
             "--view", "back",
             "--texture-dir", str(ASSETS),
-            "--coverage",
             "--out", str(missing_out),
         )
         assert proc.returncode == 0, proc.stderr

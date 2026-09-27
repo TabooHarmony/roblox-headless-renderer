@@ -23,7 +23,7 @@ def main() -> None:
         subprocess.run(
             [
                 *RHR,
-                "render",
+                "ui",
                 str(ROOT / "tests/fixtures/viewport_frame.rbxmx"),
                 "--viewport",
                 "440x336",

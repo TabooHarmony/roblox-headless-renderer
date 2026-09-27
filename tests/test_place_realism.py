@@ -59,7 +59,7 @@ def main() -> int:
     check("ReplicatedStorage/VictoryTemplate/Cover" in rects, "--all-guis lays out the stored ScreenGui too")
 
     png = OUT / "gui.png"
-    proc = rhr("render", str(GUIS), "--viewport", "300x200", "--transparent", "--out", str(png))
+    proc = rhr("ui", str(GUIS), "--viewport", "300x200", "--transparent", "--out", str(png))
     with Image.open(png).convert("RGBA") as img:
         check(proc.returncode == 0 and img.getpixel((150, 150))[3] == 0,
               f"the stored full-screen template does not cover the render ({img.getpixel((150, 150))})")

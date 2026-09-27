@@ -2,8 +2,9 @@
 
 What RHR promises from 1.0 on, and what changes before then. After 1.0, anything
 listed as **contract** here changes only in a major version; everything else may change
-in any release. Status: **proposal, 2026-09-26**, for the maintainer to decide. Items
-marked **Decide** need an answer; the rest are proposed as written.
+in any release. Status: **decided 2026-09-27** (proposed 2026-09-26); the changes are
+in the Unreleased section of the CHANGELOG. Browser items (`RHR_BROWSER`, `setup
+--browser`, the browser in reports) land with RHR's own browser client.
 
 Taken from the code as of v0.7.0 (argparse, `rhr.schema.VERSIONS`, real outputs on the
 test fixtures).
@@ -37,7 +38,7 @@ test fixtures).
 
 | Now | Proposal | Why |
 |---|---|---|
-| `render` (UI to PNG) | **Decide:** rename to `ui` | `render` sounds like "draw anything", but it draws only the ScreenGuis. `ui` / `scene` / `preview` says what each draws. No alias: few users before 1.0, and the upgrade note covers it. |
+| `render` (UI to PNG) | **Decided:** renamed to `ui` (default output `<stem>-ui.png`) | `render` sounds like "draw anything", but it draws only the ScreenGuis. `ui` / `scene` / `preview` says what each draws. No alias: few users before 1.0, and the upgrade note covers it. |
 | `scene` (3D to PNG) | keep | |
 | `preview` (3D + UI) | keep | The one to reach for when unsure; docs/AGENTS.md says so. |
 | `layout` | keep | |
@@ -52,7 +53,7 @@ test fixtures).
 | `cache` | keep | |
 | `browser start/status/stop` | keep as advanced | The warm worker starts by itself; this is for scripts that want control. |
 | `ir` | keep, but **not contract**: its JSON may change in any release | It is RHR's internal format; agents should use `scene-dump`/`layout`. |
-| `particles` (contact sheet) | **Decide:** remove (move to `scripts/`) | A calibration tool; `--effect-time` covers "show another moment". Not used by any test. |
+| `particles` (contact sheet) | **Decided:** removed | A calibration tool; `--effect-time` covers "show another moment". Its checks in tests/test_particles.py now run through `rhr scene`. |
 
 ## Flags to remove or change
 
@@ -60,7 +61,7 @@ test fixtures).
   default), `scene --coverage` (a no-op), `preview --time` (old name of
   `--effect-time`), `fetch --use-studio-login` (the default), `particles --burst`.
 - **`--ir PATH`** (on `render`, `layout`, `hitmap`, `scene`, `scene-dump`, `preview`,
-  `particles`): **Decide:** remove. It saves the internal IR next to the output, a
+  `particles`): **Decided:** removed. It saves the internal IR next to the output, a
   debugging aid; `rhr ir` does the same, and the IR is not contract.
 - **`--texture-dir`, `--mesh-dir`**: keep working (the tests use them) but hide from
   `--help` and leave out of the contract. They are test hooks.
@@ -80,10 +81,10 @@ test fixtures).
 | `rhr.layout-rich/1` | `{model, viewport, nodes: [{path, class, rect, zIndex, paintOrder, visible, clipsDescendants, background, gradient, strokes, ...}]}` | keep |
 | `rhr.check/1` | `{model, findings: [{check, severity, path(s), detail}]}` | keep; list every `check` id in docs/AGENTS.md as contract (new checks may be added) |
 | `rhr.hitmap/1` | `{model, viewport, panes, nodes, hitTests}` | keep |
-| `rhr.scene-dump/1` | `{source, bounds, parts, cameras, lights, beams, trails, terrain, lighting, sky, atmosphere, fallbacks, unsupportedVisualClasses, experimental, ...}` | keep; **drop `experimental`** (always `{}` since 0.6) |
+| `rhr.scene-dump/1` | `{source, bounds, parts, cameras, lights, beams, trails, terrain, lighting, sky, atmosphere, fallbacks, unsupportedVisualClasses, experimental, ...}` | keep, `experimental` included: it flags what is drawn with less checking (Atmosphere, post effects, local lights, decals; materials without Studio). The first draft of this review wrongly called it always empty. |
 | `rhr.compare/1` | snake_case keys | `rhr.compare/2`, camelCase |
 | `rhr.browser/1` | `{running}` | keep; add the browser used |
-| new: `rhr.render/1` | none | the `--json` report of `ui`, `scene`, `preview` (rule 2) |
+| new: `rhr.render/1` | none | the `--json` report of `ui`, `scene`, `preview` (rule 2): `{command, source, out, size, notes}`, plus `screens` (`ui`, `preview`) and `camera {position, lookDirection, fieldOfView}`, `fallbacks`, `materialFallbacks`, `unsupportedVisualClasses`, `experimental`, `missingAssets` (`scene`, `preview`) |
 | `rhr.ir/1` | internal format | not contract |
 
 Each kept schema gets a shape test: a fixture's output checked key by key, so a
@@ -101,10 +102,9 @@ renamed or dropped field fails the suite.
 | `RHR_MCP_WORKER` | removed with the MCP server |
 | `RHR_NEEDS_FRESH_PAGE` | not a variable: an internal error marker |
 
-## Decisions needed
+## Decisions (2026-09-27)
 
-1. Rename `render` to `ui`?
-2. Remove the `particles` command?
-3. Remove `--ir` from the render and data commands?
-4. Picture commands' `--json` report (`rhr.render/1`): add it? (Proposed: yes; it is
-   how the notes become contract instead of stderr text.)
+1. `render` renamed to `ui`.
+2. `particles` removed.
+3. `--ir` removed from the render and data commands.
+4. `--json` report (`rhr.render/1`) added to `ui`, `scene` and `preview`.

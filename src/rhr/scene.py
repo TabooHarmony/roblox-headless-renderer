@@ -10,7 +10,7 @@ import threading
 from pathlib import Path
 from urllib.parse import urlencode, urlparse
 
-from rhr.paths import ICON_CACHE, MESH_CACHE, PACKAGE, PARTICLE_CACHE
+from rhr.paths import ICON_CACHE, MESH_CACHE, PACKAGE
 
 
 
@@ -461,7 +461,7 @@ def render_scene(
 
     Particles are drawn frozen at one moment of the effect playing: `effect_time`
     seconds after it starts, or the fullest moment when None. `effects=False` leaves
-    them out.
+    out particles, Beams and Trails.
     """
     query_values: dict[str, str | float] = {}
     if not effects:
@@ -549,63 +549,4 @@ def render_viewport(
         height,
         "scene/index.html",
         urlencode({"mode": "viewport", "path": node_path}),
-    )
-
-
-def render_particle_sheet(
-    ir_path: Path,
-    out: Path,
-    width: int,
-    height: int,
-    times: list[float],
-    seed: int,
-    burst: int = 0,
-    texture_dir: Path | None = None,
-    *,
-    effects_only: bool = False,
-    camera: tuple[float, float, float] | None = None,
-    look_at: tuple[float, float, float] | None = None,
-    camera_quaternion: tuple[float, float, float, float] | None = None,
-    fov: float | None = None,
-) -> tuple[int, int]:
-    if not times:
-        raise ValueError("particle capture needs at least one time")
-    if any(time < 0 for time in times):
-        raise ValueError("particle capture times must be non-negative")
-    if texture_dir is not None:
-        resolved = texture_dir.resolve()
-        if not resolved.is_dir():
-            raise ValueError(f"no such texture directory: {texture_dir}")
-    asset_roots = [
-        resolved if texture_dir is not None else PARTICLE_CACHE,
-        ICON_CACHE,
-    ]
-    query_values = {
-        "width": width,
-        "height": height,
-        "times": ",".join(str(time) for time in times),
-        "seed": seed,
-        "burst": burst,
-    }
-    if effects_only:
-        query_values["effectsOnly"] = "1"
-    if camera is not None:
-        query_values["camera"] = _vector_query(camera)
-    if look_at is not None:
-        query_values["lookAt"] = _vector_query(look_at)
-    if camera_quaternion is not None:
-        query_values["cameraQuaternion"] = ",".join(
-            f"{component:.9g}" for component in camera_quaternion
-        )
-    if fov is not None:
-        query_values["fov"] = fov
-    query = urlencode(query_values)
-    return _render_browser(
-        ir_path,
-        out,
-        width,
-        height * len(times),
-        "particles/index.html",
-        query,
-        asset_files=_asset_files(asset_roots),
     )

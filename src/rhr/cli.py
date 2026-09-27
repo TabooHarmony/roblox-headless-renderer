@@ -1,27 +1,19 @@
 """rhr: the command line for this renderer.
 
-    rhr ir     <model>                 --out ir.json
-    rhr render <model|ir.json>         [--out out.png] [--viewport 1615x1080]
-                                       [--transparent] [--background RRGGBB]
-                                       [--ir out.json] [--dump-layout layout.json]
-    rhr layout <model|ir.json>         [--viewport 1615x1080] [--out layout.json]
-                                       [--rich]
-    rhr hitmap <model|ir.json>         [--viewport 1615x1080] [--out hitmap.json]
-    rhr scene  <model|ir.json>         [--out out.png] [--viewport 1615x1080]
-    rhr scene-dump <model|ir.json>      [--out scene.json]
-    rhr preview <model|ir.json>         [--out preview.png] [scene camera options]
-    rhr particles <model|ir.json>      [--times 0,0.5,1] [--out sheet.png]
+    rhr ui      <file>   the ScreenGuis (2D UI) to PNG
+    rhr scene   <file>   the 3D world to PNG
+    rhr preview <file>   the 3D world with the UI over it, to PNG
+    rhr layout | check | hitmap | scene-dump <file>   JSON
+    rhr compare <before.png> <after.png>              JSON
+    rhr ir <file> --out ir.json                       RHR's internal format (not stable)
 
-Everything the test harness does, a human can do from here: real files, real
-timings, and the layout dump is the measurement the renderer exists to get right.
+Input is a Roblox model or place (.rbxm/.rbxmx/.rbxl/.rbxlx), a Rojo project, or
+an IR JSON file. The public interface is listed in docs/interface-1.0.md.
 
-Input is either a Roblox model (.rbxm/.rbxmx/.rbxl/.rbxlx), which is dumped to our
-IR with lune + rbx-dom first, or an IR JSON file already on disk. Reasoning about
-an IR file twice does not need to re-run rbx-dom, so `--ir` (and `render` on a
-.json) lets a caller cache it.
-
-Machine-readable habit: JSON goes to stdout, progress and timings to stderr, so
-`rhr layout model.rbxm > layout.json` is safe.
+Output rules: data commands print one JSON document on stdout (or write it with
+`--out`); picture commands print the PNG's path, or with `--json` a report
+(`rhr.render/1`). Progress and notes go to stderr, for people. Exit codes: 0 done,
+1 only from `check` (error findings), 2 the command failed.
 """
 
 from __future__ import annotations
@@ -62,16 +54,6 @@ def parse_viewport(text: str) -> tuple[int, int]:
     return width, height
 
 
-def parse_times(text: str) -> list[float]:
-    try:
-        values = [float(part.strip()) for part in text.split(",") if part.strip()]
-    except ValueError:
-        raise argparse.ArgumentTypeError(f"times must be comma-separated numbers, got {text!r}") from None
-    if not values or any(not math.isfinite(value) or value < 0 for value in values):
-        raise argparse.ArgumentTypeError(f"times must contain non-negative finite numbers, got {text!r}")
-    return values
-
-
 def parse_vector3(text: str) -> tuple[float, float, float]:
     try:
         values = tuple(float(part.strip()) for part in text.split(","))
@@ -92,16 +74,6 @@ def parse_fov(text: str) -> float:
     return value
 
 
-def parse_nonnegative_int(text: str) -> int:
-    try:
-        value = int(text)
-    except ValueError:
-        raise argparse.ArgumentTypeError(f"expected a non-negative integer, got {text!r}") from None
-    if value < 0:
-        raise argparse.ArgumentTypeError(f"expected a non-negative integer, got {text!r}")
-    return value
-
-
 def parse_background(text: str) -> tuple[int, int, int, int]:
     raw = text.lstrip("#")
     if len(raw) == 8:  # RRGGBBAA
@@ -113,13 +85,14 @@ def parse_background(text: str) -> tuple[int, int, int, int]:
     raise argparse.ArgumentTypeError(f"background must be RRGGBB or RRGGBBAA, got {text!r}")
 
 
-def ir_for(source: Path, ir_out: Path | None, *, profile: str = "full") -> Path:
-    """IR JSON for `source`: the file itself if it is IR, else a fresh lune dump.
+def ir_for(source: Path, *, profile: str = "full") -> Path:
+    """IR JSON for `source`: the file itself if it is IR, else the cached conversion
+    (made again when the file changed).
 
     `source` may also be a Rojo project (a *.project.json file or a directory with
     default.project.json), which is built with `rojo build` first.
     """
-    from rhr.ir import cached_ir, emit_ir, load_ir
+    from rhr.ir import cached_ir, load_ir
     from rhr import rojo
 
     project = rojo.project_file(source)
@@ -133,22 +106,63 @@ def ir_for(source: Path, ir_out: Path | None, *, profile: str = "full") -> Path:
             f"{source} is neither a Roblox file ({', '.join(sorted(MODEL_SUFFIXES))}), "
             "a Rojo project, nor an IR .json file"
         )
-    if ir_out is None:
-        return cached_ir(source, profile=profile)
-    return emit_ir(source, ir_out, profile=profile)
+    return cached_ir(source, profile=profile)
 
 
-def _stored_gui_note(ir_path) -> None:
-    """Say which ScreenGuis a place keeps outside StarterGui and so were not drawn."""
+def _stored_gui_note(ir_path) -> str | None:
+    """Which ScreenGuis a place keeps outside StarterGui and so were not drawn (printed
+    to stderr, and returned for the --json report)."""
     from rhr.adapter import ir_to_raw_nodes
     from rhr.ir import load_ir
     from rhr.pipeline import shown_ui_roots
 
     _, hidden = shown_ui_roots(ir_to_raw_nodes(load_ir(ir_path)))
-    if hidden:
-        names = ", ".join(hidden[:4]) + (f", +{len(hidden) - 4} more" if len(hidden) > 4 else "")
-        print(f"note   {len(hidden)} ScreenGui(s) stored outside StarterGui not drawn "
-              f"(scripts clone them in at run time; --all-guis draws them): {names}", file=sys.stderr)
+    if not hidden:
+        return None
+    names = ", ".join(hidden[:4]) + (f", +{len(hidden) - 4} more" if len(hidden) > 4 else "")
+    note = (f"{len(hidden)} ScreenGui(s) stored outside StarterGui not drawn "
+            f"(scripts clone them in at run time; --all-guis draws them): {names}")
+    print(f"note   {note}", file=sys.stderr)
+    return note
+
+
+def _finish_picture(args, report: dict) -> int:
+    """A picture command's stdout: the PNG's path, or with --json the whole report."""
+    if args.json:
+        print(json.dumps(stamp("render", report), indent=2, sort_keys=True))
+    else:
+        print(report["out"])
+    return 0
+
+
+def _camera_json(state: dict) -> dict | None:
+    """The camera a 3D render used: position, the direction it looks and its vertical
+    field of view. None when the page did not report it."""
+    try:
+        x, y, z, w = (float(v) for v in state["quaternion"])
+        # The camera looks along its -Z axis, rotated by the quaternion.
+        look = [-(2 * (x * z + w * y)), -(2 * (y * z - w * x)), -(1 - 2 * (x * x + y * y))]
+        return {
+            "position": [round(float(v), 4) for v in state["position"]],
+            "lookDirection": [round(v, 6) + 0.0 for v in look],  # + 0.0: no -0.0
+            "fieldOfView": round(float(state["fov"]), 4),
+        }
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
+def _world_report(scene_dump: dict) -> dict:
+    """What a 3D render approximated or could not draw, from its scene dump."""
+    return {
+        "fallbacks": scene_dump["fallbacks"],
+        "materialFallbacks": scene_dump["materialFallbacks"],
+        "unsupportedVisualClasses": scene_dump["unsupportedVisualClasses"],
+        "experimental": scene_dump["experimental"],
+        "missingAssets": [
+            {"path": item["path"], "class": item["class"], "uri": item.get("uri")}
+            for item in scene_dump["assetReferences"] if not item["available"]
+        ],
+    }
 
 
 def rect_to_dict(rect) -> dict:
@@ -160,7 +174,12 @@ def rect_to_dict(rect) -> dict:
     return {"x": round(x, 3), "y": round(y, 3), "w": round(w, 3), "h": round(h, 3)}
 
 
-def _render(args) -> int:
+def _inset_json(inset) -> dict:
+    return {"mode": inset.mode, "top": inset.top, "left": inset.left, "right": inset.right,
+            "bottom": inset.bottom}
+
+
+def _ui(args) -> int:
     from rhr.pipeline import load_screens, render_screens
 
     source = Path(args.file)
@@ -168,12 +187,12 @@ def _render(args) -> int:
         return _die(f"no such file: {source}")
     width, height = args.viewport
     bg = (0, 0, 0, 0) if args.transparent else args.background
-    out = Path(args.out) if args.out else Path(f"{source.stem}.png")
+    out = Path(args.out) if args.out else Path(f"{source.stem}-ui.png")
     rect_map: dict = {} if args.dump_layout else None
 
     t0 = time.perf_counter()
     try:
-        ir_path = ir_for(source, Path(args.ir) if args.ir else None)
+        ir_path = ir_for(source)
     except (ValueError, RuntimeError) as exc:
         return _die(str(exc))
     _prepare_ui_images(ir_path, args.offline)
@@ -195,11 +214,11 @@ def _render(args) -> int:
     if len(screens) > 1:
         print(f"panes  {len(screens)} ScreenGuis rendered in paint order", file=sys.stderr)
     print(
-        f"render {png}  {width}x{height}  {int((t_render - t_ir) * 1000)}ms",
+        f"ui     {png}  {width}x{height}  {int((t_render - t_ir) * 1000)}ms",
         file=sys.stderr,
     )
     print(f"total  {int((t_render - t0) * 1000)}ms", file=sys.stderr)
-    _stored_gui_note(ir_path)
+    stored = _stored_gui_note(ir_path)
 
     if rect_map is not None:
         layout = {path: rect_to_dict(rect) for path, rect in rect_map.items()}
@@ -208,14 +227,16 @@ def _render(args) -> int:
         Path(args.dump_layout).write_text(json.dumps(document, indent=2, sort_keys=True), encoding="utf-8")
         print(f"layout {args.dump_layout}  {len(layout)} rects", file=sys.stderr)
         if not layout and screens:
-            print(
-                "rhr: the layout dump is empty. That is a bug in the pipeline, not an "
-                "empty UI: nodes reach the renderer without a _path.",
-                file=sys.stderr,
-            )
-            return 1
-    print(png)
-    return 0
+            return _die("the layout dump is empty. That is a bug in the pipeline, not an "
+                        "empty UI: nodes reach the renderer without a _path.")
+    return _finish_picture(args, {
+        "command": "ui",
+        "source": str(source),
+        "out": str(png),
+        "size": [width, height],
+        "screens": [{"name": name, "inset": _inset_json(inset)} for _, _, inset, name in screens],
+        "notes": [stored] if stored else [],
+    })
 
 
 def _layout(args) -> int:
@@ -226,14 +247,13 @@ def _layout(args) -> int:
         return _die(f"no such file: {source}")
     width, height = args.viewport
     try:
-        ir_path = ir_for(source, Path(args.ir) if args.ir else None)
+        ir_path = ir_for(source)
         screens = load_screens(str(ir_path), width, height, args.topbar_height)
     except (ValueError, RuntimeError) as exc:
         return _die(str(exc))
 
-    # --rich is Task 2.1's structured dump: the same paint pass, plus what each
-    # node is made of (zIndex, visibility, resolved colours, text, clip state).
-    # Plain `rhr layout` stays exactly what Phase 1 shipped.
+    # --rich: the same paint pass, plus what each node is made of (zIndex,
+    # visibility, resolved colours, text, clip state). Plain `rhr layout` is rects only.
     if args.rich:
         from rhr.layout_dump import build_dump, dump_json
 
@@ -245,12 +265,8 @@ def _layout(args) -> int:
         # Same guard as the plain path: an empty dump is a pipeline bug, not an
         # empty UI — nodes reached the renderer without a _path.
         if not count and screens:
-            print(
-                "rhr: the structured dump is empty. That is a bug in the pipeline, "
-                "not an empty UI: nodes reached the renderer without a _path.",
-                file=sys.stderr,
-            )
-            return 1
+            return _die("the structured dump is empty. That is a bug in the pipeline, "
+                        "not an empty UI: nodes reached the renderer without a _path.")
         if args.out:
             Path(args.out).parent.mkdir(parents=True, exist_ok=True)
             Path(args.out).write_text(text, encoding="utf-8")
@@ -278,8 +294,7 @@ def _layout(args) -> int:
         print(f"inset  {label}{inset.describe()}", file=sys.stderr)
     layout = {path: rect_to_dict(rect) for path, rect in rect_map.items()}
     if not layout and screens:
-        print("rhr: no rects resolved: nodes reached the renderer without a _path", file=sys.stderr)
-        return 1
+        return _die("no rects resolved: nodes reached the renderer without a _path")
     # JSON on stdout, the count on stderr, so `rhr layout model.rbxm | jq` works.
     print(f"layout {len(layout)} rects", file=sys.stderr)
     _stored_gui_note(ir_path)
@@ -339,7 +354,7 @@ def _fetch(args) -> int:
     if not source.exists():
         return _die(f"no such file: {source}")
     try:
-        ir_path = ir_for(source, None)
+        ir_path = ir_for(source)
     except (ValueError, RuntimeError) as exc:
         return _die(str(exc))
     return fetch.run(ir_path, images=not args.meshes_only, meshes=not args.images_only,
@@ -382,7 +397,7 @@ def _check(args) -> int:
     width, height = args.viewport
     t0 = time.perf_counter()
     try:
-        result = check_model(ir_for(source, None), width, height, topbar_height=args.topbar_height)
+        result = check_model(ir_for(source), width, height, topbar_height=args.topbar_height)
     except (ValueError, RuntimeError, OSError) as exc:
         return _die(str(exc))
     elapsed = int((time.perf_counter() - t0) * 1000)
@@ -433,11 +448,9 @@ def _compare(args) -> int:
         if not path.exists():
             return _die(f"no such file: {path}")
     metrics = compare(before, after, bg=args.background[:3], silhouette_threshold=args.silhouette_threshold)
-    if args.json:
-        print(json.dumps(stamp("compare", metrics), indent=2, sort_keys=True))
-    else:
-        print(format_report(metrics))
-    return 0 if metrics.get("size_match") else 2
+    print(json.dumps(stamp("compare", metrics), indent=2, sort_keys=True))
+    print(format_report(metrics), file=sys.stderr)
+    return 0 if metrics.get("sizeMatch") else 2
 
 
 def _hitmap(args) -> int:
@@ -449,7 +462,7 @@ def _hitmap(args) -> int:
     width, height = args.viewport
     t0 = time.perf_counter()
     try:
-        ir_path = ir_for(source, Path(args.ir) if args.ir else None)
+        ir_path = ir_for(source)
         hitmap = build_hitmap(ir_path, width, height, topbar_height=args.topbar_height)
     except (ValueError, RuntimeError) as exc:
         return _die(str(exc))
@@ -484,10 +497,11 @@ def _scene(args) -> int:
         from rhr.profile import phase
 
         with phase("file conversion (IR)"):
-            ir_path = ir_for(source, Path(args.ir) if args.ir else None, profile="static")
+            ir_path = ir_for(source, profile="static")
         with phase("downloads check"):
             _prepare_scene_assets(ir_path, args.offline)
         page_notes: list[str] = []
+        camera_state: dict = {}
         with phase("browser render (total)"):
             actual = render_scene(
                 ir_path,
@@ -503,6 +517,7 @@ def _scene(args) -> int:
                 flat_materials=args.flat_materials,
                 texture_dir=texture_dir,
                 mesh_dir=mesh_dir,
+                camera_state_out=camera_state,
                 notes_out=page_notes,
                 effects=not args.no_effects,
                 effect_time=args.effect_time,
@@ -511,17 +526,24 @@ def _scene(args) -> int:
         from rhr.scene_dump import build_scene_dump, notes_line
 
         with phase("notes (scene dump)"):
-            notes = notes_line(build_scene_dump(ir_path, texture_dir=texture_dir, mesh_dir=mesh_dir))
+            scene_dump = build_scene_dump(ir_path, texture_dir=texture_dir, mesh_dir=mesh_dir)
     except (ValueError, RuntimeError, OSError) as exc:
         return _die(str(exc))
     elapsed = int((time.perf_counter() - t0) * 1000)
     print(f"ir     {ir_path}", file=sys.stderr)
     print(f"scene  {out}  {actual[0]}x{actual[1]}  {elapsed}ms", file=sys.stderr)
-    print(notes, file=sys.stderr)
+    print(notes_line(scene_dump), file=sys.stderr)
     for note in page_notes:
         print(f"note   {note}", file=sys.stderr)
-    print(out)
-    return 0
+    return _finish_picture(args, {
+        "command": "scene",
+        "source": str(source),
+        "out": str(out),
+        "size": list(actual),
+        "camera": _camera_json(camera_state),
+        **_world_report(scene_dump),
+        "notes": page_notes,
+    })
 
 
 def _preview(args) -> int:
@@ -538,13 +560,14 @@ def _preview(args) -> int:
     mesh_dir = Path(args.mesh_dir) if args.mesh_dir else None
     t0 = time.perf_counter()
     try:
-        ir_path = ir_for(source, Path(args.ir) if args.ir else None, profile="static")
+        ir_path = ir_for(source, profile="static")
         _prepare_scene_assets(ir_path, args.offline)
         with tempfile.TemporaryDirectory(prefix="rhr-preview-") as directory:
             tmp = Path(directory)
             world = tmp / "world.png"
             ui = tmp / "ui.png"
             page_notes: list[str] = []
+            camera_state: dict = {}
             render_scene(
                 ir_path,
                 world,
@@ -559,6 +582,7 @@ def _preview(args) -> int:
                 flat_materials=args.flat_materials,
                 texture_dir=texture_dir,
                 mesh_dir=mesh_dir,
+                camera_state_out=camera_state,
                 notes_out=page_notes,
                 effects=not args.no_effects,
                 effect_time=args.effect_time,
@@ -590,16 +614,26 @@ def _preview(args) -> int:
     elapsed = int((time.perf_counter() - t0) * 1000)
     print(f"ir      {ir_path}", file=sys.stderr)
     print(f"preview {out}  {width}x{height}  {elapsed}ms", file=sys.stderr)
-    try:
-        from rhr.scene_dump import build_scene_dump, notes_line
+    from rhr.scene_dump import build_scene_dump, notes_line
 
-        print(notes_line(build_scene_dump(ir_path)), file=sys.stderr)
+    try:
+        scene_dump = build_scene_dump(ir_path, texture_dir=texture_dir, mesh_dir=mesh_dir)
     except (ValueError, RuntimeError, OSError) as exc:
-        print(f"notes  unavailable: {exc}", file=sys.stderr)
+        return _die(f"the picture was written, but reading back what it approximated failed: {exc}")
+    print(notes_line(scene_dump), file=sys.stderr)
     for note in page_notes:
         print(f"note    {note}", file=sys.stderr)
-    print(out)
-    return 0
+    stored = _stored_gui_note(ir_path)
+    return _finish_picture(args, {
+        "command": "preview",
+        "source": str(source),
+        "out": str(out),
+        "size": [width, height],
+        "camera": _camera_json(camera_state),
+        "screens": [{"name": name, "inset": _inset_json(inset)} for _, _, inset, name in screens],
+        **_world_report(scene_dump),
+        "notes": page_notes + ([stored] if stored else []),
+    })
 
 
 def _scene_dump(args) -> int:
@@ -610,7 +644,7 @@ def _scene_dump(args) -> int:
         return _die(f"no such file: {source}")
     t0 = time.perf_counter()
     try:
-        ir_path = ir_for(source, Path(args.ir) if args.ir else None)
+        ir_path = ir_for(source)
         scene_dump = build_scene_dump(
             ir_path,
             texture_dir=Path(args.texture_dir) if args.texture_dir else None,
@@ -637,37 +671,26 @@ def _scene_dump(args) -> int:
     return 0
 
 
-def _particles(args) -> int:
-    from rhr.scene import render_particle_sheet
-
-    source = Path(args.file)
-    if not source.exists():
-        return _die(f"no such file: {source}")
-    width, height = args.viewport
-    out = Path(args.out) if args.out else Path(f"{source.stem}-particles.png")
-    t0 = time.perf_counter()
-    try:
-        ir_path = ir_for(source, Path(args.ir) if args.ir else None, profile="visual")
-        actual = render_particle_sheet(
-            ir_path, out, width, height, args.times, args.seed, args.burst,
-            Path(args.texture_dir) if args.texture_dir else None,
-        )
-    except (ValueError, RuntimeError, OSError) as exc:
-        return _die(str(exc))
-    elapsed = int((time.perf_counter() - t0) * 1000)
-    print(f"ir       {ir_path}", file=sys.stderr)
-    print(f"particles {out}  {actual[0]}x{actual[1]}  {len(args.times)} frames  burst={args.burst}  {elapsed}ms", file=sys.stderr)
-    print(out)
-    return 0
-
-
 def _effect_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--effect-time", type=float, metavar="T",
                         help="draw effects T seconds after they start playing: particles, and "
                              "how far Beam textures have scrolled (default: the moment "
                              "with the most particles on show)")
-    parser.add_argument("--no-effects", action="store_true", help="leave particles out")
+    parser.add_argument("--no-effects", action="store_true",
+                        help="leave out particles, Beams and Trails")
     parser.add_argument("--seed", type=int, default=0, help="particle randomness seed")
+
+
+def _picture_arguments(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--json", action="store_true",
+                        help="print a JSON report (rhr.render/1: the PNG's path and size, the camera, "
+                             "what was approximated or missing, notes) instead of the path")
+
+
+def _test_hooks(parser: argparse.ArgumentParser) -> None:
+    """Local asset folders the tests use instead of downloads. Not part of the interface."""
+    parser.add_argument("--texture-dir", help=argparse.SUPPRESS)
+    parser.add_argument("--mesh-dir", help=argparse.SUPPRESS)
 
 
 def _cache(args) -> int:
@@ -715,7 +738,6 @@ def build_parser() -> argparse.ArgumentParser:
     p_fetch.add_argument(
         "--no-studio-login", action="store_true",
         help="only fetch what Roblox serves without signing in (images as thumbnails, some meshes)")
-    p_fetch.add_argument("--use-studio-login", action="store_true", help=argparse.SUPPRESS)
     p_fetch.set_defaults(func=_fetch)
 
     p_doctor = sub.add_parser("doctor", help="check what RHR needs and say what is missing")
@@ -723,49 +745,50 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_cache = sub.add_parser("cache", help="show how much RHR's cache holds, or clear part of it")
     p_cache.add_argument("--clear", metavar="AREA",
-                         help="remove one area (images, meshes, unions, materials, particles, studio, ir) "
+                         help="remove one area (images, meshes, unions, materials, studio, ir) "
                               "or all of them; it is downloaded or converted again when needed")
     p_cache.set_defaults(func=_cache)
 
-    p_ir = sub.add_parser("ir", help="dump our IR for a Roblox model")
+    p_ir = sub.add_parser("ir", help="write RHR's internal form of a file (for debugging; its shape may change in any release)")
     p_ir.add_argument("file", help=".rbxm/.rbxmx/.rbxl/.rbxlx")
     p_ir.add_argument("--out", required=True, help="where to write the IR JSON")
     p_ir.set_defaults(func=_ir)
 
-    p_render = sub.add_parser("render", help="render a model or an IR file to PNG")
-    p_render.add_argument("file", help="Roblox model or IR .json")
-    p_render.add_argument("--out", help="PNG path (default: <input stem>.png)")
-    p_render.add_argument("--viewport", type=parse_viewport, default=DEFAULT_VIEWPORT,
-                          help="WxH (default: 1615x1080)")
-    p_render.add_argument("--transparent", action="store_true",
-                          help="alpha background instead of an opaque one")
-    p_render.add_argument("--background", type=parse_background, default=(255, 255, 255, 255),
-                          help="RRGGBB or RRGGBBAA (default: ffffff)")
-    p_render.add_argument("--ir", help="where to write the IR when the input is a model")
-    p_render.add_argument("--dump-layout", help="write resolved rects as JSON here")
-    p_render.add_argument(
+    p_ui = sub.add_parser("ui", help="draw the ScreenGuis (2D UI) to PNG")
+    p_ui.add_argument("file", help="Roblox model/place, Rojo project, or IR .json")
+    p_ui.add_argument("--out", help="PNG path (default: <input stem>-ui.png)")
+    p_ui.add_argument("--viewport", type=parse_viewport, default=DEFAULT_VIEWPORT,
+                      help="WxH (default: 1615x1080)")
+    p_ui.add_argument("--transparent", action="store_true",
+                      help="alpha background instead of an opaque one")
+    p_ui.add_argument("--background", type=parse_background, default=(255, 255, 255, 255),
+                      help="RRGGBB or RRGGBBAA (default: ffffff)")
+    p_ui.add_argument("--dump-layout", metavar="PATH",
+                      help="also write the resolved rects here (rhr.layout/1)")
+    p_ui.add_argument(
         "--topbar-height",
         type=float,
         default=None,
         help="top bar inset in px for a CoreUISafeInsets ScreenGui (default: 58, "
              "see docs/known-approximations.md)",
     )
-    p_render.add_argument("--all-guis", action="store_true",
-                         help="in a place, also draw ScreenGuis stored outside StarterGui (templates scripts clone in)")
-    p_render.add_argument("--offline", action="store_true",
-                          help="do not download missing images first (also: RHR_OFFLINE=1)")
-    p_render.set_defaults(func=_render)
+    p_ui.add_argument("--all-guis", action="store_true",
+                      help="in a place, also draw ScreenGuis stored outside StarterGui (templates scripts clone in)")
+    p_ui.add_argument("--offline", action="store_true",
+                      help="do not download missing images first (also: RHR_OFFLINE=1)")
+    _picture_arguments(p_ui)
+    p_ui.set_defaults(func=_ui)
 
     p_layout = sub.add_parser("layout", help="resolved rect per node, as JSON")
-    p_layout.add_argument("file", help="Roblox model or IR .json")
-    p_layout.add_argument("--viewport", type=parse_viewport, default=DEFAULT_VIEWPORT)
+    p_layout.add_argument("file", help="Roblox model/place, Rojo project, or IR .json")
+    p_layout.add_argument("--viewport", type=parse_viewport, default=DEFAULT_VIEWPORT,
+                          help="WxH (default: 1615x1080)")
     p_layout.add_argument("--out", help="write JSON here instead of stdout")
-    p_layout.add_argument("--ir", help="cache the IR dump here when the input is a model")
     p_layout.add_argument(
         "--rich",
         action="store_true",
-        help="the structured dump (Task 2.1): per node, class, rect, zIndex, "
-             "visible, resolved colours, text, font size and clip state",
+        help="per node also its class, zIndex, paint order, visibility, resolved colours, "
+             "gradient, strokes, text and clip state (rhr.layout-rich/1)",
     )
     p_layout.add_argument(
         "--topbar-height",
@@ -774,12 +797,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="top bar inset in px for a CoreUISafeInsets ScreenGui (default: 58)",
     )
     p_layout.add_argument("--all-guis", action="store_true",
-                         help="in a place, also draw ScreenGuis stored outside StarterGui (templates scripts clone in)")
+                          help="in a place, also draw ScreenGuis stored outside StarterGui (templates scripts clone in)")
     p_layout.set_defaults(func=_layout)
 
-    p_check = sub.add_parser("check", help="model smells that should fail a build, as JSON findings")
-    p_check.add_argument("file", help="Roblox model or IR .json")
-    p_check.add_argument("--viewport", type=parse_viewport, default=DEFAULT_VIEWPORT)
+    p_check = sub.add_parser("check", help="model smells that should fail a build, as JSON findings "
+                                          "(exit 1 when any is an error)")
+    p_check.add_argument("file", help="Roblox model/place, Rojo project, or IR .json")
+    p_check.add_argument("--viewport", type=parse_viewport, default=DEFAULT_VIEWPORT,
+                         help="WxH (default: 1615x1080)")
     p_check.add_argument("--out", help="write JSON here instead of stdout")
     p_check.add_argument(
         "--topbar-height",
@@ -791,25 +816,27 @@ def build_parser() -> argparse.ArgumentParser:
                          help="in a place, also draw ScreenGuis stored outside StarterGui (templates scripts clone in)")
     p_check.set_defaults(func=_check)
 
-    p_browser = sub.add_parser("browser", help="manage the optional persistent Chromium render worker")
+    p_browser = sub.add_parser("browser", help="start, stop or ask about the warm 3D browser worker "
+                                              "(it starts by itself on the first 3D render)")
     p_browser.add_argument("action", choices=("start", "status", "stop"))
     p_browser.set_defaults(func=_browser)
 
-    p_compare = sub.add_parser("compare", help="measure pixel and silhouette changes between two PNGs")
+    p_compare = sub.add_parser("compare", help="pixel and silhouette changes between two PNGs, as JSON")
     p_compare.add_argument("before", help="reference/before PNG")
     p_compare.add_argument("after", help="after PNG")
     p_compare.add_argument("--background", type=parse_background, default=(32, 36, 43, 255),
                            help="RRGGBB background used to flatten alpha (default: 20242b)")
     p_compare.add_argument("--silhouette-threshold", type=float, default=8.0,
                            help="max-channel distance from background that counts as silhouette (default: 8)")
-    p_compare.add_argument("--json", action="store_true", help="emit machine-readable JSON")
+    # JSON is the default since 1.0; the old switch is accepted and does nothing.
+    p_compare.add_argument("--json", action="store_true", help=argparse.SUPPRESS)
     p_compare.set_defaults(func=_compare)
 
     p_hitmap = sub.add_parser("hitmap", help="interactive GUI hit regions, as JSON")
-    p_hitmap.add_argument("file", help="Roblox model or IR .json")
-    p_hitmap.add_argument("--viewport", type=parse_viewport, default=DEFAULT_VIEWPORT)
+    p_hitmap.add_argument("file", help="Roblox model/place, Rojo project, or IR .json")
+    p_hitmap.add_argument("--viewport", type=parse_viewport, default=DEFAULT_VIEWPORT,
+                          help="WxH (default: 1615x1080)")
     p_hitmap.add_argument("--out", help="write JSON here instead of stdout")
-    p_hitmap.add_argument("--ir", help="cache the IR dump here when the input is a model")
     p_hitmap.add_argument(
         "--topbar-height",
         type=float,
@@ -817,73 +844,37 @@ def build_parser() -> argparse.ArgumentParser:
         help="top bar inset in px for a CoreUISafeInsets ScreenGui (default: 58)",
     )
     p_hitmap.add_argument("--all-guis", action="store_true",
-                         help="in a place, also draw ScreenGuis stored outside StarterGui (templates scripts clone in)")
+                          help="in a place, also draw ScreenGuis stored outside StarterGui (templates scripts clone in)")
     p_hitmap.set_defaults(func=_hitmap)
 
-    p_scene = sub.add_parser("scene", help="render 3D Parts through headless Chromium")
-    p_scene.add_argument("file", help="Roblox model or IR .json")
+    p_scene = sub.add_parser("scene", help="draw the 3D world to PNG")
+    p_scene.add_argument("file", help="Roblox model/place, Rojo project, or IR .json")
     p_scene.add_argument("--out", help="PNG path (default: <input stem>-scene.png)")
     p_scene.add_argument("--viewport", type=parse_viewport, default=DEFAULT_VIEWPORT,
                          help="WxH (default: 1615x1080)")
-    p_scene.add_argument("--ir", help="cache the IR dump here when the input is a model")
-    p_scene.add_argument("--camera", type=parse_vector3, metavar="X,Y,Z",
-                         help="override camera world position")
-    p_scene.add_argument("--look-at", type=parse_vector3, metavar="X,Y,Z",
-                         help="aim the camera at this world point")
-    p_scene.add_argument("--fov", type=parse_fov, help="override vertical field of view in degrees")
-    p_scene.add_argument("--focus", metavar="PATH",
-                         help="auto-frame this exact IR path (use scene-dump to discover paths)")
-    p_scene.add_argument("--view", choices=("iso", "front", "back", "left", "right", "top"),
-                         help="auto-frame the focus target, or the whole scene when --focus is omitted")
-    p_scene.add_argument("--shadows", action="store_true", help=argparse.SUPPRESS)
-    p_scene.add_argument("--no-shadows", action="store_true",
-                         help="no sun shadows (they are on by default, as in Studio)")
-    p_scene.add_argument("--flat-materials", action="store_true",
-                         help="plain colours: no material textures (brick, wood, grass...)")
-    p_scene.add_argument("--texture-dir",
-                         help="local directory containing <asset_id>.<ext> textures/decals")
-    p_scene.add_argument("--mesh-dir",
-                         help="local directory containing decompressed <asset_id>.mesh files")
-    p_scene.add_argument("--coverage", action="store_true",
-                         help="no-op: the fallback/experimental notes line is always printed")
+    _camera_arguments(p_scene)
     p_scene.add_argument("--offline", action="store_true",
                          help="do not download missing assets first (also: RHR_OFFLINE=1)")
     _effect_arguments(p_scene)
+    _picture_arguments(p_scene)
+    _test_hooks(p_scene)
     p_scene.set_defaults(func=_scene)
 
-    p_scene_dump = sub.add_parser("scene-dump", help="machine-readable static 3D geometry and fallback summary")
-    p_scene_dump.add_argument("file", help="Roblox model or IR .json")
+    p_scene_dump = sub.add_parser("scene-dump", help="the 3D world as JSON: parts, cameras, lights, "
+                                                    "effects, and what is approximated or missing")
+    p_scene_dump.add_argument("file", help="Roblox model/place, Rojo project, or IR .json")
     p_scene_dump.add_argument("--out", help="write JSON here instead of stdout")
-    p_scene_dump.add_argument("--ir", help="cache the IR dump here when the input is a model")
-    p_scene_dump.add_argument("--texture-dir",
-                              help="local directory containing <asset_id>.<ext> textures/decals")
-    p_scene_dump.add_argument("--mesh-dir",
-                              help="local directory containing decompressed <asset_id>.mesh files")
+    _test_hooks(p_scene_dump)
     p_scene_dump.set_defaults(func=_scene_dump)
 
-    p_preview = sub.add_parser("preview", help="compose static 3D world/in-world UI with ScreenGui")
-    p_preview.add_argument("file", help="Roblox model or IR .json")
+    p_preview = sub.add_parser("preview", help="draw the 3D world with in-world UI and the ScreenGuis "
+                                              "over it, to PNG (the one to use when unsure)")
+    p_preview.add_argument("file", help="Roblox model/place, Rojo project, or IR .json")
     p_preview.add_argument("--out", help="PNG path (default: <input stem>-preview.png)")
     p_preview.add_argument("--viewport", type=parse_viewport, default=DEFAULT_VIEWPORT,
                            help="WxH (default: 1615x1080)")
-    p_preview.add_argument("--ir", help="cache the IR dump here when the input is a model")
-    p_preview.add_argument("--camera", type=parse_vector3, metavar="X,Y,Z",
-                           help="override camera world position")
-    p_preview.add_argument("--look-at", type=parse_vector3, metavar="X,Y,Z",
-                           help="aim the camera at this world point")
-    p_preview.add_argument("--fov", type=parse_fov, help="override vertical field of view in degrees")
-    p_preview.add_argument("--focus", metavar="PATH", help="auto-frame this exact IR path")
-    p_preview.add_argument("--view", choices=("iso", "front", "back", "left", "right", "top"),
-                           help="auto-frame the focus target or whole scene")
-    p_preview.add_argument("--shadows", action="store_true", help=argparse.SUPPRESS)
-    p_preview.add_argument("--no-shadows", action="store_true",
-                           help="no sun shadows (they are on by default, as in Studio)")
-    p_preview.add_argument("--flat-materials", action="store_true",
-                           help="plain colours: no material textures (brick, wood, grass...)")
-    p_preview.add_argument("--texture-dir", help="local directory containing <asset_id>.<ext> textures/decals")
-    p_preview.add_argument("--mesh-dir", help="local directory containing decompressed <asset_id>.mesh files")
+    _camera_arguments(p_preview)
     _effect_arguments(p_preview)
-    p_preview.add_argument("--time", type=float, dest="effect_time", help=argparse.SUPPRESS)
     p_preview.add_argument(
         "--topbar-height",
         type=float,
@@ -891,25 +882,29 @@ def build_parser() -> argparse.ArgumentParser:
         help="top bar inset in px for ScreenGui composition (default: 58)",
     )
     p_preview.add_argument("--all-guis", action="store_true",
-                         help="in a place, also draw ScreenGuis stored outside StarterGui (templates scripts clone in)")
+                           help="in a place, also draw ScreenGuis stored outside StarterGui (templates scripts clone in)")
     p_preview.add_argument("--offline", action="store_true",
-                         help="do not download missing assets first (also: RHR_OFFLINE=1)")
+                           help="do not download missing assets first (also: RHR_OFFLINE=1)")
+    _picture_arguments(p_preview)
+    _test_hooks(p_preview)
     p_preview.set_defaults(func=_preview)
-
-    p_particles = sub.add_parser("particles", help="render a deterministic particle contact sheet")
-    p_particles.add_argument("file", help="Roblox model or IR .json")
-    p_particles.add_argument("--out", help="PNG contact sheet (default: <input stem>-particles.png)")
-    p_particles.add_argument("--viewport", type=parse_viewport, default=DEFAULT_VIEWPORT,
-                             help="tile WxH (default: 1615x1080)")
-    p_particles.add_argument("--times", type=parse_times, default=[0.0, 0.5, 1.0],
-                             help="comma-separated seconds (default: 0,0.5,1)")
-    p_particles.add_argument("--seed", type=int, default=0, help="deterministic simulation seed")
-    p_particles.add_argument("--burst", type=parse_nonnegative_int, default=0,
-                             help="emit this many particles immediately per emitter")
-    p_particles.add_argument("--texture-dir", help="local directory containing <asset_id>.<ext> particle textures")
-    p_particles.add_argument("--ir", help="cache the IR dump here when the input is a model")
-    p_particles.set_defaults(func=_particles)
     return parser
+
+
+def _camera_arguments(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--camera", type=parse_vector3, metavar="X,Y,Z",
+                        help="camera position in studs")
+    parser.add_argument("--look-at", type=parse_vector3, metavar="X,Y,Z",
+                        help="aim the camera at this point")
+    parser.add_argument("--fov", type=parse_fov, help="vertical field of view in degrees")
+    parser.add_argument("--focus", metavar="PATH",
+                        help="frame this part or model (a path as scene-dump prints it)")
+    parser.add_argument("--view", choices=("iso", "front", "back", "left", "right", "top"),
+                        help="frame the --focus target, or the whole scene, from this side")
+    parser.add_argument("--no-shadows", action="store_true",
+                        help="no sun shadows (they are on by default, as in Studio)")
+    parser.add_argument("--flat-materials", action="store_true",
+                        help="plain colours: no material textures (brick, wood, grass...)")
 
 
 _NEGATIVE_LIST = re.compile(r"^-(\d|\.\d)[\d.eE+-]*(,\s*-?[\d.eE+-]+)+$")

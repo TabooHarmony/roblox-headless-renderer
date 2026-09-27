@@ -33,21 +33,17 @@ def main() -> None:
         ]
         plain = tmp / "plain.png"
         effects = tmp / "effects.png"
-        legacy = tmp / "legacy.png"
         proc = run(*common, "--no-effects", "--out", str(plain))
         assert proc.returncode == 0, proc.stderr
         proc = run(*common, "--seed", "7", "--out", str(effects))
         assert proc.returncode == 0, proc.stderr
         assert "particles:" in proc.stderr, proc.stderr
-        # --time is the old spelling of --effect-time.
-        proc = run(*common, "--seed", "7", "--time", "0.5", "--out", str(legacy))
-        assert proc.returncode == 0, proc.stderr
 
         with Image.open(plain).convert("RGB") as a, Image.open(effects).convert("RGB") as b:
             mean_delta = sum(ImageStat.Stat(ImageChops.difference(a, b)).mean) / 3
         assert mean_delta > 0.1, mean_delta
 
-    print(f"preview particles: in-scene by default, composite delta={mean_delta:.2f}, --time still accepted")
+    print(f"preview particles: in-scene by default, composite delta={mean_delta:.2f}")
 
 
 def test_main():

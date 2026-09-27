@@ -14,7 +14,7 @@ body:
     attributes:
       label: The command you ran
       render: shell
-      placeholder: rhr render my_ui.rbxm --out ui.png
+      placeholder: rhr ui my_ui.rbxm --out ui.png
     validations:
       required: true
   - type: textarea

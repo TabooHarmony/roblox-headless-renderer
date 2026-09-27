@@ -24,7 +24,6 @@ AREAS = {
     "meshes": CACHE / "cache" / "meshes",
     "unions": CACHE / "cache" / "unions",
     "materials": CACHE / "cache" / "materials",
-    "particles": CACHE / "cache" / "particles",
     "studio": CACHE / "cache" / "studio",
     "ir": CACHE / "ir",
 }

@@ -38,7 +38,7 @@ def render(name: str, viewport: tuple[int, int], *extra: str) -> tuple:
     OUT.mkdir(parents=True, exist_ok=True)
     png = OUT / f"{name}.png"
     proc = subprocess.run(
-        [*RHR, "render", str(FIXTURES / f"{name}.rbxmx"), "--out", str(png),
+        [*RHR, "ui", str(FIXTURES / f"{name}.rbxmx"), "--out", str(png),
          "--viewport", f"{viewport[0]}x{viewport[1]}", "--transparent", *extra],
         capture_output=True, text=True, cwd=str(REPO), timeout=300,
     )
@@ -94,7 +94,7 @@ def main() -> int:
     check(img.getbbox() is None, "an only-disabled ScreenGui paints no pixels")
     layout_path = OUT / "only-disabled-layout.json"
     proc = subprocess.run(
-        [*RHR, "render", str(disabled), "--viewport", "300x250", "--transparent",
+        [*RHR, "ui", str(disabled), "--viewport", "300x250", "--transparent",
          "--out", str(OUT / "only-disabled.png"), "--dump-layout", str(layout_path)],
         capture_output=True, text=True, cwd=str(REPO), timeout=300,
     )

@@ -8,7 +8,6 @@ working directory:
 
     <cache>/cache/icons/      image assets, <asset_id>.png
     <cache>/cache/meshes/     mesh assets, <asset_id>.mesh
-    <cache>/cache/particles/  particle textures
     <cache>/cache/unions/     decoded union (CSG) meshes, <asset_id>.json
     <cache>/cache/materials/  Roblox's material texture maps, <asset_id>.png
     <cache>/cache/studio/     PNGs converted from the local Roblox Studio install
@@ -45,7 +44,6 @@ CACHE = Path(os.environ["RHR_CACHE_DIR"]).expanduser() if os.environ.get("RHR_CA
 ICONS_DIR = CACHE / "icon_library"
 ICON_CACHE = CACHE / "cache" / "icons"
 MESH_CACHE = CACHE / "cache" / "meshes"
-PARTICLE_CACHE = CACHE / "cache" / "particles"
 UNION_CACHE = CACHE / "cache" / "unions"
 MATERIAL_CACHE = CACHE / "cache" / "materials"
 IR_DIR = CACHE / "ir"

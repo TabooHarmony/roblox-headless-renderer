@@ -11,11 +11,11 @@ line or in CI. No GPU or display is needed.
   <img src="docs/images/build.png" width="98%" alt="Roblox's game template rendered by rhr scene: a pastel tower of platforms and stairs with shadows, plants, a floating sphere and cube, under a cloudy sky">
 </p>
 <p align="center">
-  <img src="docs/images/shop.png" width="40%" alt="A shop ScreenGui rendered by rhr render: item cards in a grid with rarity colours, rounded corners and price buttons">
+  <img src="docs/images/shop.png" width="40%" alt="A shop ScreenGui rendered by rhr ui: item cards in a grid with rarity colours, rounded corners and price buttons">
   <img src="docs/images/vfx.png" width="57%" alt="Three glowing shooting stars, orange, green and violet, with wavy tails, rendered by rhr scene from a particle and beam effect">
 </p>
 
-<p align="center"><sub>A 3D build (<code>rhr scene</code> on Roblox's game template), a UI (<code>rhr render examples/shop.rbxmx</code>) and an effect frozen at its fullest moment (<code>rhr scene</code> on Jaxelos's open-source star VFX).</sub></p>
+<p align="center"><sub>A 3D build (<code>rhr scene</code> on Roblox's game template), a UI (<code>rhr ui examples/shop.rbxmx</code>) and an effect frozen at its fullest moment (<code>rhr scene</code> on Jaxelos's open-source star VFX).</sub></p>
 
 > **Status: v0.7, an early alpha.** The UI layout numbers are solid: they match
 > Studio within 2 px on every test place. The pictures are *previews*: close enough
@@ -45,7 +45,7 @@ The repository has two example files ([`examples/`](examples/)):
 
 ```sh
 git clone https://github.com/TabooHarmony/roblox-headless-renderer && cd roblox-headless-renderer
-rhr render examples/shop.rbxmx --out shop.png         # the UI as a PNG
+rhr ui     examples/shop.rbxmx --out shop.png         # the UI as a PNG
 rhr check  examples/shop.rbxmx                        # obvious mistakes
 rhr scene  examples/tower.rbxmx --view iso --out tower.png
 ```
@@ -65,23 +65,26 @@ The shop has one deliberate mistake, and `rhr check` finds it:
 
 | Command | What you get |
 | --- | --- |
-| `rhr render <file>` | PNG of the screen UI (every ScreenGui, in `DisplayOrder`), including ViewportFrames |
+| `rhr ui <file>` | PNG of the screen UI (every ScreenGui, in `DisplayOrder`), including ViewportFrames |
 | `rhr layout <file>` | JSON: the on-screen rectangle of every UI element. `--rich` adds class, z-index, colours and how each text laid out |
 | `rhr check <file>` | JSON findings for common UI mistakes: text that doesn't fit, zero-size grid cells, invisible content, ambiguous overlaps. Exits 1 on errors |
 | `rhr hitmap <file>` | JSON: what is clickable, and which element is on top where things overlap |
 | `rhr scene <file>` | PNG of the 3D build. Standard views (`--view iso/front/back/left/right/top`), `--focus <path>`, or your own `--camera` / `--look-at` / `--fov` |
 | `rhr scene-dump <file>` | JSON: position, size, bounds and material of every part, plus everything that was approximated |
 | `rhr preview <file>` | One PNG with the 3D world, in-world UI (BillboardGui, SurfaceGui) and screen UI together |
-| `rhr compare a.png b.png` | How much changed between two renders, to tell a geometry change from a colour change |
-| `rhr ir <file>` | The parsed file as JSON, including properties that could not be read |
+| `rhr compare a.png b.png` | JSON: how much changed between two renders, to tell a geometry change from a colour change |
+| `rhr ir <file>` | RHR's internal form of the file, for debugging (its shape may change in any release) |
 | `rhr fetch <file>` | Download the images, meshes, unions and Roblox material textures a model uses into the local cache, as your Roblox Studio user. `scene` and `preview` do this themselves for whatever they are missing |
-| `rhr particles <file>` | A contact sheet of ParticleEmitters over time (experimental) |
 | `rhr setup` / `rhr doctor` | Install the external tools / check them |
 | `rhr cache` | What the cache holds (`--clear` to empty part of it) |
 | `rhr browser status/start/stop` | The warm 3D worker (it starts and stops by itself; this is for checking) |
 
 Every JSON output carries a `schema` name (`rhr.layout/1`, `rhr.check/1`, ...), so a
-change in shape is never silent. A Rojo project works anywhere a file does: pass the
+change in shape is never silent. `ui`, `scene` and `preview` print the PNG's path, or
+with `--json` a report (`rhr.render/1`): the path, the camera, and what was
+approximated or missing. Exit codes: 0 done, 1 only from `check` (error findings), 2
+the command failed. The full interface is in
+[`docs/interface-1.0.md`](docs/interface-1.0.md). A Rojo project works anywhere a file does: pass the
 folder with `default.project.json`, or the `*.project.json` file.
 
 **Effects.** `scene` and `preview` draw ParticleEmitters, Beams and Trails inside the
@@ -95,7 +98,7 @@ look is fitted to measurements in Studio; see
 [what is approximated](docs/known-approximations.md#effects).
 
 **Experimental** (rough sketches, and labelled as such in the output): local lights,
-Decals and Textures, and `rhr particles` (a contact sheet over time).
+Decals and Textures, Atmosphere and post effects.
 
 ## For agents
 
