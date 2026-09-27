@@ -202,8 +202,8 @@ needs goes in, the rest moves after 1.0.
    - **Released:** CHANGELOG entry, full suite, CI green on Windows, macOS and Linux
      (it caught `--camera -10,5,3` failing on Python 3.12, fixed), tagged v0.7.0 and
      published as a GitHub pre-release.
-3. **1.0 release candidate** (plan agreed 2026-09-26), in this order, then a short
-   candidate period:
+3. **1.0 release candidate** (plan agreed 2026-09-26; step-by-step detail and status in
+   docs/plan-1.0.md), in this order, then a short candidate period:
    - **Freeze the public interface.** Review every CLI command and flag and every JSON
      schema (`rhr.layout/1`, `rhr.check/1`, the scene dump, ...): keep, rename, or make
      internal (after 1.0 a change needs 2.0). Then tests that fail when a command,
