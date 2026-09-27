@@ -39,9 +39,9 @@ dependencies = [
 dev = ["pytest==9.1.1"]
 
 [project.scripts]
-rhr = "rhr.cli:main"
+rhr = "rhr.client:main"
 # The same command under the package's name, so `uvx roblox-headless-renderer ...` runs it.
-roblox-headless-renderer = "rhr.cli:main"
+roblox-headless-renderer = "rhr.client:main"
 
 [project.urls]
 Homepage = "https://github.com/TabooHarmony/roblox-headless-renderer"

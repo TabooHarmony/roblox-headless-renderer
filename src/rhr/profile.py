@@ -48,3 +48,19 @@ def _report() -> None:
 
 
 atexit.register(_report)
+
+
+def begin() -> None:
+    """Start one command in a process that runs several (rhr.server)."""
+    global ENABLED, _START
+    ENABLED = os.environ.get("RHR_PROFILE", "").strip() not in {"", "0", "false", "no"}
+    _START = time.perf_counter()
+    _rows.clear()
+
+
+def end() -> None:
+    """Print that command's table now, not at the process's exit."""
+    global ENABLED
+    _report()
+    _rows.clear()
+    ENABLED = False

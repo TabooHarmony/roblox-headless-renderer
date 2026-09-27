@@ -31,6 +31,9 @@ os.environ["RHR_STUDIO_DIR"] = "0"
 # Software WebGL: the same pixels on every machine, whatever its GPU.
 os.environ["RHR_WEBGL"] = "software"
 os.environ.pop("PINEVEX_RENDERER_ROBLOX_FONT_DIRS", None)
+# Each `rhr` a test starts runs in its own process, as tests always have; the resident
+# server has tests of its own (test_server.py), which turn it back on.
+os.environ.setdefault("RHR_SERVER", "0")
 
 
 # Hermetic caches: the suite gets an empty cache of its own, so images, meshes and
