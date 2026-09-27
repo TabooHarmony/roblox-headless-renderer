@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from rhr.schema import stamp
 
+import functools
 import json
 import math
 import re
@@ -80,6 +81,9 @@ def _asset_id(uri) -> str | None:
     return matches[-1] if matches else None
 
 
+# The three lookups below are asked once per part; a big place repeats a few
+# thousand asset ids over 100k parts. Cleared at the start of each dump.
+@functools.lru_cache(maxsize=None)
 def _mesh_available(asset_id: str | None, mesh_dir: Path | None) -> bool:
     if not asset_id:
         return False
@@ -90,10 +94,12 @@ def _mesh_available(asset_id: str | None, mesh_dir: Path | None) -> bool:
     return any((root / f"{asset_id}.mesh").is_file() for root in roots)
 
 
+@functools.lru_cache(maxsize=None)
 def _union_available(asset_id: str | None) -> bool:
     return bool(asset_id) and (UNION_CACHE / f"{asset_id}.json").is_file()
 
 
+@functools.lru_cache(maxsize=None)
 def _asset_available(asset_id: str | None, texture_dir: Path | None) -> bool:
     if not asset_id:
         return False
@@ -146,6 +152,8 @@ def build_scene_dump(
     texture_dir: Path | None = None,
     mesh_dir: Path | None = None,
 ) -> dict:
+    for lookup in (_mesh_available, _union_available, _asset_available):
+        lookup.cache_clear()
     data = load_ir(ir_path)
     path_by_id: dict[int, str] = {}
     path_by_full_name: dict[str, str | None] = {}
