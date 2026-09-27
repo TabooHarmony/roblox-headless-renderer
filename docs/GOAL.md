@@ -175,7 +175,7 @@ distribution) are folded into one 1.0 release candidate: only what 1.0's definit
 needs goes in, the rest moves after 1.0.
 
 1. **0.6: released 2026-09-26.** VFX as a still frame and the optimization pass.
-2. **0.7: coverage of common content.** Everything below was checked side by side
+2. **0.7: coverage of common content (released as v0.7.0, 2026-09-26).** Everything below was checked side by side
    against Studio (details in docs/known-approximations.md and the CHANGELOG):
    - **Done:** characters (R6/R15, classic and layered clothing, packages, faces);
      terrain material blending and grass decoration; Clouds, the sun disc and
@@ -191,8 +191,9 @@ needs goes in, the rest moves after 1.0.
      particles, Beams and Trails (15 lightings in Studio, 1.7/255 RMS). Roblox's
      built-in particle textures checked side by side with Studio (all drawn; fire
      darker).
-   - **Then:** CHANGELOG entry for 0.7, the full suite, CI on all three systems once we
-     agree, tag and publish.
+   - **Released:** CHANGELOG entry, full suite, CI green on Windows, macOS and Linux
+     (it caught `--camera -10,5,3` failing on Python 3.12, fixed), tagged v0.7.0 and
+     published as a GitHub pre-release.
 3. **1.0 release candidate.** Four pieces, then a short candidate period:
    - **Freeze the public interface.** Review every CLI command and flag and every JSON
      schema (`rhr.layout/1`, `rhr.check/1`, the scene dump, ...), clean up anything
