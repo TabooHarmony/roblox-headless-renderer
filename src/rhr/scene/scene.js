@@ -5205,7 +5205,6 @@ function compositeParticles(sceneTarget, camera) {
   renderer.clear();
   renderer.render(scene, camera);
   scene.overrideMaterial = null;
-  scene.background = background;
   for (const object of hidden) object.visible = true;
   renderer.autoClear = false;
   const untone = new THREE.ShaderMaterial({
@@ -5217,9 +5216,12 @@ void main() { gl_FragColor = vec4(rbxUntone(texture2D(source, vUv).rgb), 1.0); }
     depthWrite: false,
   });
   drawFullscreen(untone, hdr);
+  // Still without the background: a flat sky texture (no Studio install) is drawn by
+  // every render, and would cover the whole picture under the particles.
   camera.layers.set(PARTICLE_LAYER);
   renderer.setRenderTarget(hdr);
   renderer.render(scene, camera);
+  scene.background = background;
   camera.layers.enable(0);
   renderer.autoClear = autoClear;
   renderer.setClearColor(clearColor, clearAlpha);

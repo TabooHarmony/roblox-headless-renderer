@@ -1,5 +1,77 @@
 # Changelog
 
+## 0.7.0 (alpha)
+
+Coverage of common content: characters, terrain, the sky, UI edge cases and the last
+VFX properties, each checked side by side with Studio (details in
+docs/known-approximations.md).
+
+### When upgrading
+
+- Pictures of the same file can change where RHR now follows Studio: dressed
+  characters, blended terrain and grass, clouds, the sun and sun rays in the sky,
+  unclipped overflowing text, slightly wider small text, Beam textures (they were
+  upside down), and effects with `LightInfluence` above 0 in dim or night lighting
+  (they go dark, as in Studio).
+- Trails from saved files are drawn: files keep a part's velocity as `Velocity`,
+  which RHR never read, so every such trail was skipped before.
+- `--effect-time` also sets how far Beam textures have scrolled (`TextureSpeed`).
+- Clouds and `SunRaysEffect` are no longer listed as unsupported when drawn; part
+  surfaces (studs, inlets) show on Plastic only.
+- No command, flag or JSON schema changed.
+
+### Characters
+
+- Shirt, Pants and ShirtGraphic painted onto the body with Roblox's own layouts from
+  the Studio install (R6 atlas on the install's body meshes or CharacterMesh
+  packages, R15 per body part); T-shirts over shirts; BodyColors.
+- Layered clothing fitted to the body through its cages and stacked in `Order`; R6
+  and R15 body packages; heads with their own image show no face decal.
+- `SpecialMesh` heads use the install's head mesh at Studio's measured size; mesh
+  textures use the mesh's own UVs; decals on meshes are projected onto the surface;
+  old version 1 meshes are textured the right way up.
+- Fixed: a Block part with a SpecialMesh and non-smooth surfaces (every R6 head) was
+  not drawn.
+
+### Terrain and sky
+
+- Terrain materials blend where they meet (the earlier material in Roblox's order
+  reaches half a voxel into the other, measured on nine pairs) and fade from top to
+  side texture by slope; one projection per face, so curved terrain no longer smears.
+- Grass decoration (`Terrain.Decoration`, `GrassLength`) grows on Grass tops, fitted
+  to Studio side and top views.
+- `Terrain.Clouds` drawn as a still layer in the sky from Roblox's own cloud tile,
+  cover, density and shading fitted to Studio.
+- The sun drawn in the sky (`SunTextureId` or the default), `SunAngularSize` across;
+  `SunRaysEffect` drawn and fitted to Studio.
+- Fixed: the sky's top face was a quarter turn off; unknown voxel material ids no
+  longer fail the whole terrain.
+
+### UI
+
+- `UITableLayout` `FillEmptySpaceColumns`/`Rows` and `UIPageLayout` spacing match
+  Studio; overflowing text is not clipped to its label; glyph advances are rounded up
+  as Roblox does (text width error 5.6% -> 1.3%). Checked on a new Studio fixture
+  (tests/studio/ui_edge_cases, 52/52 rectangles).
+
+### VFX
+
+- `LightInfluence` on particles, Beams and Trails, measured under 15 lightings
+  (1.7/255 RMS): the effect's `Brightness` blends toward the scene's light (ambient
+  plus sun, the moon at night) by the square root of `LightInfluence`.
+- Beam `TextureSpeed`: the texture scrolls toward `Attachment1` with the effect time.
+- Beam textures the right way up (the image's top at `Attachment0`); `Wrap` Trail
+  tiles start at the attachments.
+- Roblox's built-in particle textures, `.dds` included, checked side by side with
+  Studio: all drawn, fire's darker.
+
+### Other
+
+- Helper processes (Lune, Rojo, the MCP and browser workers) start without a console
+  window on Windows.
+- Fixed: without a Studio install, a file with Lighting and particles showed only the
+  sky and the particles (parts, Beams and Trails vanished behind the flat sky).
+
 ## 0.6.0 (alpha)
 
 0.5.0 was never released on its own; its changes (below) ship in this release too.

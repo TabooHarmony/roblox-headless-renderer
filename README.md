@@ -17,7 +17,7 @@ line or in CI. No GPU or display is needed.
 
 <p align="center"><sub>A 3D build (<code>rhr scene</code> on Roblox's game template), a UI (<code>rhr render examples/shop.rbxmx</code>) and an effect frozen at its fullest moment (<code>rhr scene</code> on Jaxelos's open-source star VFX).</sub></p>
 
-> **Status: v0.6, an early alpha.** The UI layout numbers are solid: they match
+> **Status: v0.7, an early alpha.** The UI layout numbers are solid: they match
 > Studio within 2 px on every test place. The pictures are *previews*: close enough
 > to spot mistakes, not a copy of Studio's renderer. Anything RHR can't draw
 > faithfully, it says so in its output instead of guessing quietly. See

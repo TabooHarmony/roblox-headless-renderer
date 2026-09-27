@@ -4,8 +4,13 @@
 Measured in Studio with flat white particles and beams: LightInfluence L blends the
 effect's Brightness toward the scene's light with weight sqrt(L). With no light at all
 (Brightness 0, black ambients) L = 1 draws the effect black (it still covers what is
-behind it) and L = 0.5 keeps about 30% of the light; in sun-only daylight (Brightness 2) the scene's light equals an unlit effect's,
-so L changes nothing. RHR used to draw every effect as if L were 0.
+behind it) and L = 0.5 keeps about 30% of the light; in sun-only daylight
+(Brightness 2) the scene's light equals an unlit effect's, so L changes nothing. RHR
+used to draw every effect as if L were 0.
+
+Run without a Studio install (as under pytest), the scene has Lighting and particles
+over the flat gradient sky: the particle pass used to paint that sky over everything
+but the particles, so the beams (and any part) vanished.
 
     python tests/test_effect_light_influence.py
 """
@@ -107,7 +112,9 @@ def main() -> int:
             ("dark: unlit beam bright", unlit > 200),
             ("dark: half-lit beam dimmer than unlit", 60 < half < unlit - 40),
             ("dark: fully lit beam black", lit < 10),
-            ("dark: fully lit particle black", particle < 10),
+            # A few levels of the sky behind survive the particle pass's trip through
+            # Studio's tone curve and back.
+            ("dark: fully lit particle black", particle < 20),
         ]
         print(f"  dark levels: unlit {unlit:.0f}, half {half:.0f}, lit {lit:.0f}, particle {particle:.0f}")
 
