@@ -403,7 +403,11 @@ whether it glows; not the exact particles Roblox would draw.
 
 ## Reading files
 
-RHR reads files with Lune and rbx-dom. A class that rbx-dom's database does not know
+RHR reads binary files (`.rbxm`, `.rbxl`) itself (`rhr.rbx`, a port of rbx-dom's
+reader and of the Lune script, with the reflection database of the pinned Lune) and
+XML files with Lune and rbx-dom; both give the same result, checked on every fixture
+and on real places (tests/test_rbx_reader.py). `RHR_READER=lune` reads binary files
+with Lune too. A class that rbx-dom's database does not know
 (newer than its build, or plugin-only) is read from the file's XML: simple values
 (booleans, numbers, text) are recovered; enums, references and structured values
 such as UDim2 and Color3 are listed in that node's `unreadable` list, so the element

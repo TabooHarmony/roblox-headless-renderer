@@ -51,7 +51,7 @@ Issues = "https://github.com/TabooHarmony/roblox-headless-renderer/issues"
 
 [tool.setuptools]
 package-dir = { "" = "src" }
-packages = ["rhr", "rhr.ui_engine"]
+packages = ["rhr", "rhr.rbx", "rhr.ui_engine"]
 include-package-data = false
 
 [tool.setuptools.package-data]
@@ -68,6 +68,7 @@ rhr = [
     "vendor/draco/*",
     "vendor/licenses/*",
 ]
+"rhr.rbx" = ["reflection.json.gz"]
 "rhr.ui_engine" = ["LICENSE", "THIRD_PARTY_NOTICES.md", "data/*", "fonts/*"]
 
 [tool.pytest.ini_options]

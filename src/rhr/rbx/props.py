@@ -1,0 +1,123 @@
+"""The converter's lists, shared by the Luau emitter (luau/rhr-ir.luau) and rhr.rbx.
+
+PROPS is the allowlist of properties the IR carries, in the order the emitter reads
+them (duplicates included: the Luau list has them, and order decides which read
+wins). tests/test_rbx_reader.py checks these lists equal the Luau ones.
+"""
+
+PROPS = (
+    'Size', 'Position', 'AnchorPoint', 'BackgroundColor3', 'BackgroundTransparency',
+    'BackgroundColor', 'BorderColor3', 'BorderSizePixel', 'BorderMode', 'ClipsDescendants',
+    'Visible', 'ZIndex', 'Rotation', 'LayoutOrder', 'SizeConstraint', 'AutomaticSize',
+    'Style', 'Active', 'Interactable', 'Selectable', 'Name', 'Enabled', 'DisplayOrder',
+    'IgnoreGuiInset', 'ResetOnSpawn', 'SafeAreaCompatibility', 'ClipToDeviceSafeArea',
+    'ScreenInsets', 'OnTopOfCoreBlur', 'ZIndexBehavior', 'AutoButtonColor', 'Modal',
+    'Selected', 'Text', 'TextColor3', 'TextSize', 'TextScaled', 'TextWrapped',
+    'TextTransparency', 'TextStrokeColor3', 'TextStrokeTransparency', 'TextXAlignment',
+    'TextYAlignment', 'RichText', 'LineHeight', 'MaxVisibleGraphemes', 'Font', 'FontFace',
+    'TextTruncate', 'FontSize', 'PlaceholderText', 'PlaceholderColor3', 'ClearTextOnFocus',
+    'MultiLine', 'TextEditable', 'Image', 'ImageColor3', 'ImageTransparency',
+    'ImageRectOffset', 'ImageRectSize', 'ScaleType', 'TileSize', 'SliceCenter',
+    'SliceScale', 'ResampleMode', 'HoverImage', 'PressedImage', 'CanvasSize',
+    'CanvasPosition', 'AutomaticCanvasSize', 'ScrollBarThickness', 'ScrollBarImageColor3',
+    'ScrollBarImageTransparency', 'ScrollingDirection', 'ElasticBehavior',
+    'VerticalScrollBarInset', 'HorizontalScrollBarInset', 'ScrollBarFadeDelay',
+    'SelectionImageObject', 'GroupTransparency', 'GroupColor3', 'CornerRadius',
+    'TopLeftRadius', 'TopRightRadius', 'BottomLeftRadius', 'BottomRightRadius',
+    'Thickness', 'Color', 'Transparency', 'ApplyStrokeMode', 'LineJoinMode',
+    'StrokeSizingMode', 'BorderStrokePosition', 'Gradient', 'Offset', 'FillDirection',
+    'HorizontalAlignment', 'VerticalAlignment', 'SortOrder', 'Padding', 'Wraps',
+    'HorizontalFlex', 'VerticalFlex', 'ItemLineAlignment', 'FillDirectionMaxCells',
+    'MajorAxis', 'FillEmptySpaceColumns', 'FillEmptySpaceRows', 'StartCorner', 'CellSize',
+    'CellPadding', 'PaddingTop', 'PaddingBottom', 'PaddingLeft', 'PaddingRight',
+    'AspectRatio', 'AspectType', 'DominantAxis', 'Scale', 'MinTextSize', 'MaxTextSize',
+    'MinSize', 'MaxSize', 'FlexMode', 'GrowRatio', 'ShrinkRatio', 'AspectRatioConstraint',
+    'CFrame', 'PivotOffset', 'WorldPivot', 'PrimaryPart', 'Position', 'Orientation',
+    'Color', 'Color3', 'Material', 'Shape', 'shape', 'MeshType', 'MeshId', 'TextureID',
+    'FieldOfView', 'CameraType', 'Focus', 'Gravity', 'Anchored', 'AssemblyLinearVelocity',
+    'CanCollide', 'CanTouch', 'CanQuery', 'CastShadow', 'Reflectance', 'Massless',
+    'Locked', 'Range', 'Shadows', 'Angle', 'Attachment0', 'Attachment1', 'Width0',
+    'Width1', 'WidthScale', 'CurveSize0', 'CurveSize1', 'Segments', 'FaceCamera',
+    'TextureLength', 'TextureMode', 'TextureSpeed', 'MaxLength', 'MinLength', 'Ambient',
+    'OutdoorAmbient', 'GlobalShadows', 'ClockTime', 'TimeOfDay', 'GeographicLatitude',
+    'Density', 'Haze', 'Glare', 'Decay', 'SkyboxBk', 'SkyboxDn', 'SkyboxFt', 'SkyboxLf',
+    'SkyboxRt', 'SkyboxUp', 'SkyboxOrientation', 'CelestialBodiesShown', 'MoonAngularSize',
+    'MoonTextureId', 'StarCount', 'SunAngularSize', 'SunTextureId', 'ShadowSoftness',
+    'EnvironmentDiffuseScale', 'EnvironmentSpecularScale', 'ExposureCompensation',
+    'LightColor', 'LightDirection', 'LightDirectionLatitude', 'LightDirectionLongitude',
+    'CameraCFrame', 'CameraMode', 'FieldOfView', 'Camera', 'Video', 'Looped', 'Playing',
+    'Volume', 'TimePosition', 'AutoPlay', 'Adornee', 'AlwaysOnTop', 'Brightness',
+    'ClipsDescendants', 'ExtentsOffset', 'ExtentsOffsetWorldSpace', 'MaxDistance',
+    'SizeOffset', 'StudsOffset', 'StudsOffsetWorldSpace', 'Face', 'SizingMode',
+    'CanvasSize', 'PixelsPerStud', 'ZOffset', 'GroupTransparency', 'Acceleration',
+    'Brightness', 'Color', 'Drag', 'EmissionDirection', 'Enabled', 'FlipbookBlendFrames',
+    'FlipbookFramerate', 'FlipbookIncompatible', 'FlipbookLayout', 'FlipbookMode',
+    'FlipbookSizeX', 'FlipbookSizeY', 'FlipbookStartRandom', 'Lifetime', 'LightEmission',
+    'LightInfluence', 'LocalTransparencyModifier', 'LockedToPart', 'Orientation', 'Rate',
+    'Rotation', 'RotSpeed', 'Shape', 'ShapeInOut', 'ShapePartial', 'ShapeStyle', 'Size',
+    'Speed', 'SpreadAngle', 'Squash', 'Texture', 'StudsPerTileU', 'StudsPerTileV',
+    'OffsetStudsU', 'OffsetStudsV', 'TimeScale', 'Transparency', 'VelocityInheritance',
+    'VelocitySpread', 'WindAffectsDrag', 'ZOffset', 'FillColor', 'FillTransparency',
+    'OutlineColor', 'OutlineTransparency', 'DepthMode', 'ColorMap', 'StudsPerTile',
+    'BaseMaterial', 'MaterialVariant', 'AlphaMode', 'NormalMap', 'RoughnessMap',
+    'MetalnessMap', 'Decoration', 'GrassLength', 'WaterColor', 'Use2022Materials',
+    'Use2022MaterialsXml', 'AssetId', 'InitialSize', 'UsePartColor', 'TopSurface',
+    'BottomSurface', 'LeftSurface', 'RightSurface', 'FrontSurface', 'BackSurface',
+    'Technology', 'LightingStyle', 'Cover', 'Contrast', 'Saturation', 'TintColor',
+    'Intensity', 'Threshold', 'Spread', 'PlasticName', 'SmoothPlasticName', 'NeonName',
+    'WoodName', 'WoodPlanksName', 'MarbleName', 'SlateName', 'ConcreteName', 'GraniteName',
+    'BrickName', 'PebbleName', 'CobblestoneName', 'CorrodedMetalName', 'DiamondPlateName',
+    'FoilName', 'MetalName', 'GrassName', 'SandName', 'FabricName', 'IceName',
+    'GlacierName', 'SnowName', 'SandstoneName', 'MudName', 'BasaltName', 'GroundName',
+    'CrackedLavaName', 'AsphaltName', 'LeafyGrassName', 'SaltName', 'LimestoneName',
+    'PavementName', 'RockName', 'CardboardName', 'CarpetName', 'CeramicTilesName',
+    'ClayRoofTilesName', 'RoofShinglesName', 'LeatherName', 'PlasterName', 'RubberName',
+    'ShirtTemplate', 'PantsTemplate', 'Graphic', 'TextureId', 'BodyPart', 'BaseTextureId',
+    'OverlayTextureId', 'HeadColor3', 'TorsoColor3', 'LeftArmColor3', 'RightArmColor3',
+    'LeftLegColor3', 'RightLegColor3', 'RigType', 'VertexColor', 'CageMeshId',
+    'CageOrigin', 'ReferenceMeshId', 'ReferenceOrigin', 'Order', 'ImportOrigin',
+)
+
+# A property the bridge cannot read, read under its newer name instead.
+CONTENT_PROPERTY_ALIASES = {
+    'MeshId': 'MeshContent',
+    'TextureID': 'TextureContent',
+    'TextureId': 'TextureContent',
+    'CageMeshId': 'CageMeshContent',
+    'ReferenceMeshId': 'ReferenceMeshContent',
+    'SkyboxBk': 'SkyboxBackContent',
+    'SkyboxDn': 'SkyboxDownContent',
+    'SkyboxFt': 'SkyboxFrontContent',
+    'SkyboxLf': 'SkyboxLeftContent',
+    'SkyboxRt': 'SkyboxRightContent',
+    'SkyboxUp': 'SkyboxUpContent',
+    'MoonTextureId': 'MoonTextureContent',
+    'AssemblyLinearVelocity': 'Velocity',
+    'SunTextureId': 'SunTextureContent',
+    'ColorMap': 'ColorMapContent',
+    'NormalMap': 'NormalMapContent',
+    'RoughnessMap': 'RoughnessMapContent',
+    'MetalnessMap': 'MetalnessMapContent',
+}
+
+# Classes the visual/static profiles keep (with their ancestors, for paths).
+VISUAL_CLASSES = frozenset({
+    'ScreenGui', 'SurfaceGui', 'BillboardGui', 'Frame', 'CanvasGroup', 'ScrollingFrame',
+    'TextLabel', 'TextButton', 'TextBox', 'ImageLabel', 'ImageButton', 'ViewportFrame',
+    'VideoFrame', 'UICorner', 'UIStroke', 'UIGradient', 'UIPadding', 'UIListLayout',
+    'UIGridLayout', 'UITableLayout', 'UIPageLayout', 'UIScale', 'UIAspectRatioConstraint',
+    'UISizeConstraint', 'UITextSizeConstraint', 'UIFlexItem', 'Part', 'WedgePart',
+    'CornerWedgePart', 'MeshPart', 'UnionOperation', 'SpecialMesh', 'Camera', 'Lighting',
+    'Decal', 'Texture', 'Attachment', 'Bone', 'PointLight', 'SpotLight', 'SurfaceLight',
+    'Beam', 'Trail', 'ParticleEmitter', 'Terrain', 'Sky', 'Atmosphere',
+    'SurfaceAppearance', 'MaterialVariant', 'Highlight', 'NegateOperation', 'Clouds',
+    'BloomEffect', 'ColorCorrectionEffect', 'SunRaysEffect', 'DepthOfFieldEffect',
+    'BlurEffect', 'MaterialService', 'Humanoid', 'Shirt', 'Pants', 'ShirtGraphic',
+    'BodyColors', 'CharacterMesh', 'WrapLayer', 'WrapTarget',
+})
+
+# The only names the visual/static profiles recover from the XML view.
+VISUAL_XML_RECOVERY = frozenset(['BorderSizePixel', 'DisplayOrder', 'ClockTime', 'TimeOfDay'])
+
+# Classes whose number and switch attributes the IR carries (effects played by script).
+ATTRIBUTE_CLASSES = frozenset(['ParticleEmitter', 'Beam', 'Trail'])

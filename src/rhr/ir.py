@@ -31,13 +31,39 @@ def lune_executable() -> str:
         return require("lune", "to read Roblox files")
 
 
+# The last IR read in this process, by (path, size, mtime). A render reads the same
+# IR in several places (downloads, unions, content, notes, in-world UI); a big place's
+# IR is tens of MB, about a second to parse each time. Callers only read it.
+_LOADED: dict[tuple, dict] = {}
+
+
+def _ir_key(path) -> tuple:
+    path = Path(path).resolve()
+    info = path.stat()
+    return (str(path), info.st_size, info.st_mtime_ns)
+
+
 def load_ir(path) -> dict:
-    """Read an IR JSON file produced by src/rhr/luau/rhr-ir.luau."""
+    """Read an IR JSON file (written by rhr.rbx or src/rhr/luau/rhr-ir.luau), once
+    per process while the file is unchanged. The result is shared: do not modify it."""
+    key = _ir_key(path)
+    cached = _LOADED.get(key)
+    if cached is not None:
+        return cached
     data = json.loads(Path(path).read_text(encoding="utf-8"))
     if "roots" not in data:
         raise ValueError(f"{path} is not an IR file: no 'roots' key")
     ensure_paths(data["roots"])
+    _LOADED.clear()
+    _LOADED[key] = data
     return data
+
+
+def _remember_ir(path, document: dict) -> None:
+    """Keep an IR this process just wrote, so reading it back costs nothing."""
+    ensure_paths(document["roots"])
+    _LOADED.clear()
+    _LOADED[_ir_key(path)] = document
 
 
 def _segment(node: dict) -> str:
@@ -162,6 +188,36 @@ def stored_note(stored: list[dict], focus: str | None = None) -> str | None:
             f"into Workspace at run time; --focus <path> draws one, e.g. {node.get('path')}")
 
 
+def world_ir(ir_path, focus: str | None = None) -> Path:
+    """The IR a 3D view of `ir_path` uses: only the roots it draws (world_roots), written
+    once beside the IR. A place that keeps most of its parts in storage (a game's maps
+    in ServerStorage) is otherwise read and sent to the page whole on every render: 110k
+    stored parts, 230 MB, to draw 6k. The slice records what it left out (storedNote).
+    A file with nothing stored is used as it is."""
+    import hashlib as _hashlib
+    import os
+
+    ir_path = Path(ir_path)
+    tag = "world" if not focus else "focus-" + _hashlib.sha1(focus.encode("utf-8")).hexdigest()[:10]
+    target = ir_path.with_name(f"{ir_path.stem}.{tag}.json")
+    marker = target.with_name(target.name + ".plain")  # "nothing stored: use the IR itself"
+    if marker.is_file() and marker.stat().st_mtime_ns >= ir_path.stat().st_mtime_ns:
+        return ir_path
+    if target.is_file() and target.stat().st_mtime_ns >= ir_path.stat().st_mtime_ns:
+        return target
+    document = load_ir(ir_path)
+    shown, stored = world_roots(document["roots"], focus)
+    if not stored:
+        marker.write_text("", encoding="utf-8")
+        return ir_path
+    world = {**document, "roots": shown, "storedNote": stored_note(stored, focus)}
+    partial = target.with_name(f"{target.name}.{os.getpid()}.part")
+    partial.write_text(json.dumps(world, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
+    os.replace(partial, target)
+    _remember_ir(target, world)
+    return target
+
+
 def cached_ir(source_path, *, profile: str = "full") -> Path:
     """IR for a Roblox file, reusing the last conversion of the same bytes.
 
@@ -177,11 +233,16 @@ def cached_ir(source_path, *, profile: str = "full") -> Path:
     source_path = Path(source_path).resolve()
     if not source_path.is_file():
         raise FileNotFoundError(f"no such file: {source_path}")
-    lune = Path(lune_executable())
+    data = source_path.read_bytes()
     digest = hashlib.sha256()
-    digest.update(source_path.read_bytes())
+    digest.update(data)
     digest.update(LUAU_IR_SCRIPT.read_bytes())
-    digest.update(f"{profile}|{lune}|{lune.stat().st_size}|{lune.stat().st_mtime_ns}".encode())
+    if _own_reader(data):
+        # RHR's own reader: the key covers its code and reflection data instead of Lune.
+        digest.update(f"{profile}|rhr.rbx|{_own_reader_stamp()}".encode())
+    else:
+        lune = Path(lune_executable())
+        digest.update(f"{profile}|{lune}|{lune.stat().st_size}|{lune.stat().st_mtime_ns}".encode())
     # The IR records where it came from (sourcePath, read again for terrain); the same
     # bytes in another folder are a different entry, so that path is never stale.
     digest.update(str(source_path).encode("utf-8"))
@@ -201,11 +262,60 @@ def cached_ir(source_path, *, profile: str = "full") -> Path:
     return target
 
 
-def emit_ir(source_path, out_path, *, profile: str = "full", report_path=None) -> Path:
-    """Run the lune dumper on a .rbxm/.rbxmx/.rbxl file and write IR JSON.
+def _own_reader(data: bytes) -> bool:
+    """Whether RHR reads this file itself (a binary .rbxm/.rbxl) rather than through
+    Lune (XML files, or RHR_READER=lune)."""
+    import os
 
-    Needs `lune` on PATH. rbx-dom detects binary versus XML by content, so both
-    extension flavours go through the same call.
+    from rhr.rbxl_raw import MAGIC
+
+    return data[:8] == MAGIC and os.environ.get("RHR_READER", "").strip().lower() != "lune"
+
+
+def _own_reader_stamp() -> str:
+    """What RHR's own reader is: its code and reflection data, for the cache key."""
+    digest = hashlib.sha256()
+    folder = Path(__file__).with_name("rbx")
+    for path in sorted([*folder.glob("*.py"), *folder.glob("*.gz")]):
+        digest.update(path.name.encode())
+        digest.update(path.read_bytes())
+    return digest.hexdigest()[:16]
+
+
+def _emit_own(source_path: Path, data: bytes, out_path: Path, profile: str, report_path) -> bool:
+    """Write the IR with rhr.rbx. False when the reader cannot read this file (the
+    caller then uses Lune, and says so)."""
+    import os
+
+    from rhr.profile import phase
+    from rhr.rbx import binary, emit
+
+    try:
+        with phase("file read (rhr.rbx)"):
+            document, report = emit.emit(binary.read(data), profile=profile, source_path=str(source_path))
+        with phase("IR written"):
+            text = json.dumps(document, ensure_ascii=False, allow_nan=False, separators=(",", ":"))
+    except Exception as exc:  # noqa: BLE001 - any failure: the proven Lune path
+        print(f"note   RHR's file reader could not read {source_path.name} ({type(exc).__name__}: "
+              f"{str(exc)[:200]}); reading it with Lune instead", file=sys.stderr)
+        return False
+    partial = out_path.with_name(f"{out_path.name}.{os.getpid()}.part")
+    partial.write_text(text, encoding="utf-8")
+    os.replace(partial, out_path)
+    _remember_ir(out_path, document)
+    lines = [f"wrote {out_path} roots={len(document['roots'])}", *report]
+    print("\n".join(lines), file=sys.stderr)
+    if report_path is not None:
+        Path(report_path).write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return True
+
+
+def emit_ir(source_path, out_path, *, profile: str = "full", report_path=None) -> Path:
+    """Convert a .rbxm/.rbxmx/.rbxl file to IR JSON.
+
+    Binary files are read by RHR itself (rhr.rbx: the same IR the Lune script writes,
+    measured identical on 63 real files, 10-60x faster); XML files by the Lune script
+    (rbx-dom detects binary versus XML by content, so both go through it).
     """
     if profile not in {"full", "visual", "static"}:
         raise ValueError(f"unknown IR profile: {profile}")
@@ -213,6 +323,9 @@ def emit_ir(source_path, out_path, *, profile: str = "full", report_path=None) -
     if not source_path.is_file():
         raise FileNotFoundError(f"no such file: {source_path}")
     out_path.parent.mkdir(parents=True, exist_ok=True)
+    data = source_path.read_bytes()
+    if _own_reader(data) and _emit_own(source_path, data, out_path, profile, report_path):
+        return out_path
     command = [lune_executable(), "run", str(LUAU_IR_SCRIPT), str(source_path), str(out_path)]
     if profile != "full":
         command.append(profile)

@@ -47,6 +47,14 @@
 
 ### Changes
 
+- **Big places are fast.** RHR reads binary files (`.rbxm`, `.rbxl`) itself instead of
+  asking Lune for every property of every instance: the same result (checked
+  identical on 63 real files and every fixture), 10-60x faster. On a 22k-part map a
+  render after an edit went from 124 s to 26 s, and a second render from 34 s to 7 s;
+  on a 116k-part place from 668 s to 36 s and from 75 s to 8 s. A render now reads its
+  converted file once instead of six times, and a place's 3D view reads only what it
+  draws (its stored maps are left in the cache, not re-read each time). Binary files
+  no longer need Lune at all. `RHR_READER=lune` reads them with Lune as before.
 - **Places draw their world, not their storage.** In a place file, `scene` and
   `preview` no longer draw (or download, or count) the models kept in ServerStorage,
   ReplicatedStorage, StarterPack and the like: on a real game, 110k stored parts

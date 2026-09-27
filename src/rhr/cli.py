@@ -344,7 +344,9 @@ def _prepare_ui_images(ir_path: Path, offline: bool) -> None:
     if offline or fetch.offline():
         return
     try:
-        ir = json.loads(Path(ir_path).read_text(encoding="utf-8"))
+        from rhr.ir import load_ir
+
+        ir = load_ir(ir_path)
         images, _ = fetch.collect_refs(ir)
         fetch.ensure({"images": images}, log=lambda message: print(message, file=sys.stderr))
     except Exception as exc:  # noqa: BLE001 - a failed download must not fail the render
@@ -504,6 +506,9 @@ def _scene(args) -> int:
         with phase("file conversion (IR)"):
             ir_path = ir_for(source, profile="static")
         with phase("downloads check"):
+            from rhr.ir import world_ir
+
+            ir_path = world_ir(ir_path, args.focus)
             _prepare_scene_assets(ir_path, args.offline, args.focus)
         page_notes: list[str] = []
         camera_state: dict = {}
@@ -569,7 +574,10 @@ def _preview(args) -> int:
     t0 = time.perf_counter()
     try:
         ir_path = ir_for(source, profile="static")
-        _prepare_scene_assets(ir_path, args.offline, args.focus)
+        from rhr.ir import world_ir
+
+        world_path = world_ir(ir_path, args.focus)
+        _prepare_scene_assets(world_path, args.offline, args.focus)
         with tempfile.TemporaryDirectory(prefix="rhr-preview-") as directory:
             tmp = Path(directory)
             world = tmp / "world.png"
@@ -577,7 +585,7 @@ def _preview(args) -> int:
             page_notes: list[str] = []
             camera_state: dict = {}
             render_scene(
-                ir_path,
+                world_path,
                 world,
                 width,
                 height,
@@ -625,7 +633,7 @@ def _preview(args) -> int:
     from rhr.scene_dump import build_scene_dump, notes_line
 
     try:
-        scene_dump = build_scene_dump(ir_path, texture_dir=texture_dir, mesh_dir=mesh_dir,
+        scene_dump = build_scene_dump(world_path, texture_dir=texture_dir, mesh_dir=mesh_dir,
                                       world=True, focus=args.focus)
         if scene_dump.get("_storedNote"):
             page_notes.append(scene_dump["_storedNote"])

@@ -495,16 +495,18 @@ def ensure(refs: dict[str, set[str]], *, login: bool = True, log=None) -> dict[s
 def ensure_for_ir(ir_path: Path, *, log=None, focus: str | None = None) -> dict[str, dict[str, str]]:
     """`ensure` everything a 3D render of the IR at `ir_path` can use: what it draws,
     not the models a place stores out of the world (rhr.ir.world_roots)."""
-    from rhr.ir import world_roots
+    from rhr.ir import load_ir, world_roots
 
-    ir = json.loads(Path(ir_path).read_text(encoding="utf-8"))
+    ir = load_ir(ir_path)
     ir = {**ir, "roots": world_roots(ir.get("roots") or [], focus)[0]}
     return ensure(collect_scene_refs(ir), log=log)
 
 
 def run(ir_path: Path, *, images: bool = True, meshes: bool = True, studio_login: bool = True) -> int:
     """`rhr fetch`: fetch everything the IR at `ir_path` references; print a summary. Exit code."""
-    ir = json.loads(Path(ir_path).read_text(encoding="utf-8"))
+    from rhr.ir import load_ir
+
+    ir = load_ir(ir_path)
     refs = collect_scene_refs(ir)
     if not images:
         refs = {k: v for k, v in refs.items() if k != "images"}

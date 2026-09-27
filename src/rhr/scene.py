@@ -57,7 +57,9 @@ class _SceneHandler(http.server.SimpleHTTPRequestHandler):
             # Voxel terrain from the source place (rhr.terrain); `null` without any.
             from rhr.terrain import terrain_payload
 
-            source = json.loads(self.ir_path.read_text(encoding="utf-8")).get("sourcePath")
+            from rhr.ir import load_ir
+
+            source = load_ir(self.ir_path).get("sourcePath")
             terrain = terrain_payload(Path(source)) if source and Path(source).is_file() else None
             payload = json.dumps(terrain).encode()
             self.send_response(200)
@@ -227,9 +229,11 @@ def _inline_unions(ir_path: Path) -> dict[str, Path]:
     from rhr import unions
     from rhr.paths import UNION_CACHE
 
+    from rhr.ir import load_ir
+
     try:
-        ir = json.loads(Path(ir_path).read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
+        ir = load_ir(ir_path)
+    except (OSError, ValueError):
         return {}
     found: dict[str, Path] = {}
 
@@ -262,9 +266,11 @@ def _content_refs(ir_path: Path) -> set[str]:
     """Every `rbxasset://` file the IR names (see rhr.studio.content_path)."""
     from rhr.studio import content_path
 
+    from rhr.ir import load_ir
+
     try:
-        ir = json.loads(Path(ir_path).read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
+        ir = load_ir(ir_path)
+    except (OSError, ValueError):
         return set()
     found: set[str] = set()
 

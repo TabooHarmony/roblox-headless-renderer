@@ -258,10 +258,26 @@ times are pessimistic. Nothing crashed or timed out; what broke was the picture.
   Still costly: about 100 s of the conversion is 5M property reads through Lune's
   bridge (20 us each); cutting it means reading fewer properties, left for after 1.0.
 - **Also faster:** raw terrain/union reads 40x; scene-dump 22 -> 17 s warm.
-- **Left for after 1.0:** a warm render of the 116k place spends about 40 s parsing
-  the IR in Python several times (downloads check, page extras, notes); parsing once
-  would roughly halve it. The `full` profile still builds the XML index for 119k
-  deprecated `Part.shape` values.
+- **Then made fast (same day, "optimization is the #2 priority").** A render was
+  worse than opening Studio: the 22k map took 20 s to convert after every edit and 34 s
+  to re-render. Measured causes: Lune hands each property to Luau in its own call (5M
+  calls, ~20 us each), and each render parsed the converted file six times. Fixed:
+  - `src/rhr/rbx/`: RHR's own reader for binary files, a port of rbx_binary 3.0.0 and
+    of luau/rhr-ir.luau on top of the reflection database Lune 0.10.5 bundles
+    (`scripts/make_reflection.py`). Columnar with numpy, lazy per property. Same IR,
+    proven: 63 real binary files (benches and the maintainer's Downloads, up to 116k
+    parts) and every fixture in both profiles, identical documents and reports
+    (tests/test_rbx_reader.py re-saves XML fixtures as binary through Lune and compares).
+    Any failure falls back to Lune with a note. Binary files no longer need Lune.
+  - `rhr.ir.load_ir` keeps the parsed IR for the process (was parsed 6x per render).
+  - `rhr.ir.world_ir`: a place's 3D view reads a slice with only what it draws
+    (13 MB instead of 230 MB on the 116k place).
+  - Results (Windows, a game running): 22k map convert 20 s -> 3.5 s, first render
+    124 s -> 26 s, second 34 s -> 7 s; 116k place convert 100-230 s -> 14.5 s, first
+    render 668 s -> 36 s, second 75 s -> 8 s. Pictures byte-identical.
+- **Left for after 1.0:** reading XML files (`.rbxmx`) with RHR's reader too (they
+  still go through Lune: usually small); the browser page's own time on big scenes
+  (shader compile, in-world UI; 4-6 s); Python start-up on this machine (1-2 s).
 
 ## 7. Candidate period
 

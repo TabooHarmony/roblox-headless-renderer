@@ -499,7 +499,8 @@ def build_scene_dump(
         from rhr.ir import stored_note, world_roots
 
         roots, stored = world_roots(roots, focus)
-        stored_line = stored_note(stored, focus)
+        # A world slice (rhr.ir.world_ir) already left the stored roots out, and says so.
+        stored_line = data.get("storedNote") or stored_note(stored, focus)
     for root in roots:
         visit(root, root["path"], root.get("className") == "Lighting", None)
 

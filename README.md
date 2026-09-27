@@ -41,8 +41,10 @@ should use `uv tool install`: `uvx` resolves the package again on every call.
 There is no setup step. The first command that needs one of these downloads it once
 into RHR's cache (one line on stderr says so):
 
-- **Lune** 0.10.5, which reads Roblox files, and **Rojo** 7.7.0, for Rojo projects
-  only. Copies already on your `PATH` are used first.
+- **Lune** 0.10.5, which reads XML files (`.rbxmx`, `.rbxlx`) and runs the signed-in
+  asset download, and **Rojo** 7.7.0, for Rojo projects only. Copies already on your
+  `PATH` are used first. Binary files (`.rbxm`, `.rbxl`, what Studio saves by default)
+  RHR reads itself.
 - **A browser for 3D.** RHR drives one you already have: Chrome, Edge, Brave or
   Chromium, in that order (`RHR_BROWSER=<path>` picks one). With none installed it
   downloads Chrome for Testing's headless shell (about 100 MB).
