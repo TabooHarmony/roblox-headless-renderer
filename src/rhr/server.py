@@ -15,16 +15,15 @@ line and working folder, and gets back stdout, stderr and the exit code.
 - It stops by itself after RHR_SERVER_IDLE_S seconds without a command (default 20
   minutes), and any time with `rhr server stop`.
 
-Wire format, both ways over a local TCP socket: the request is one JSON line
-{token, argv, cwd, env}; the reply is frames of one type byte and a 4-byte big-endian
-length: `o` stdout bytes, `e` stderr bytes, `x` the exit code (as text), `b` busy,
-`s` stale.
+Wire format, over a local TCP socket: the request is rhr.client.encode_request (a
+length, then NUL-separated fields: token, cwd, tty flags, argv, settings); the reply is
+frames of one type byte and a 4-byte big-endian length: `o` stdout bytes, `e` stderr
+bytes, `x` the exit code (as text), `b` busy, `s` stale.
 """
 
 from __future__ import annotations
 
 import io
-import json
 import os
 import socket
 import struct
@@ -102,16 +101,31 @@ def _send(connection: socket.socket, kind: bytes, payload: bytes) -> None:
     connection.sendall(kind + struct.pack(">I", len(payload)) + payload)
 
 
-def _read_request(connection: socket.socket) -> dict:
+def _read_exact(connection: socket.socket, size: int) -> bytes:
     data = bytearray()
-    while not data.endswith(b"\n"):
-        chunk = connection.recv(65536)
+    while len(data) < size:
+        chunk = connection.recv(min(size - len(data), 65536))
         if not chunk:
             raise ConnectionError("request cut short")
         data += chunk
-        if len(data) > 1 << 20:
-            raise ValueError("request too large")
-    return json.loads(data)
+    return bytes(data)
+
+
+def _read_request(connection: socket.socket) -> dict:
+    size = int.from_bytes(_read_exact(connection, 4), "big")
+    if size > 1 << 20:
+        raise ValueError("request too large")
+    return decode_request(_read_exact(connection, size))
+
+
+def decode_request(payload: bytes) -> dict:
+    """rhr.client.encode_request, read back."""
+    fields = payload.decode("utf-8", "surrogateescape").split("\0")
+    if fields[0] != "RHR1":
+        raise ValueError("not an RHR request")
+    count = int(fields[4])
+    return {"token": fields[1], "cwd": fields[2], "tty": [flag == "1" for flag in fields[3]],
+            "argv": fields[5:5 + count], "env": dict(field.split("=", 1) for field in fields[5 + count:])}
 
 
 def _warm() -> None:

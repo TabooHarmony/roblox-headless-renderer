@@ -9,13 +9,11 @@ that manage RHR itself (setup, doctor, cache, browser).
 
 from __future__ import annotations
 
-import hashlib
-import json
+import _socket  # socket.py pulls in enum and selectors: 15 ms of a command's start
 import os
-import socket
-import struct
 import sys
 import time
+import zlib
 
 # The commands the server runs; everything else runs here.
 SERVED = {"ui", "layout", "check", "hitmap", "scene", "preview", "scene-dump", "compare", "ir", "fetch"}
@@ -50,10 +48,10 @@ def session_dir() -> str:
     """Where this install's server keeps its port and token: one per Python, copy of
     RHR and RHR_* configuration."""
     package = os.path.dirname(os.path.abspath(__file__))
-    settings = sorted((k, v) for k, v in os.environ.items()
+    settings = sorted(f"{k}={v}" for k, v in os.environ.items()
                       if (k.startswith("RHR_") or k.startswith("PINEVEX_")) and k not in REQUEST_ENV)
-    key = json.dumps([sys.executable, package, settings])
-    return os.path.join(_cache_dir(), "server", hashlib.sha1(key.encode()).hexdigest()[:16])
+    key = "\0".join([sys.executable, package, *settings]).encode("utf-8", "surrogateescape")
+    return os.path.join(_cache_dir(), "server", f"{zlib.crc32(key):08x}{len(key):04x}")
 
 
 def _read_state(session: str) -> tuple[int, str] | None:
@@ -109,11 +107,22 @@ def _start(session: str) -> None:
                          stdout=log, stderr=log, cwd=session, close_fds=True, **options)
 
 
-def _connect(session: str, *, start: bool) -> tuple[socket.socket, str]:
+def _open(port: int):
+    connection = _socket.socket(_socket.AF_INET, _socket.SOCK_STREAM)
+    connection.settimeout(2)
+    try:
+        connection.connect(("127.0.0.1", port))
+    except OSError:
+        connection.close()
+        raise
+    return connection
+
+
+def _connect(session: str, *, start: bool):
     state = _read_state(session)
     if state is not None:
         try:
-            return socket.create_connection(("127.0.0.1", state[0]), timeout=2), state[1]
+            return _open(state[0]), state[1]
         except OSError:
             pass
     if not start:
@@ -126,7 +135,7 @@ def _connect(session: str, *, start: bool) -> tuple[socket.socket, str]:
         if state is None:
             continue
         try:
-            connection = socket.create_connection(("127.0.0.1", state[0]), timeout=2)
+            connection = _open(state[0])
         except OSError:
             continue
         try:
@@ -137,7 +146,7 @@ def _connect(session: str, *, start: bool) -> tuple[socket.socket, str]:
     raise _Unavailable
 
 
-def _read_exact(connection: socket.socket, size: int) -> bytes:
+def _read_exact(connection, size: int) -> bytes:
     data = bytearray()
     while len(data) < size:
         chunk = connection.recv(min(size - len(data), 1 << 20))
@@ -159,15 +168,15 @@ def _remote(argv: list[str], session: str, *, start: bool = True) -> int:
         if hasattr(stream, "reconfigure"):
             stream.reconfigure(encoding="utf-8", errors="replace")
         streams[kind] = (stream, codecs.getincrementaldecoder("utf-8")("replace"))
-    with connection:
-        request = {"token": token, "argv": argv, "cwd": os.getcwd(),
-                   "env": {name: os.environ[name] for name in REQUEST_ENV if name in os.environ},
-                   "tty": [sys.stdout.isatty(), sys.stderr.isatty()]}
+    try:
+        request = encode_request(token, argv, os.getcwd(), [sys.stdout.isatty(), sys.stderr.isatty()],
+                                 {name: os.environ[name] for name in REQUEST_ENV if name in os.environ})
         try:
-            connection.sendall(json.dumps(request).encode() + b"\n")
+            connection.sendall(request)
             connection.settimeout(None)
             while True:
-                kind, size = struct.unpack(">cI", _read_exact(connection, 5))
+                header = _read_exact(connection, 5)
+                kind, size = header[:1], int.from_bytes(header[1:], "big")
                 payload = _read_exact(connection, size)
                 if kind in streams:
                     started_output = True
@@ -183,11 +192,23 @@ def _remote(argv: list[str], session: str, *, start: bool = True) -> int:
                     raise _Unavailable
                 else:  # busy, or anything unexpected
                     raise _Unavailable
-        except (OSError, ValueError, struct.error) as exc:
+        except (OSError, ValueError) as exc:
             if not started_output:
                 raise _Unavailable from exc
             print(f"rhr: lost the RHR server during the command ({exc})", file=sys.stderr)
             return 2
+    finally:
+        connection.close()
+
+
+def encode_request(token: str, argv: list[str], cwd: str, tty: list[bool], env: dict[str, str]) -> bytes:
+    """A request (rhr.server.decode_request): a 4-byte length, then NUL-separated
+    fields (none can hold a NUL): a version, the token, cwd, the two tty flags, argv's
+    length, argv, then NAME=value settings. Not JSON: importing json costs 50 ms."""
+    fields = ["RHR1", token, cwd, "".join("1" if t else "0" for t in tty), str(len(argv)), *argv,
+              *(f"{name}={value}" for name, value in env.items())]
+    payload = "\0".join(fields).encode("utf-8", "surrogateescape")
+    return len(payload).to_bytes(4, "big") + payload
 
 
 def main() -> int:
