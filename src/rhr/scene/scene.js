@@ -2960,7 +2960,7 @@ async function addBeams(index, camera) {
     const materialOpacity = 1 - localTransparency;
     const brightness = Math.max(0, Number(node.props?.Brightness ?? 1));
     const texture = ribbonTexture(node.props?.Texture ? await loadSceneTexture(node.props.Texture) : null);
-    const material = effectMaterial(texture, brightness, materialOpacity, node.props?.LightEmission);
+    const material = effectMaterial(texture, effectLight(brightness, node.props?.LightInfluence), materialOpacity, node.props?.LightEmission);
     const mesh = new THREE.Mesh(geometry, material);
     mesh.userData.rhrDecoration = true;
     mesh.userData.rhrEffect = true;
@@ -3096,7 +3096,7 @@ async function addTrails(index, camera) {
     const localTransparency = Math.max(0, Math.min(1, Number(node.props?.LocalTransparencyModifier ?? 0)));
     const materialOpacity = 1 - localTransparency;
     const brightness = Math.max(0, Number(node.props?.Brightness ?? 1));
-    const material = effectMaterial(texture, brightness, materialOpacity, node.props?.LightEmission);
+    const material = effectMaterial(texture, effectLight(brightness, node.props?.LightInfluence), materialOpacity, node.props?.LightEmission);
     const mesh = new THREE.Mesh(geometry, material);
     mesh.userData.rhrDecoration = true;
     mesh.userData.rhrEffect = true;
@@ -3116,10 +3116,10 @@ async function addTrails(index, camera) {
 const PARTICLE_FIT = {q: 1.4543, cap: 2.4633, sPos: 0.1052, sNeg: 0.0517, kNeg: 2.4655,
   g: 2.1935, c: 0.2196, p: 1.8966, m0: 0.8305, n: 2.5407, t: 0.5301};
 const PARTICLE_LAYER = 1;
-function particleMaterial(map, brightness, lightEmission) {
+function particleMaterial(map, light, lightEmission) {
   const material = new THREE.MeshBasicMaterial({
     map,
-    color: new THREE.Color(brightness, brightness, brightness),
+    color: light,
     vertexColors: true,
     transparent: true,
     side: THREE.DoubleSide,
@@ -3148,6 +3148,40 @@ function particleMaterial(map, brightness, lightEmission) {
   return material;
 }
 
+// How much light a particle, Beam or Trail gives off, per channel, as a multiple of its
+// colour (measured in Studio with flat particles and beams, 212 readings, 1.7/255 RMS
+// through Studio's own display curve). LightInfluence L blends Brightness toward the
+// scene's light with weight sqrt(L): at L = 1 Brightness no longer counts and the
+// effect is exactly as bright as the scene's light. That light does not depend on
+// which way the effect faces: the larger of Ambient and OutdoorAmbient, squared, plus
+// Lighting.Brightness / 2 while the sun is up (fading in over the 15 minutes after
+// sunrise, and out before sunset). At night the moon gives a few percent that falls
+// off steeply as the moon sinks. Without Lighting, Studio's daylight: 1.
+let effectSceneLight = new THREE.Color(1, 1, 1);
+
+function effectLight(brightness, lightInfluence) {
+  const w = Math.sqrt(Math.max(0, Math.min(1, Number(lightInfluence ?? 0))));
+  const b = brightness * (1 - w);
+  return new THREE.Color(b + w * effectSceneLight.r, b + w * effectSceneLight.g, b + w * effectSceneLight.b);
+}
+
+function configureEffectLight(lighting) {
+  if (!lighting) {
+    effectSceneLight = new THREE.Color(1, 1, 1);
+    return;
+  }
+  const props = lighting.props || {};
+  const channel = (value, key) => Math.max(0, Number(value?.[key] ?? 0.5));
+  const clock = clockTime(props) ?? 14;
+  // Sun height as in configureSceneLights (Lighting:GetSunDirection().Y).
+  const tilt = Math.cos(THREE.MathUtils.degToRad(Number(props.GeographicLatitude ?? 41.7333) - 23.5));
+  const height = Math.sin(((clock - 6) / 12) * Math.PI) * tilt;
+  const sky = height >= 0 ? Math.min(1, height / 0.073) : 0.086 * (-height) ** 3.2;
+  const sun = Math.max(0, Number(props.Brightness ?? 1)) / 2 * sky;
+  const light = ['R', 'G', 'B'].map(key => Math.max(channel(props.Ambient, key), channel(props.OutdoorAmbient, key)) ** 2 + sun);
+  effectSceneLight = new THREE.Color(...light);
+}
+
 // A Beam or Trail repeats its texture along its length: its own copy (the image may be
 // shared with a decal), repeating vertically and clamped across.
 function ribbonTexture(texture) {
@@ -3163,11 +3197,11 @@ function ribbonTexture(texture) {
 // 1 adds the effect's light to what is behind it (it can only brighten), and values in
 // between mix the two. Written premultiplied: colour * alpha is added, and what is
 // behind is dimmed by alpha * (1 - LightEmission).
-function effectMaterial(map, brightness, opacity, lightEmission) {
+function effectMaterial(map, light, opacity, lightEmission) {
   const emission = Math.max(0, Math.min(1, Number(lightEmission ?? 0)));
   const material = new THREE.MeshBasicMaterial({
     map,
-    color: new THREE.Color(brightness, brightness, brightness),
+    color: light,
     vertexColors: true,
     transparent: true,
     opacity,
@@ -3412,7 +3446,7 @@ async function addParticles(camera) {
     geometry.setIndex(new THREE.BufferAttribute(indices, 1));
     const texture = await particleTexture(props.Texture);
     if (!texture) continue;
-    const material = particleMaterial(texture, brightness, props.LightEmission);
+    const material = particleMaterial(texture, effectLight(brightness, props.LightInfluence), props.LightEmission);
     const mesh = new THREE.Mesh(geometry, material);
     mesh.userData.rhrDecoration = true;
     mesh.userData.rhrEffect = true;
@@ -4387,6 +4421,7 @@ function defaultSkyTexture(horizon = null) {
 function configureSceneLights(index) {
   const lighting = findFirstClass(index, 'Lighting');
   const props = lighting?.props || {};
+  configureEffectLight(lighting);
   const hasLighting = Boolean(lighting);
   const ambient = hasLighting ? colorValue(props.Ambient, 0x808080) : new THREE.Color(0xddeeff);
   const outdoor = hasLighting ? colorValue(props.OutdoorAmbient, 0x808080) : new THREE.Color(0x334455);
@@ -5453,6 +5488,7 @@ function resetScene() {
   for (const target of clothingTargets) target.dispose();
   clothingTargets.length = 0;
   Object.assign(particleState, {emitters: [], time: null, auto: false, idle: [], orphan: 0, missingTextures: new Set(), drawn: 0});
+  effectSceneLight = new THREE.Color(1, 1, 1);
   Object.assign(highlightState, {drawn: 0, skipped: 0});
   document.querySelector('#rhr-overlay').replaceChildren();
   delete document.documentElement.dataset.rhrReady;

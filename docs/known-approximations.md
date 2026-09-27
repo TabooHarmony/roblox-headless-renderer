@@ -351,8 +351,16 @@ whether it glows; not the exact particles Roblox would draw.
   (32, 36, 43). Studio shows such a model over whatever place it is in, usually
   darker, so dark smoke that reads light grey against Studio's backdrop can read dark
   against RHR's. The effect itself is drawn the same.
-- **LightInfluence** is not applied. In Studio's default daylight it brightens a
-  particle by 10-30% at most.
+- **LightInfluence** (particles, Beams and Trails), measured in Studio with flat
+  particles and beams under 15 lightings (212 readings, 1.7/255 RMS): it blends
+  `Brightness` toward the scene's light by the square root of `LightInfluence`, so at
+  1 `Brightness` no longer counts. The scene's light is the larger of `Ambient` and
+  `OutdoorAmbient`, squared, plus `Lighting.Brightness` / 2 while the sun is up; the
+  way the effect faces does not matter. In daylight a lit effect looks much like an
+  unlit one; at night it goes almost black (the moon gives a few percent), and in the
+  hour or so before sunrise it is black (sunset is taken to mirror sunrise, which was
+  measured). Not drawn: the yellow tint for the first 15 minutes of sunlight, local lights, and shade (an effect
+  indoors or under a roof is lit as if outdoors). Without Lighting, daylight.
 - **Framing**: without a Camera or `--view`, the view covers visible parts and the
   bulk of the particles (5th to 95th percentile), not invisible holder parts or a few
   sparks flung far away.
@@ -360,19 +368,21 @@ whether it glows; not the exact particles Roblox would draw.
   (a point), following their rotation; `EmissionDirection`, `SpreadAngle`, `Speed`,
   `Acceleration`, `Drag`, `TimeScale`, rotation, size, colour, transparency and
   `Squash` over lifetime, flipbooks, and every `Orientation`.
-- **Not applied**: `LightInfluence` (particles are drawn as if it were 0, which most
-  VFX use), size and transparency envelopes, `LockedToPart`, wind, `VelocityInheritance`
-  (parts do not move in a still frame). Built-in `rbxasset://` particle textures are not
-  read from the Studio install yet; like a texture that could not be loaded, those
-  particles are not drawn (as in Studio for a texture it cannot load), and the output
-  names the texture. Fire, Smoke, Sparkles and Explosion are not drawn.
+- **Not applied**: size and transparency envelopes, `LockedToPart`, wind, `VelocityInheritance`
+  (parts do not move in a still frame). Fire, Smoke, Sparkles and Explosion are not
+  drawn.
+- **Built-in textures** (`rbxasset://textures/particles/...`) are read from the Studio
+  install, `.dds` files included. Side by side with Studio, the sparkle (the default
+  texture), smoke and square textures match within a few levels; `fire_main.dds` is
+  drawn darker (about a fifth of Studio's glow); the faint explosion smoke and
+  forcefield glow textures are within 7 levels. Without a Studio install they are not
+  drawn, like any texture that cannot be loaded, and the output names them.
 - **Beam**: curve, widths, segments, colour, texture and `LightEmission` are drawn.
   The texture's vertical axis runs along the beam, the image's top at `Attachment0`;
   `Stretch` repeats it `TextureLength` times, `Wrap` every `TextureLength` studs, and
   `TextureSpeed` scrolls it toward `Attachment1` by that many textures per second of
   the effect time (all measured in Studio). The scroll's starting point in Studio
   depends on when the beam appeared, so only its direction and speed can be matched.
-  `LightInfluence` is not drawn.
 - **Highlight**: the fill and the outline (about 3 px) are drawn, over everything
   (`AlwaysOnTop`) or only where seen (`Occluded`); fills first in order, then every
   outline, as Studio does. Only the front faces make the shape, so holes in a mesh get

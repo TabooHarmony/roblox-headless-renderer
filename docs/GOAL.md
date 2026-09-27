@@ -187,9 +187,10 @@ needs goes in, the rest moves after 1.0.
      scrolls with the effect time; the old "ParticleEmitter.TextureSpeed" item was a
      Beam property all along), and on the way: Beam textures were drawn upside down,
      `Wrap` Trail tiles started at the wrong end, and trails from saved files were
-     never drawn (files keep the part's velocity as `Velocity`).
-   - **Left:** the VFX leftovers, `LightInfluence` (lit or not) and a Studio check of
-     Roblox's built-in `rbxasset://` particle textures.
+     never drawn (files keep the part's velocity as `Velocity`). `LightInfluence` on
+     particles, Beams and Trails (15 lightings in Studio, 1.7/255 RMS). Roblox's
+     built-in particle textures checked side by side with Studio (all drawn; fire
+     darker).
    - **Then:** CHANGELOG entry for 0.7, the full suite, CI on all three systems once we
      agree, tag and publish.
 3. **1.0 release candidate.** Four pieces, then a short candidate period:
