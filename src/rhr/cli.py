@@ -21,6 +21,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import os
 import re
 import sys
 import tempfile
@@ -943,6 +944,9 @@ def main(argv: list[str] | None = None) -> int:
         from rhr import pipeline
 
         pipeline.INCLUDE_STORED_GUIS = True
+    if getattr(args, "offline", False):
+        # One switch for every download: assets, tools, the browser, font names.
+        os.environ["RHR_OFFLINE"] = "1"
     return args.func(args)
 
 

@@ -8,11 +8,11 @@ their work. It also works for people who just want a quick look from the command
 line or in CI. No GPU or display is needed.
 
 <p align="center">
-  <img src="docs/images/build.png" width="98%" alt="Roblox's game template rendered by rhr scene: a pastel tower of platforms and stairs with shadows, plants, a floating sphere and cube, under a cloudy sky">
+  <img src="https://raw.githubusercontent.com/TabooHarmony/roblox-headless-renderer/main/docs/images/build.png" width="98%" alt="Roblox's game template rendered by rhr scene: a pastel tower of platforms and stairs with shadows, plants, a floating sphere and cube, under a cloudy sky">
 </p>
 <p align="center">
-  <img src="docs/images/shop.png" width="40%" alt="A shop ScreenGui rendered by rhr ui: item cards in a grid with rarity colours, rounded corners and price buttons">
-  <img src="docs/images/vfx.png" width="57%" alt="Three glowing shooting stars, orange, green and violet, with wavy tails, rendered by rhr scene from a particle and beam effect">
+  <img src="https://raw.githubusercontent.com/TabooHarmony/roblox-headless-renderer/main/docs/images/shop.png" width="40%" alt="A shop ScreenGui rendered by rhr ui: item cards in a grid with rarity colours, rounded corners and price buttons">
+  <img src="https://raw.githubusercontent.com/TabooHarmony/roblox-headless-renderer/main/docs/images/vfx.png" width="57%" alt="Three glowing shooting stars, orange, green and violet, with wavy tails, rendered by rhr scene from a particle and beam effect">
 </p>
 
 <p align="center"><sub>A 3D build (<code>rhr scene</code> on Roblox's game template), a UI (<code>rhr ui examples/shop.rbxmx</code>) and an effect frozen at its fullest moment (<code>rhr scene</code> on Jaxelos's open-source star VFX).</sub></p>
@@ -21,34 +21,42 @@ line or in CI. No GPU or display is needed.
 > Studio within 2 px on every test place. The pictures are *previews*: close enough
 > to spot mistakes, not a copy of Studio's renderer. Anything RHR can't draw
 > faithfully, it says so in its output instead of guessing quietly. See
-> [what is approximated](docs/known-approximations.md). Bug reports with a small
+> [what is approximated](https://github.com/TabooHarmony/roblox-headless-renderer/blob/main/docs/known-approximations.md). Bug reports with a small
 > file attached are very welcome.
 
 ## Install
 
-You need Python 3.12 or newer, on Windows, macOS or Linux.
+You need Python 3.12 or newer, on Windows, macOS or Linux. With
+[uv](https://docs.astral.sh/uv/):
 
 ```sh
-pip install git+https://github.com/TabooHarmony/roblox-headless-renderer
-rhr setup     # downloads Lune (reads Roblox files) and Rojo
-rhr doctor    # checks everything is in place
+uvx roblox-headless-renderer ui MyGui.rbxmx --out gui.png   # run it once, nothing to install
+uv tool install roblox-headless-renderer                     # or keep `rhr` on PATH
+rhr doctor                                                   # what RHR found, and what it will download
 ```
 
-`rhr setup` puts the exact tool versions RHR is tested with (Lune 0.10.5, Rojo 7.7.0)
-in RHR's own cache folder. Tools you already have on `PATH` are used first.
+`pip install roblox-headless-renderer` works too. An agent that runs RHR all day
+should use `uv tool install`: `uvx` resolves the package again on every call.
 
-For 3D, RHR drives a browser you already have: Chrome, Edge, Brave or Chromium, in
-that order (`RHR_BROWSER=<path>` picks one). With none installed, the first 3D render
-downloads Chrome for Testing's headless shell once (about 100 MB) into the cache;
-`rhr setup --browser` does that ahead of time, and `RHR_BROWSER_DOWNLOAD=0` forbids
-it. `rhr doctor` names the browser it will use. On a bare Linux machine the headless
-shell also needs system libraries (on Ubuntu: `libnss3 libatk-bridge2.0-0t64 libgbm1
-libxkbcommon0 libxcomposite1 libxdamage1 libxrandr2 libcups2t64 libasound2t64
-libpango-1.0-0`).
+There is no setup step. The first command that needs one of these downloads it once
+into RHR's cache (one line on stderr says so):
+
+- **Lune** 0.10.5, which reads Roblox files, and **Rojo** 7.7.0, for Rojo projects
+  only. Copies already on your `PATH` are used first.
+- **A browser for 3D.** RHR drives one you already have: Chrome, Edge, Brave or
+  Chromium, in that order (`RHR_BROWSER=<path>` picks one). With none installed it
+  downloads Chrome for Testing's headless shell (about 100 MB).
+
+`rhr setup` downloads Lune and Rojo ahead of time, `rhr setup --browser` the headless
+shell too (CI, offline machines). `--offline` or `RHR_OFFLINE=1` never downloads
+anything; `RHR_TOOL_DOWNLOAD=0` and `RHR_BROWSER_DOWNLOAD=0` turn off one kind. On a
+bare Linux machine the headless shell also needs system libraries (on Ubuntu:
+`libnss3 libatk-bridge2.0-0t64 libgbm1 libxkbcommon0 libxcomposite1 libxdamage1
+libxrandr2 libcups2t64 libasound2t64 libpango-1.0-0`).
 
 ## Try it
 
-The repository has two example files ([`examples/`](examples/)):
+The repository has two example files ([`examples/`](https://github.com/TabooHarmony/roblox-headless-renderer/tree/main/examples/)):
 
 ```sh
 git clone https://github.com/TabooHarmony/roblox-headless-renderer && cd roblox-headless-renderer
@@ -91,7 +99,7 @@ change in shape is never silent. `ui`, `scene` and `preview` print the PNG's pat
 with `--json` a report (`rhr.render/1`): the path, the camera, and what was
 approximated or missing. Exit codes: 0 done, 1 only from `check` (error findings), 2
 the command failed. The full interface is in
-[`docs/interface-1.0.md`](docs/interface-1.0.md). A Rojo project works anywhere a file does: pass the
+[`docs/interface-1.0.md`](https://github.com/TabooHarmony/roblox-headless-renderer/blob/main/docs/interface-1.0.md). A Rojo project works anywhere a file does: pass the
 folder with `default.project.json`, or the `*.project.json` file.
 
 **Effects.** `scene` and `preview` draw ParticleEmitters, Beams and Trails inside the
@@ -102,14 +110,14 @@ showing its fullest moment (`--effect-time T` for another, `--no-effects` to lea
 them out). Emitters a script plays without those attributes are listed, not guessed.
 Highlights (fill and outline) are drawn too. How particles blend and how bright they
 look is fitted to measurements in Studio; see
-[what is approximated](docs/known-approximations.md#effects).
+[what is approximated](https://github.com/TabooHarmony/roblox-headless-renderer/blob/main/docs/known-approximations.md#effects).
 
 **Experimental** (rough sketches, and labelled as such in the output): local lights,
 Decals and Textures, Atmosphere and post effects.
 
 ## For agents
 
-Start with [`docs/AGENTS.md`](docs/AGENTS.md): which command answers which question,
+Start with [`docs/AGENTS.md`](https://github.com/TabooHarmony/roblox-headless-renderer/blob/main/docs/AGENTS.md): which command answers which question,
 an edit → check → preview loop, and how far to trust each output. RHR is a command-line
 tool only: an agent runs it from its shell, and it costs nothing in the agent's context
 until it is run.
@@ -177,20 +185,20 @@ pip install -e ".[dev]" && rhr setup
 python -m pytest                                    # -m smoke: a quick check; -m "not browser": no 3D
 ```
 
-CI runs the suite on Ubuntu, Windows and macOS. [`docs/GOAL.md`](docs/GOAL.md) is the
+CI runs the suite on Ubuntu, Windows and macOS. [`docs/GOAL.md`](https://github.com/TabooHarmony/roblox-headless-renderer/blob/main/docs/GOAL.md) is the
 project's direction and scope. `tests/studio/` holds places built in Studio with
 Studio's own measurements saved inside; its README explains how to add one.
 
 - `src/rhr/`: the package (file reading, UI layout and drawing, 3D scene, CLI).
 - `src/rhr/ui_engine/`: the 2D UI engine, a fork of pinevex-renderer (Apache-2.0);
-  [`docs/ui-engine.md`](docs/ui-engine.md) and `patches/` say how it differs.
+  [`docs/ui-engine.md`](https://github.com/TabooHarmony/roblox-headless-renderer/blob/main/docs/ui-engine.md) and `patches/` say how it differs.
 - `src/rhr/vendor/three/`: THREE.js for the 3D preview, bundled, so nothing is loaded
   from a CDN.
 
 ## License
 
 Apache License 2.0. Bundled third-party code and fonts are listed in
-[`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md). Test fixtures and examples are
+[`THIRD_PARTY_NOTICES.md`](https://github.com/TabooHarmony/roblox-headless-renderer/blob/main/THIRD_PARTY_NOTICES.md). Test fixtures and examples are
 made for this repository; no third-party game content is included.
 
 RHR is an independent project, not affiliated with or endorsed by Roblox

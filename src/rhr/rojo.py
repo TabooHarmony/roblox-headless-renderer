@@ -26,11 +26,9 @@ def project_file(source: Path) -> Path | None:
 
 def build(project: Path, out_dir: Path) -> Path:
     """Run `rojo build` on `project` and return the built .rbxl or .rbxm file."""
-    from rhr.tools import find_tool, missing_message
+    from rhr.tools import require
 
-    rojo = find_tool("rojo")
-    if rojo is None:
-        raise RuntimeError(missing_message("rojo", "to build Rojo projects"))
+    rojo = require("rojo", "to build Rojo projects")
     try:
         data = json.loads(project.read_text(encoding="utf-8"))
     except json.JSONDecodeError as exc:

@@ -88,6 +88,49 @@ def main() -> int:
     finally:
         tools.shutil.which, tools._runs_here, tools.BIN_DIR = saved
 
+    # A missing tool is downloaded the first time a command needs it, unless offline
+    # or RHR_TOOL_DOWNLOAD=0 (the download itself is stood in for: no network here).
+    import contextlib
+    import io
+
+    saved_env = {key: os.environ.get(key) for key in ("RHR_OFFLINE", "RHR_TOOL_DOWNLOAD")}
+    saved = (tools.find_tool, tools.download_tool)
+    downloaded: list[str] = []
+    try:
+        tools.find_tool = lambda name: None
+        tools.download_tool = lambda name: downloaded.append(name) or Path(f"/cache/bin/{name}")
+        os.environ.pop("RHR_OFFLINE", None)
+        os.environ.pop("RHR_TOOL_DOWNLOAD", None)
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr):
+            path = tools.require("lune", "to read Roblox files")
+        check(downloaded == ["lune"] and Path(path) == Path("/cache/bin/lune"),
+              "a missing Lune is downloaded on first use")
+        check("downloading Lune 0.10.5" in stderr.getvalue(), f"with a notice ({stderr.getvalue().strip()})")
+        for key, value, why in (("RHR_OFFLINE", "1", "offline"), ("RHR_TOOL_DOWNLOAD", "0", "RHR_TOOL_DOWNLOAD=0")):
+            os.environ.pop("RHR_OFFLINE", None)
+            os.environ[key] = value
+            downloaded.clear()
+            try:
+                tools.require("lune", "to read Roblox files")
+                check(False, f"{why} forbids the download")
+            except RuntimeError as exc:
+                check(not downloaded and "rhr setup" in str(exc), f"{why} forbids the download and says what to do")
+            os.environ.pop(key, None)
+        tools.download_tool = lambda name: (_ for _ in ()).throw(OSError("no network"))
+        try:
+            tools.require("rojo", "to build Rojo projects")
+            check(False, "a failed download is an error")
+        except RuntimeError as exc:
+            check("no network" in str(exc) and "rhr setup" in str(exc), "a failed download says why and what to do")
+    finally:
+        tools.find_tool, tools.download_tool = saved
+        for key, value in saved_env.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
+
     print("tools: ok" if not failures else f"tools: {len(failures)} failed")
     return 1 if failures else 0
 

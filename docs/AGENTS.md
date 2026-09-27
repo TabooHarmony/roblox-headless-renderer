@@ -96,12 +96,13 @@ builds or moves at runtime is previewed as saved in the file.
 
 ## Setup reminders
 
-- `rhr doctor` says whether everything RHR needs is installed; `rhr setup` downloads
-  what is missing (Lune 0.10.5, Rojo 7.7.0). 3D uses Chrome, Edge, Brave or Chromium if
-  one is installed, else downloads a headless browser once on the first 3D render
-  (stderr says so); `rhr doctor` names the browser, and the `--json` report's
-  `browser` field says which one drew the picture. `rhr cache` shows or clears the
-  cache.
+- There is no setup step: the first command that needs Lune 0.10.5 (every Roblox
+  file), Rojo 7.7.0 (Rojo projects) or, for 3D, a headless browser downloads it once
+  (a line on stderr says so; the first run takes longer). 3D uses Chrome, Edge, Brave
+  or Chromium if one is installed. `rhr doctor` shows what RHR found and will use; the
+  `--json` report's `browser` field says which browser drew the picture. With
+  `--offline` nothing is downloaded, and a missing tool is an error saying to run
+  `rhr setup`. `rhr cache` shows or clears the cache.
 - A standard `--view` frames the build, not the Baseplate: a thin ground slab much
   larger than everything else is left out of the framing (still drawn), and a `note`
   line says so. `--focus <path>` frames exactly what you name.

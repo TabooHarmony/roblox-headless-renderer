@@ -7,7 +7,8 @@ RHR needs one Chromium-family browser. In order, it uses:
    (the tests and CI use it: the same build draws the same pixels everywhere);
 3. Chrome, Edge, Brave or Chromium installed on the machine;
 4. otherwise the pinned headless shell, downloaded once into RHR's cache (about
-   100 MB; `RHR_BROWSER_DOWNLOAD=0` forbids it, `rhr setup --browser` does it ahead).
+   100 MB; `RHR_BROWSER_DOWNLOAD=0` or offline forbids it, `rhr setup --browser` does
+   it ahead).
 
 A browser that fails to start (a company policy can turn remote debugging off) is
 skipped for the next one; `rhr doctor` says why.
@@ -181,7 +182,9 @@ def candidates() -> list[Candidate]:
 
 
 def download_allowed() -> bool:
-    return os.environ.get("RHR_BROWSER_DOWNLOAD", "").strip().lower() not in {"0", "false", "no", "off"}
+    from rhr.tools import network_allowed
+
+    return network_allowed("RHR_BROWSER_DOWNLOAD")
 
 
 def none_found_message() -> str:
@@ -191,7 +194,7 @@ def none_found_message() -> str:
     if shell_platform() is None:
         return f"no Chromium-family browser found, and there is no headless shell to download for this machine. {advice}."
     return (f"no Chromium-family browser found and downloading the headless shell is turned off "
-            f"(RHR_BROWSER_DOWNLOAD=0). {advice}, run `rhr setup --browser`, or set RHR_BROWSER.")
+            f"(RHR_BROWSER_DOWNLOAD=0 or offline). {advice}, run `rhr setup --browser`, or set RHR_BROWSER.")
 
 
 def download_shell(*, quiet: bool = False) -> Path:

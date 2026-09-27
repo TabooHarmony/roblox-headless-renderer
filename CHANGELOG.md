@@ -36,8 +36,21 @@
   name, version, path); `rhr doctor` names the browser it will use and why any other
   was skipped.
 
+- **Install from PyPI**: `uvx roblox-headless-renderer ...` runs it once, `uv tool
+  install roblox-headless-renderer` (or `pip install`) puts `rhr` on `PATH`. The
+  package also has a `roblox-headless-renderer` command, the same as `rhr`.
+- **No setup step**: Lune and Rojo download themselves the first time a command needs
+  them (a line on stderr says so), like the browser. `rhr setup` still does it ahead
+  of time. `RHR_TOOL_DOWNLOAD=0` turns that off; `--offline` / `RHR_OFFLINE=1` now
+  turns off every download (tools, the browser, font names), not only assets. A
+  missing tool with downloads off is an error that says to run `rhr setup`.
+
 ### Changes
 
+- `rhr doctor` no longer counts a missing Lune as a problem when it can be
+  downloaded; it says it will be.
+- Downloaded tools are written beside their final name and renamed, so an interrupted
+  download never leaves a broken `lune` that RHR would then try to run.
 - Cold 3D renders are about 1.7 s faster (no Node driver to start); warm renders are
   unchanged. Installing RHR no longer pulls in Playwright (104 MB).
 - A browser never outlives RHR: on Windows it runs in a job object that ends it with

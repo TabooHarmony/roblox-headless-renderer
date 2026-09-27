@@ -14,8 +14,8 @@ commits on `main`, and pushing or running CI waits until we agree to release.
 | 1b. Shape tests | **Done.** tests/test_contract.py and tests/contract/interface.json (`--update` after an intentional change). Commit 378ca64. |
 | 3. Own browser client instead of Playwright | **Done locally** (CI jobs written, not yet run). Results below. |
 | 4. pinevex becomes our own code | **Done.** `src/rhr/ui_engine/`, docs/ui-engine.md. |
-| 5. PyPI, `uvx`, fresh-machine CI | **Next.** Below. |
-| 6. Basic large-place check | To do. Below. |
+| 5. PyPI, `uvx`, fresh-machine CI | **Done locally**; the CI jobs and the first PyPI upload wait for the release. Below. |
+| 6. Basic large-place check | **Next.** Below. |
 | 7. Candidate period, tag 1.0 | To do. |
 
 The full suite was green after step 1b (77 passed, 1 skipped: the Studio-models test
@@ -198,6 +198,36 @@ stays as history. Suite unchanged, render baselines identical.
   effect: once with the runner's installed browser, once with none (download path).
   Run the suite on the lowest supported Python (3.12) too: it already caught one bug
   (`--camera -10,5,3`).
+
+**Done locally (2026-09-27).**
+
+- The README leads with `uvx roblox-headless-renderer ...` (a second console script
+  of that name) and `uv tool install` for agents; `pip install` works too. Its links
+  and images are absolute GitHub URLs so they work on PyPI's page.
+- `tools.require()`: Lune and Rojo download on first use with a notice;
+  `RHR_TOOL_DOWNLOAD=0` forbids it. `--offline` now sets `RHR_OFFLINE` for the whole
+  command, and every download checks it (tools, browser, the font-name lookup, which
+  used to call Roblox's API even offline). Tool downloads are atomic.
+- PyPI name `roblox-headless-renderer` is free (checked 2026-09-27). Package metadata
+  (URLs, classifiers, keywords). `.github/workflows/release.yml`: on a `v*` tag, checks
+  the tag equals the version and the CHANGELOG has its section, builds, `twine check
+  --strict`, publishes by trusted publishing (environment `pypi`). **The maintainer
+  must add the pending publisher on pypi.org and the `pypi` environment on GitHub**
+  (the steps are at the top of release.yml).
+- Wheel 12 MB (193 files, the 28 engine fonts, three.js, draco); the sdist builds the
+  same wheel; both pass `twine check`.
+- `.github/workflows/ci.yml` job `fresh-install`: three systems x {installed browser,
+  every browser hidden}, the built wheel with `uv tool install` and `uvx` on Python
+  3.12, no Lune/Rojo/setup; renders `examples/shop.rbxmx`, a place and a particle
+  effect and checks each `--json` report (`scripts/check_report.py`: schema, PNG,
+  which browser, particles drawn), and that Lune was downloaded.
+- Simulated locally (Windows): the wheel installed with `uv tool` into empty folders,
+  empty cache, no Lune on `PATH`: Lune downloaded itself on the first command; the
+  UI, the place and the effect rendered with the installed Chrome 154; `uvx ...
+  roblox-headless-renderer --version` runs. Not checked locally: the download-browser
+  variant with browsers hidden (the download itself was checked with `rhr setup
+  --browser`), macOS, Linux. The full suite passes on Python 3.12.14 (81 passed, 1
+  skipped).
 
 ## 6. Basic large-place check
 

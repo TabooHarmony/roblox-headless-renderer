@@ -22,15 +22,13 @@ from rhr.paths import LUAU_IR_SCRIPT
 from rhr.procs import no_window
 
 def lune_executable() -> str:
-    """Path to `lune`, or a RuntimeError that says how to install it."""
+    """Path to `lune` (downloaded the first time), or a RuntimeError that says how to
+    install it."""
     from rhr.profile import phase
-    from rhr.tools import find_tool, missing_message
+    from rhr.tools import require
 
     with phase("find lune"):
-        found = find_tool("lune")
-    if found is None:
-        raise RuntimeError(missing_message("lune", "to read Roblox files"))
-    return found
+        return require("lune", "to read Roblox files")
 
 
 def load_ir(path) -> dict:

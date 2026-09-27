@@ -3,12 +3,15 @@
 RHR needs Lune (to read Roblox files) and a Chromium-family browser (for 3D,
 found or downloaded by rhr.browsers); Rojo only for Rojo projects. A program on PATH
 wins; otherwise RHR looks in <cache>/bin, which is where `rhr setup` puts the exact
-versions it is tested with. Lune and Rojo are downloaded only by `rhr setup`.
+versions it is tested with. When neither has it, the first command that needs it
+downloads the pinned version there (one line on stderr), unless RHR_TOOL_DOWNLOAD=0
+or RHR_OFFLINE=1; `rhr setup` does it ahead of time.
 """
 
 from __future__ import annotations
 
 import io
+import os
 import platform
 import shutil
 import stat
@@ -76,6 +79,34 @@ def tool_status(name: str) -> tuple[str | None, bool]:
     return found, False
 
 
+def network_allowed(switch: str) -> bool:
+    """Whether RHR may download something by itself: not with RHR_OFFLINE=1 (or
+    `--offline`), nor with the thing's own switch (`RHR_TOOL_DOWNLOAD`, ...) set to 0."""
+    off = {"0", "false", "no", "off"}
+    if os.environ.get("RHR_OFFLINE", "").strip().lower() in {"1", "true", "yes", "on"}:
+        return False
+    return os.environ.get(switch, "").strip().lower() not in off
+
+
+def require(name: str, purpose: str) -> str:
+    """Path to a working `name`, downloading the pinned release the first time.
+
+    Raises RuntimeError with what to do when it is missing and cannot be downloaded.
+    """
+    found = find_tool(name)
+    if found:
+        return found
+    if not network_allowed("RHR_TOOL_DOWNLOAD"):
+        raise RuntimeError(missing_message(name, purpose))
+    repo, version = TOOLS[name]
+    print(f"rhr: downloading {name.capitalize()} {version} ({purpose}), once", file=sys.stderr, flush=True)
+    try:
+        return str(download_tool(name))
+    except Exception as exc:  # network, HTTP, unsupported platform
+        raise RuntimeError(f"downloading {name.capitalize()} {version} failed ({exc}). "
+                           + missing_message(name, purpose)) from exc
+
+
 def missing_message(name: str, purpose: str) -> str:
     repo, version = TOOLS[name]
     found, _ = tool_status(name)
@@ -126,8 +157,12 @@ def download_tool(name: str) -> Path:
         )
         if member is None:
             raise RuntimeError(f"{url} has no {_exe(name)} inside")
-        target.write_bytes(archive.read(member))
-    target.chmod(target.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+        # Written beside the target and renamed, so an interrupted download never
+        # leaves a broken tool where RHR looks for it.
+        partial = target.with_name(f"{target.name}.{os.getpid()}.part")
+        partial.write_bytes(archive.read(member))
+    partial.chmod(partial.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+    os.replace(partial, target)
     return target
 
 
@@ -219,6 +254,9 @@ def doctor() -> int:
         path, usable = tool_status(name)
         if usable:
             print(f"{name:9} ok       {_tool_version(path)}  {path}")
+        elif network_allowed("RHR_TOOL_DOWNLOAD"):
+            print(f"{name:9} none     {name.capitalize()} {TOOLS[name][1]} is downloaded the first time it is "
+                  f"needed ({purpose}; `rhr setup` does it now)")
         elif path:
             print(f"{name:9} {'BROKEN' if required else 'broken'}   {path} is a Rokit shim that "
                   "does not run in this folder")

@@ -31,7 +31,8 @@ _FONT_ASSET_CACHE: dict[str, str] = {
 def resolve_font_family(family_url: str) -> str:
     """Resolve an rbxassetid:// font URL to a family name.
 
-    Uses a local cache, then falls back to the Roblox API for unknown IDs.
+    Uses a local cache, then falls back to the Roblox API for unknown IDs (not
+    offline: RHR_OFFLINE=1 or `--offline`).
     Returns the original URL unchanged if resolution fails.
     """
     m = _RBXASSETID_RE.search(family_url)
@@ -40,6 +41,10 @@ def resolve_font_family(family_url: str) -> str:
     aid = m.group(1)
     if aid in _FONT_ASSET_CACHE:
         return _FONT_ASSET_CACHE[aid]
+    from rhr.fetch import offline
+
+    if offline():
+        return family_url
     # API fallback
     try:
         resp = requests.get(
