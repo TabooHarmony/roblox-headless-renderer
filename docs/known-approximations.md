@@ -106,6 +106,13 @@ a headless Chromium-family browser (Chrome, Edge, Brave, Chromium, or Chrome for
 Testing's headless shell; the `--json` report names it). They all draw the same
 page; the tests pin the headless shell for identical pixels.
 
+**What is drawn:** in a place file, the world (Workspace, Lighting, StarterGui's
+in-world UI). Models stored in ServerStorage, ReplicatedStorage, ReplicatedFirst,
+ServerScriptService, StarterPack and StarterPlayer are not drawn, as in a running game
+until a script clones them in; a note counts them, and `--focus` on one draws it. A
+model file draws everything. A place is drawn as saved: parts a script hides or moves
+at run time (a map's "invisible" walls saved opaque) show as they are in the file.
+
 **Measured:** part positions, sizes and rotations (`rhr scene-dump`) match Studio.
 Compared with Studio screenshots of the same scene, geometry, camera framing,
 shadow direction and the default sky match.

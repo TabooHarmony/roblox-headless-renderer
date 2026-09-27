@@ -90,6 +90,78 @@ def resolve_path(roots: list[dict], wanted: str) -> dict:
     raise ValueError(f"path not found in IR: {wanted}")
 
 
+# Where a place keeps models out of the world until a script clones them in: a game's
+# maps in ServerStorage, tools in StarterPack, templates in ReplicatedStorage. Roblox
+# does not draw them, and drawing them all at once (often at the same spot) frames a
+# 3D view on nothing useful. scene/scene.js keeps the same list (STORED_SERVICES).
+STORED_SERVICES = frozenset({
+    "ServerStorage", "ReplicatedStorage", "ReplicatedFirst", "ServerScriptService",
+    "StarterPack", "StarterPlayer",
+})
+_PLACE_ROOTS = STORED_SERVICES | {"Workspace", "Lighting", "StarterGui"}
+_PART_CLASSES = frozenset({
+    "Part", "MeshPart", "UnionOperation", "WedgePart", "CornerWedgePart", "TrussPart",
+    "SpawnLocation", "Seat", "VehicleSeat",
+})
+
+
+def _find_path(nodes: list[dict], wanted: str) -> dict | None:
+    for node in nodes:
+        path = node.get("path", "")
+        if path == wanted:
+            return node
+        if wanted.startswith(path + "/"):
+            return _find_path(node.get("children") or [], wanted)
+    return None
+
+
+def world_roots(roots: list[dict], focus: str | None = None) -> tuple[list[dict], list[dict]]:
+    """What a 3D view draws: (roots to draw, stored roots left out).
+
+    In a place: everything but the storage services, plus the node `focus` names when
+    it is stored (`--focus ServerStorage/Maps/Farmhouse` shows that map). A model file
+    has no services and draws everything.
+    """
+    if not any(root.get("className") in _PLACE_ROOTS for root in roots):
+        return roots, []
+    shown = [root for root in roots if root.get("className") not in STORED_SERVICES]
+    stored = [root for root in roots if root.get("className") in STORED_SERVICES]
+    if focus:
+        target = _find_path(stored, focus)
+        if target is not None:
+            shown.append(target)
+    return shown, stored
+
+
+def _part_count(node: dict) -> int:
+    count = 1 if node.get("className") in _PART_CLASSES else 0
+    return count + sum(_part_count(child) for child in node.get("children") or [])
+
+
+def stored_note(stored: list[dict], focus: str | None = None) -> str | None:
+    """One line naming the stored parts a 3D view of a place did not draw, or None."""
+    counts = [(root, _part_count(root)) for root in stored]
+    counts = [(root, n) for root, n in counts if n]
+    if not counts:
+        return None
+    total = sum(n for _, n in counts)
+    where = ", ".join(f"{root.get('path')} {n}" for root, n in sorted(counts, key=lambda item: -item[1]))
+    # An example to focus on: the biggest stored model, below any container that only
+    # groups several (a Folder, or a Model of Models such as a game's Maps).
+    node = max(counts, key=lambda item: item[1])[0]
+    while True:
+        children = [(child, _part_count(child)) for child in node.get("children") or []]
+        children = [(child, n) for child, n in children if n]
+        grouping = node.get("className") in STORED_SERVICES or node.get("className") == "Folder" or (
+            len(children) >= 3 and all(child.get("className") in ("Model", "Folder") for child, _ in children))
+        if not children or not grouping:
+            break
+        node = max(children, key=lambda item: item[1])[0]
+    shown = f" (only {focus} is drawn)" if focus else ""
+    return (f"{total} part(s) stored outside the world not drawn{shown} ({where}): scripts clone them "
+            f"into Workspace at run time; --focus <path> draws one, e.g. {node.get('path')}")
+
+
 def cached_ir(source_path, *, profile: str = "full") -> Path:
     """IR for a Roblox file, reusing the last conversion of the same bytes.
 

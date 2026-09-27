@@ -67,11 +67,11 @@ if not os.environ.get("RHR_TEST_KEEP_CACHE"):
 BROWSER = {
     "test_billboard", "test_browser_session", "test_particles",
     "test_preview", "test_preview_particles", "test_surface", "test_viewport_frame", "test_kept_page",
-    "test_visual_gallery", "test_place_realism", "test_terrain", "test_contract", "test_browser_lifetime",
+    "test_visual_gallery", "test_place_realism", "test_terrain", "test_contract", "test_browser_lifetime", "test_large_place",
 }
 NOT_LUNE = {
     "test_compare", "test_groundtruth_diff", "test_mesh_assets", "test_project", "test_roblox_assets", "test_cache",
-    "test_scroll_scale", "test_text_newlines", "test_textscaled_stroke", "test_browsers", "test_browser_lifetime",
+    "test_scroll_scale", "test_text_newlines", "test_textscaled_stroke", "test_browsers", "test_browser_lifetime", "test_large_place",
 }
 STUDIO = {"test_studio_smoke"}
 SMOKE = {

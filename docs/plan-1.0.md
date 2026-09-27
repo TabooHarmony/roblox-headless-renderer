@@ -15,8 +15,8 @@ commits on `main`, and pushing or running CI waits until we agree to release.
 | 3. Own browser client instead of Playwright | **Done locally** (CI jobs written, not yet run). Results below. |
 | 4. pinevex becomes our own code | **Done.** `src/rhr/ui_engine/`, docs/ui-engine.md. |
 | 5. PyPI, `uvx`, fresh-machine CI | **Done locally**; the CI jobs and the first PyPI upload wait for the release. Below. |
-| 6. Basic large-place check | **Next.** Below. |
-| 7. Candidate period, tag 1.0 | To do. |
+| 6. Basic large-place check | **Done.** Results below. |
+| 7. Candidate period, tag 1.0 | **Next.** |
 
 The full suite was green after step 1b (77 passed, 1 skipped: the Studio-models test
 that needs `RHR_STUDIO_MODELS`), and after step 3 (79 passed, 1 skipped) with
@@ -236,6 +236,32 @@ games, kept outside the repo like the other benches), with `RHR_PROFILE=1`: time
 memory for the IR conversion, the scene dump, the page and the screenshot. Fix only
 what breaks (a timeout, running out of memory, a crash). No streaming or geometry
 merging unless the check shows it is needed.
+
+**Done (2026-09-27)**, on places from the maintainer's Downloads (kept there, not in the
+repo): `Heartsmm2 1.rbxl` (116k parts, 180k instances, terrain) and `+1 Speed V2!
+(1).rbxl` (40k parts, a model file). Measured while a game ran on the same machine, so
+times are pessimistic. Nothing crashed or timed out; what broke was the picture.
+
+- **Stored models drawn (fixed).** The 116k place keeps 110k of its parts in
+  ServerStorage (every map, at the same spot). They were drawn, fetched (3,100 assets,
+  8 minutes) and framed: a view of fog. Now a place draws its world only
+  (`rhr.ir.world_roots`, and `worldRoots` in scene.js), with a note; `--focus` on a
+  stored model draws it. The first render took 668 s (conversion 99 s, downloads
+  479 s); after the fix a render takes about 75 s once converted, and a first run
+  fetches only the world's assets (not re-measured cold).
+- **Framing (fixed).** A rig a plugin left in Workspace.Camera, 126k studs out, set the
+  camera 160k studs away. `withoutStrays` in frameScene leaves out parts more than 4x
+  the build's spread from its median, when they are under 5% of it; a note names them.
+- **Conversion memory (reduced).** Lune peaked at 5.5 GB (static) / 7.0 GB (full).
+  The whole-place XML pass is gone unless needed, and the IR is written node by node:
+  3.9 / 5.7 GB. Output identical on 77 fixtures and 28 real files in both profiles.
+  Still costly: about 100 s of the conversion is 5M property reads through Lune's
+  bridge (20 us each); cutting it means reading fewer properties, left for after 1.0.
+- **Also faster:** raw terrain/union reads 40x; scene-dump 22 -> 17 s warm.
+- **Left for after 1.0:** a warm render of the 116k place spends about 40 s parsing
+  the IR in Python several times (downloads check, page extras, notes); parsing once
+  would roughly halve it. The `full` profile still builds the XML index for 119k
+  deprecated `Part.shape` values.
 
 ## 7. Candidate period
 

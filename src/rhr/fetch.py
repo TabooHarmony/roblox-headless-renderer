@@ -492,9 +492,13 @@ def ensure(refs: dict[str, set[str]], *, login: bool = True, log=None) -> dict[s
     return results
 
 
-def ensure_for_ir(ir_path: Path, *, log=None) -> dict[str, dict[str, str]]:
-    """`ensure` everything a 3D render of the IR at `ir_path` can use."""
+def ensure_for_ir(ir_path: Path, *, log=None, focus: str | None = None) -> dict[str, dict[str, str]]:
+    """`ensure` everything a 3D render of the IR at `ir_path` can use: what it draws,
+    not the models a place stores out of the world (rhr.ir.world_roots)."""
+    from rhr.ir import world_roots
+
     ir = json.loads(Path(ir_path).read_text(encoding="utf-8"))
+    ir = {**ir, "roots": world_roots(ir.get("roots") or [], focus)[0]}
     return ensure(collect_scene_refs(ir), log=log)
 
 

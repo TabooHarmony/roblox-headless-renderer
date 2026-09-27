@@ -47,6 +47,18 @@
 
 ### Changes
 
+- **Places draw their world, not their storage.** In a place file, `scene` and
+  `preview` no longer draw (or download, or count) the models kept in ServerStorage,
+  ReplicatedStorage, StarterPack and the like: on a real game, 110k stored parts
+  (every map, all at the same spot) had framed the view on fog. A note counts them
+  and suggests `--focus <path>`, which draws one. Model files are unchanged.
+- **Framing ignores far strays.** A standard view no longer backs off to include a
+  few parts far from everything else (a plugin's rig 126k studs out); a note names
+  them.
+- **Big places convert with less memory.** On a 116k-part place the 3D conversion
+  peaked at 3.9 GB instead of 5.5 GB (7.0 -> 5.7 GB for UI commands), without the
+  whole-place XML pass, with identical output. Reading
+  terrain and unions from binary files is 40x faster, and the scene dump 25%.
 - `rhr doctor` no longer counts a missing Lune as a problem when it can be
   downloaded; it says it will be.
 - Downloaded tools are written beside their final name and renamed, so an interrupted

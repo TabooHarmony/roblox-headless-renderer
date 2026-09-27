@@ -3664,6 +3664,42 @@ function withoutGround(boxes) {
 }
 
 const framingIgnored = [];
+const framingStrays = [];
+
+// A standard view frames where the build is, not every part the file has: a rig a
+// plugin parked 126,000 studs away (inside Workspace.Camera, where animation tools keep
+// their dummies) put the camera so far out that the game itself was lost in fog. A
+// part is a stray when its centre is more than 4x the build's own spread (95th
+// percentile distance) from the median centre, and strays are few (under 5%): a
+// build that is genuinely spread out keeps all of it. Strays are still drawn.
+function withoutStrays(boxes) {
+  if (boxes.length < 20) return boxes;
+  const centers = boxes.map(entry => entry.box.getCenter(new THREE.Vector3()));
+  const median = axis => {
+    const values = centers.map(c => c[axis]).sort((a, b) => a - b);
+    return values[Math.floor(values.length / 2)];
+  };
+  const middle = new THREE.Vector3(median('x'), median('y'), median('z'));
+  const distances = centers.map(c => c.distanceTo(middle));
+  const sorted = [...distances].sort((a, b) => a - b);
+  const spread = Math.max(sorted[Math.floor(0.95 * (sorted.length - 1))], 50);
+  const strays = new Set(boxes.filter((entry, i) => distances[i] > 4 * spread));
+  if (!strays.size || strays.size > 0.05 * boxes.length) return boxes;
+  // Named by model, not part by part: the nearest ancestor that is a Model.
+  const names = new Map();
+  for (const entry of strays) {
+    let node = entry.node;
+    for (let up = sceneIndex?.parentByNode?.get(node); up; up = sceneIndex.parentByNode.get(up)) {
+      if (up.className === 'Model') { node = up; break; }
+      if (!sceneIndex.parentByNode.get(up)) break;
+    }
+    const name = node.path || node.name;
+    names.set(name, (names.get(name) || 0) + 1);
+  }
+  const far = Math.round(Math.max(...[...strays].map(entry => distances[boxes.indexOf(entry)])));
+  framingStrays.push({ names: [...names.keys()], count: strays.size, far });
+  return boxes.filter(entry => !strays.has(entry));
+}
 
 // Where the particles are, for framing: the 5th to 95th percentile on each axis, so a
 // few sparks flung far away do not push the camera back.
@@ -3712,7 +3748,7 @@ function frameScene(camera, index, focusPath, view = 'iso') {
   // count when there is nothing else.
   const seen = boxes.filter(entry => Number(entry.node.props?.Transparency ?? 0) < 1);
   const candidates = seen.length || effectBounds ? seen : boxes;
-  const framed = focusPath ? candidates : withoutGround(candidates);
+  const framed = focusPath ? candidates : withoutStrays(withoutGround(candidates));
   const box = new THREE.Box3();
   for (const entry of framed) box.union(entry.box);
   if (effectBounds) box.union(effectBounds);
@@ -4809,6 +4845,11 @@ async function reportNotes() {
   if (framingIgnored.length) {
     notes.push(`framing left out ground ${framingIgnored.join(', ')} (still drawn; --focus <path> frames it)`);
   }
+  for (const stray of framingStrays) {
+    const listed = stray.names.slice(0, 4).join(', ') + (stray.names.length > 4 ? `, +${stray.names.length - 4} more` : '');
+    notes.push(`framing left out ${stray.count} part(s) far from the rest of the build (up to ${stray.far} studs): `
+      + `${listed} (still drawn; --focus <path> frames it)`);
+  }
   if (!notes.length) return;
   try {
     await fetch('/__rhr_notes__.json', {
@@ -5310,12 +5351,42 @@ void main() {
   for (const target of [main, neonRaw, neonScratch, neonBlur, bloomBlur, raysOut]) target.dispose();
 }
 
+// Where a place keeps models out of the world until a script clones them in (a game's
+// maps in ServerStorage, tools in StarterPack). Roblox does not draw them; drawing them
+// all at once frames the view on nothing useful. Same list and rule as
+// rhr.ir.world_roots, which also leaves them out of the downloads and the notes.
+const STORED_SERVICES = new Set(['ServerStorage', 'ReplicatedStorage', 'ReplicatedFirst',
+  'ServerScriptService', 'StarterPack', 'StarterPlayer']);
+const PLACE_ROOTS = new Set([...STORED_SERVICES, 'Workspace', 'Lighting', 'StarterGui']);
+
+function findStoredPath(nodes, wanted) {
+  for (const node of nodes) {
+    const path = node.path || '';
+    if (path === wanted) return node;
+    if (wanted.startsWith(`${path}/`)) return findStoredPath(Object.values(node.children || {}), wanted);
+  }
+  return null;
+}
+
+// The roots a 3D view draws: in a place, all but the storage services, plus the node
+// `focus` names when it is stored. A model file has no services and draws everything.
+function worldRoots(roots, focus) {
+  if (!roots.some(root => PLACE_ROOTS.has(root.className))) return roots;
+  const shown = roots.filter(root => !STORED_SERVICES.has(root.className));
+  if (focus) {
+    const target = findStoredPath(roots.filter(root => STORED_SERVICES.has(root.className)), focus);
+    if (target) shown.push(target);
+  }
+  return shown;
+}
+
 async function main() {
   const response = await fetch(params.get('ir') || '/__rhr_ir__.json');
   if (!response.ok) throw new Error(`IR request failed: ${response.status}`);
   const ir = await response.json();
   mark('IR fetched');
-  const roots = ir.roots || [];
+  // A ViewportFrame draws its own contents, wherever its GUI is kept.
+  const roots = viewportMode ? (ir.roots || []) : worldRoots(ir.roots || [], params.get('focus'));
   const index = buildNodeIndex(roots);
   sceneIndex = index;
   use2022Materials = computeUse2022Materials(index);
@@ -5470,6 +5541,7 @@ function resetScene() {
   lookAlikeMaterialsUsed.clear();
   environmentMaterials.clear();
   framingIgnored.length = 0;
+  framingStrays.length = 0;
   use2022Materials = true;
   environmentTexture = null;
   environmentSpecularScale = 1;

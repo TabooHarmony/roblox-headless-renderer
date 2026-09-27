@@ -105,7 +105,13 @@ builds or moves at runtime is previewed as saved in the file.
   `rhr setup`. `rhr cache` shows or clears the cache.
 - A standard `--view` frames the build, not the Baseplate: a thin ground slab much
   larger than everything else is left out of the framing (still drawn), and a `note`
-  line says so. `--focus <path>` frames exactly what you name.
+  line says so. So are a few parts far from everything else (a rig a plugin parked
+  100k studs out). `--focus <path>` frames exactly what you name.
+- In a place, 3D draws the world: models stored in ServerStorage, ReplicatedStorage,
+  StarterPack and the like (a game's maps, templates) are not drawn, downloaded or
+  counted, and a `note` says how many parts that left out and suggests a path.
+  `--focus ServerStorage/Maps/Farm` draws one stored model on its own. A model file
+  draws everything it holds. `scene-dump` always describes the whole file.
 - Running several commands on an unchanged file reads it once; stderr says
   `ir reused ...` when a command used the earlier conversion.
 - Screen UI assumes Roblox's default 58 px top bar. Use `--topbar-height 0` to match

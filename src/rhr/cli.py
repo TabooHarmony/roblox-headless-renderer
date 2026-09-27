@@ -313,7 +313,7 @@ def _layout(args) -> int:
     return 0
 
 
-def _prepare_scene_assets(ir_path: Path, offline: bool) -> None:
+def _prepare_scene_assets(ir_path: Path, offline: bool, focus: str | None = None) -> None:
     """Before a 3D render: fetch what it needs and is not cached, and say what is missing.
 
     RHR expects Roblox Studio on the machine and signed in; the download runs as that
@@ -332,7 +332,7 @@ def _prepare_scene_assets(ir_path: Path, offline: bool) -> None:
     if offline or fetch.offline():
         return
     try:
-        fetch.ensure_for_ir(ir_path, log=say)
+        fetch.ensure_for_ir(ir_path, log=say, focus=focus)
     except Exception as exc:  # noqa: BLE001 - a failed download must not fail the render
         say(f"note   fetching assets failed ({type(exc).__name__}: {exc}); drawing with what is cached")
 
@@ -504,7 +504,7 @@ def _scene(args) -> int:
         with phase("file conversion (IR)"):
             ir_path = ir_for(source, profile="static")
         with phase("downloads check"):
-            _prepare_scene_assets(ir_path, args.offline)
+            _prepare_scene_assets(ir_path, args.offline, args.focus)
         page_notes: list[str] = []
         camera_state: dict = {}
         with phase("browser render (total)"):
@@ -531,7 +531,10 @@ def _scene(args) -> int:
         from rhr.scene_dump import build_scene_dump, notes_line
 
         with phase("notes (scene dump)"):
-            scene_dump = build_scene_dump(ir_path, texture_dir=texture_dir, mesh_dir=mesh_dir)
+            scene_dump = build_scene_dump(ir_path, texture_dir=texture_dir, mesh_dir=mesh_dir,
+                                          world=True, focus=args.focus)
+            if scene_dump.get("_storedNote"):
+                page_notes.append(scene_dump["_storedNote"])
     except (ValueError, RuntimeError, OSError) as exc:
         return _die(str(exc))
     elapsed = int((time.perf_counter() - t0) * 1000)
@@ -566,7 +569,7 @@ def _preview(args) -> int:
     t0 = time.perf_counter()
     try:
         ir_path = ir_for(source, profile="static")
-        _prepare_scene_assets(ir_path, args.offline)
+        _prepare_scene_assets(ir_path, args.offline, args.focus)
         with tempfile.TemporaryDirectory(prefix="rhr-preview-") as directory:
             tmp = Path(directory)
             world = tmp / "world.png"
@@ -622,7 +625,10 @@ def _preview(args) -> int:
     from rhr.scene_dump import build_scene_dump, notes_line
 
     try:
-        scene_dump = build_scene_dump(ir_path, texture_dir=texture_dir, mesh_dir=mesh_dir)
+        scene_dump = build_scene_dump(ir_path, texture_dir=texture_dir, mesh_dir=mesh_dir,
+                                      world=True, focus=args.focus)
+        if scene_dump.get("_storedNote"):
+            page_notes.append(scene_dump["_storedNote"])
     except (ValueError, RuntimeError, OSError) as exc:
         return _die(f"the picture was written, but reading back what it approximated failed: {exc}")
     print(notes_line(scene_dump), file=sys.stderr)

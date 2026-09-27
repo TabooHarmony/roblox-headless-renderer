@@ -151,7 +151,13 @@ def build_scene_dump(
     ir_path: Path,
     texture_dir: Path | None = None,
     mesh_dir: Path | None = None,
+    *,
+    world: bool = False,
+    focus: str | None = None,
 ) -> dict:
+    """The scene dump of an IR file. With `world`, only what a 3D view draws
+    (rhr.ir.world_roots), plus `_storedNote` naming what it left out, for the
+    render commands' report."""
     for lookup in (_mesh_available, _union_available, _asset_available):
         lookup.cache_clear()
     data = load_ir(ir_path)
@@ -487,7 +493,14 @@ def build_scene_dump(
         for child in _children(node):
             visit(child, child["path"], in_lighting, node)
 
-    for root in data.get("roots", []):
+    roots = data.get("roots", [])
+    stored_line = None
+    if world:
+        from rhr.ir import stored_note, world_roots
+
+        roots, stored = world_roots(roots, focus)
+        stored_line = stored_note(stored, focus)
+    for root in roots:
         visit(root, root["path"], root.get("className") == "Lighting", None)
 
     bounds = None
@@ -503,7 +516,7 @@ def build_scene_dump(
     if preferred is None and cameras:
         preferred = cameras[0]["path"]
 
-    return stamp("scene-dump", {
+    dump = stamp("scene-dump", {
         "source": data.get("sourcePath"),
         "bounds": bounds,
         "parts": nodes,
@@ -525,6 +538,9 @@ def build_scene_dump(
         "classCounts": dict(sorted(class_counts.items())),
         "experimental": _experimental(class_counts, experimental_materials),
     })
+    if stored_line:
+        dump["_storedNote"] = stored_line
+    return dump
 
 
 # Rough approximations (docs/GOAL.md): present in the render, but not to be trusted
