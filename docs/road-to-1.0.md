@@ -454,10 +454,12 @@ right.
 ### Phase 3: speed the agent feels (2-4 days, alongside Phase 2)
 
 - F13 (wait instead of going cold), client-side `--version` and `--help`, `rhr batch`.
-- The native client in platform wheels, with the Python client as fallback (F12).
 - Several views on one built scene (F14); stories in one build (F15).
-- Exit, on an idle machine: warm `check` of a small UI at most 0.1 s wall with the native
-  client (0.45 s without it); four views of a model in at most 1.5 times one view.
+- Exit, on an idle machine: warm `check` of a small UI at most 0.45 s wall; four views of
+  a model in at most 1.5 times one view.
+- Then: CI green on Windows, macOS and Linux, a fresh `uvx` install from PyPI, and
+  **1.0.0rc1** (release candidate, feedback asked for). Phase 4 below becomes what the
+  rc's users do; 1.0.0 follows if no feedback breaks the interface in about two weeks.
 
 ### Phase 4: dogfood and freeze (1-2 weeks, mostly elapsed time)
 
@@ -502,7 +504,8 @@ and animated effects. A native renderer only if Chromium ever blocks a platform.
 | Default viewport | 1920x1080, plus `--device` | it is what players have; decide once, before the freeze |
 | Hidden screens | `--show` and `--only` | ProjectA's screens open by code |
 | Hit map semantics | follow a Studio measurement | today's rule marks many real buttons blocked |
-| Native client | build in Phase 3; ship in 1.0 if CI is green | biggest wall-clock win; not interface |
+| Native client | after 1.0, only if asked for (changed 2026-09-28) | 0.45 s a call is fine for agents; a second toolchain and platform wheels cost more than they save |
+| Release path | Phase 3, then CI + 1.0.0rc1; Phase 4 becomes the rc's feedback period (2026-09-28) | ship rather than drag on; users find the awkward spots |
 | Stories in 1.0 | yes, marked experimental | how code-first agents make UI |
 | macOS first class | only after a real Mac run | it has never run there since 0.7 |
 
