@@ -92,7 +92,7 @@ def render(tmp: Path) -> None:
     check("framing left out 3 part(s) far from the rest" in notes and "Workspace/Camera/DummyR15" in notes,
           "a note names the rig framing left out")
     check("stored outside the world not drawn" in notes, "a note names the stored maps")
-    dump = subprocess.run([*RHR, "scene-dump", str(ir_path)], capture_output=True, text=True, cwd=ROOT, timeout=300)
+    dump = subprocess.run([*RHR, "scene-dump", "--parts", str(ir_path)], capture_output=True, text=True, cwd=ROOT, timeout=300)
     paths = [p["path"] for p in json.loads(dump.stdout)["parts"]]
     check(any(p.startswith("ServerStorage/") for p in paths), "scene-dump still describes the whole file")
 

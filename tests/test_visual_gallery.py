@@ -127,7 +127,7 @@ def main() -> None:
             assert mesh_delta > 0.10, mesh_delta
 
         proc = run(
-            "scene-dump", str(ir),
+            "scene-dump", "--parts", str(ir),
             "--texture-dir", str(ASSETS),
             "--mesh-dir", str(mesh_dir),
         )

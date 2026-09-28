@@ -42,6 +42,12 @@ DEFAULT_VIEWPORT = (1615, 1080)
 MODEL_SUFFIXES = {".rbxm", ".rbxmx", ".rbxl", ".rbxlx"}
 
 
+def _under(path: str, prefix: str) -> bool:
+    """`path` is `prefix` or inside it (paths as RHR prints them)."""
+    prefix = prefix.strip().strip("/")
+    return path == prefix or path.startswith(prefix + "/")
+
+
 def _die(message: str) -> int:
     print(f"rhr: {message}", file=sys.stderr)
     return 2
@@ -56,6 +62,16 @@ def parse_viewport(text: str) -> tuple[int, int]:
     if width <= 0 or height <= 0:
         raise argparse.ArgumentTypeError(f"viewport must be positive, got {text!r}")
     return width, height
+
+
+def parse_point(text: str) -> tuple[float, float]:
+    try:
+        x, y = (float(part.strip()) for part in text.split(","))
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"a point is X,Y in pixels, got {text!r}") from None
+    if not (math.isfinite(x) and math.isfinite(y)):
+        raise argparse.ArgumentTypeError(f"a point is two finite numbers X,Y, got {text!r}")
+    return x, y
 
 
 def parse_vector3(text: str) -> tuple[float, float, float]:
@@ -284,6 +300,10 @@ def _layout(args) -> int:
 
         t0 = time.perf_counter()
         dump = build_dump(ir_path, width, height, topbar_height=args.topbar_height)
+        if args.path:
+            dump = {**dump, "nodes": [n for n in dump["nodes"] if _under(n["path"], args.path)]}
+            if not dump["nodes"]:
+                return _die(f"no UI under {args.path}")
         text = dump_json(dump)
         elapsed = int((time.perf_counter() - t0) * 1000)
         count = len(dump["nodes"])
@@ -312,6 +332,10 @@ def _layout(args) -> int:
     layout = {path: rect_to_dict(rect) for path, rect in rect_map.items()}
     if not layout and screens:
         return _die("no rects resolved: nodes reached the renderer without a _path")
+    if args.path:
+        layout = {path: rect for path, rect in layout.items() if _under(path, args.path)}
+        if not layout:
+            return _die(f"no UI under {args.path}")
     # JSON on stdout, the count on stderr, so `rhr layout model.rbxm | jq` works.
     print(f"layout {len(layout)} rects", file=sys.stderr)
     _stored_gui_note(ir_path)
@@ -441,6 +465,8 @@ def _check(args) -> int:
         return _die(str(exc))
     elapsed = int((time.perf_counter() - t0) * 1000)
 
+    if args.path:
+        result["findings"] = [f for f in result["findings"] if any(_under(p, args.path) for p in f["paths"])]
     findings = result["findings"]
     left_out = result.pop("_left_out")
     errors = sum(1 for f in findings if f["severity"] == "error")
@@ -501,7 +527,7 @@ def _compare(args) -> int:
 
 
 def _hitmap(args) -> int:
-    from rhr.hitmap import build_hitmap, dump_json
+    from rhr.hitmap import at_point, build_hitmap, dump_json, narrowed
 
     source = Path(args.file)
     if not source.exists():
@@ -513,6 +539,13 @@ def _hitmap(args) -> int:
         hitmap = build_hitmap(ir_path, width, height, topbar_height=args.topbar_height)
     except (ValueError, RuntimeError) as exc:
         return _die(str(exc))
+    if args.at:
+        hitmap = at_point(hitmap, *args.at)
+    else:
+        if args.path and not any(n["path"] == args.path or n["path"].startswith(args.path + "/")
+                                 for n in hitmap["nodes"]):
+            return _die(f"no interactive element under {args.path}")
+        hitmap = narrowed(hitmap, path=args.path, everything=args.all)
     text = dump_json(hitmap)
     if args.out:
         Path(args.out).parent.mkdir(parents=True, exist_ok=True)
@@ -614,6 +647,9 @@ def _inspect(args) -> int:
         report = inspect(rojo.build(project, IR_DIR) if project is not None else source)
     except (ValueError, RuntimeError, OSError) as exc:
         return _die(str(exc))
+    scripts = report["scripts"]
+    if not args.all:
+        report = _inspect_summary(report)
     text = dumps(report)
     if args.out:
         Path(args.out).parent.mkdir(parents=True, exist_ok=True)
@@ -621,6 +657,7 @@ def _inspect(args) -> int:
         print(args.out, file=sys.stderr)
     else:
         print(text)
+    report["scripts"] = scripts
     counts = {}
     for finding in report["findings"]:
         counts[finding["severity"]] = counts.get(finding["severity"], 0) + 1
@@ -628,6 +665,25 @@ def _inspect(args) -> int:
           + (", ".join(f"{n} {s}" for s, n in counts.items()) or "none")
           + f"  {int((time.perf_counter() - t0) * 1000)}ms", file=sys.stderr)
     return 0
+
+
+INSPECT_LIMIT = 25
+
+
+def _inspect_summary(report: dict) -> dict:
+    """`rhr inspect` without --all: the scripts that have findings (the rest counted),
+    and each asset list's first INSPECT_LIMIT ids (with counts). A real game listed
+    2,422 scripts and 3,666 asset ids: 424 KB."""
+    flagged = {finding["path"] for finding in report["findings"]}
+    scripts = report["scripts"]
+    assets = report["assets"]
+    return {
+        **report,
+        "scripts": [script for script in scripts if script["path"] in flagged],
+        "scriptsTotal": {"count": len(scripts), "lines": sum(s.get("lines", 0) for s in scripts)},
+        "assets": {kind: ids[:INSPECT_LIMIT] for kind, ids in assets.items()},
+        "assetCounts": {kind: len(ids) for kind, ids in assets.items()},
+    }
 
 
 def _icons(args) -> int:
@@ -777,7 +833,7 @@ def _preview(args) -> int:
 
 
 def _scene_dump(args) -> int:
-    from rhr.scene_dump import cached_scene_dump
+    from rhr.scene_dump import cached_scene_dump, dump_json, select, summarize
 
     source = Path(args.file)
     if not source.exists():
@@ -792,6 +848,14 @@ def _scene_dump(args) -> int:
         )
     except (ValueError, RuntimeError, OSError) as exc:
         return _die(str(exc))
+    if args.path and not any(p["path"] == args.path or p["path"].startswith(args.path + "/")
+                             for p in scene_dump["parts"]):
+        return _die(f"no parts under {args.path} (the summary's models[].path lists where parts are)")
+    parts = args.parts or args.part_class or args.limit is not None
+    if not parts:
+        text = dump_json(summarize(scene_dump, args.path))
+    elif args.path or args.part_class or args.limit is not None:
+        text = dump_json(select(scene_dump, path=args.path, classes=tuple(args.part_class), limit=args.limit))
     if args.out:
         Path(args.out).parent.mkdir(parents=True, exist_ok=True)
         Path(args.out).write_text(text, encoding="utf-8")
@@ -944,6 +1008,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="top bar inset in px for a CoreUISafeInsets ScreenGui (default: 58)",
     )
+    p_layout.add_argument("--path", metavar="PATH", help="only the elements under PATH")
     p_layout.add_argument("--all-guis", action="store_true",
                           help="in a place, also draw ScreenGuis stored outside StarterGui (templates scripts clone in)")
     p_layout.add_argument("--show", action="append", default=[], metavar="PATH",
@@ -973,6 +1038,7 @@ def build_parser() -> argparse.ArgumentParser:
                          help="leave out one check by id (repeatable)")
     p_check.add_argument("--baseline", metavar="JSON",
                          help="an earlier `rhr check` output: report only findings not in it")
+    p_check.add_argument("--path", metavar="PATH", help="only the findings about elements under PATH")
     p_check.add_argument("--all-guis", action="store_true",
                          help="in a place, also draw ScreenGuis stored outside StarterGui (templates scripts clone in)")
     p_check.add_argument("--show", action="append", default=[], metavar="PATH",
@@ -1010,6 +1076,11 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="top bar inset in px for a CoreUISafeInsets ScreenGui (default: 58)",
     )
+    p_hitmap.add_argument("--at", type=parse_point, metavar="X,Y",
+                          help="who gets a click at this pixel, and everything interactive under it")
+    p_hitmap.add_argument("--path", metavar="PATH", help="only the interactive elements under PATH")
+    p_hitmap.add_argument("--all", action="store_true",
+                          help="also list hidden interactive elements (they take no clicks)")
     p_hitmap.add_argument("--all-guis", action="store_true",
                           help="in a place, also draw ScreenGuis stored outside StarterGui (templates scripts clone in)")
     p_hitmap.add_argument("--show", action="append", default=[], metavar="PATH",
@@ -1036,6 +1107,9 @@ def build_parser() -> argparse.ArgumentParser:
                                                "findings for risky script code (backdoors in free models)")
     p_inspect.add_argument("file", help="Roblox model/place, Rojo project, or a Roblox asset id or link")
     p_inspect.add_argument("--out", help="write JSON here instead of stdout")
+    p_inspect.add_argument("--all", action="store_true",
+                           help="every script and every asset id (by default: the scripts with findings, "
+                                "the first 25 ids of each kind, and counts)")
     p_inspect.set_defaults(func=_inspect)
 
     p_icons = sub.add_parser("icons", help="square icon PNGs of models on a transparent background, "
@@ -1074,6 +1148,14 @@ def build_parser() -> argparse.ArgumentParser:
     p_scene_dump = sub.add_parser("scene-dump", help="the 3D world as JSON: parts, cameras, lights, "
                                                     "effects, and what is approximated or missing")
     p_scene_dump.add_argument("file", help="Roblox model/place, Rojo project, IR .json, or a Roblox asset id or link")
+    p_scene_dump.add_argument("--parts", action="store_true",
+                              help="every part (rhr.scene-dump/1); the default is a summary (rhr.scene-summary/1)")
+    p_scene_dump.add_argument("--path", metavar="PATH",
+                              help="only what is under PATH: its summary, or with --parts its parts")
+    p_scene_dump.add_argument("--class", dest="part_class", action="append", default=[], metavar="CLASS",
+                              help="only parts of this class, e.g. MeshPart (repeatable; implies --parts)")
+    p_scene_dump.add_argument("--limit", type=int, metavar="N",
+                              help="at most N parts; partsTotal says how many matched (implies --parts)")
     p_scene_dump.add_argument("--out", help="write JSON here instead of stdout")
     _test_hooks(p_scene_dump)
     p_scene_dump.set_defaults(func=_scene_dump)

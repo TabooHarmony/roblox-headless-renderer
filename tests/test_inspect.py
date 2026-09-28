@@ -58,7 +58,7 @@ def main() -> int:
     with tempfile.TemporaryDirectory(prefix="rhr-inspect-") as directory:
         path = Path(directory) / "FreeCar.rbxmx"
         path.write_text(MODEL, encoding="utf-8")
-        proc = subprocess.run([sys.executable, "-m", "rhr", "inspect", str(path)], capture_output=True, text=True,
+        proc = subprocess.run([sys.executable, "-m", "rhr", "inspect", "--all", str(path)], capture_output=True, text=True,
                               encoding="utf-8", timeout=120)
         check(proc.returncode == 0, f"exit code {proc.returncode}: {proc.stderr[-300:]}")
         report = json.loads(proc.stdout)

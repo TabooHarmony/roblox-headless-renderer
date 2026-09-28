@@ -619,6 +619,99 @@ def notes_line(scene_dump: dict) -> str:
     )
 
 
+# How many groups and missing assets a summary names before it only counts the rest.
+SUMMARY_LIMIT = 40
+
+
+def _under(path: str, prefix: str) -> bool:
+    return path == prefix or path.startswith(prefix + "/")
+
+
+def summarize(scene_dump: dict, path: str | None = None) -> dict:
+    """The default `rhr scene-dump`: what a place or model holds, in a few KB whatever
+    its size (the full dump of a 116k-part place is 52 MB). Parts are grouped by their
+    first two path segments (Workspace/Map, ServerStorage/Maps, MyModel/Body), or with
+    `path` by the next level under it, biggest first, each with its part count and
+    bounds; `--parts` (with `--path`, `--class`, `--limit`) gives every part."""
+    groups: dict[str, dict] = {}
+    depth = len(path.split("/")) + 1 if path else 2
+    for part in scene_dump["parts"]:
+        if path and not _under(part["path"], path):
+            continue
+        segments = part["path"].split("/")
+        key = "/".join(segments[:depth]) if len(segments) > depth else part["path"]
+        group = groups.setdefault(key, {"path": key, "parts": 0, "min": [math.inf] * 3, "max": [-math.inf] * 3})
+        group["parts"] += 1
+        box = part.get("bounds")
+        if box:
+            group["min"] = [min(a, b) for a, b in zip(group["min"], box["min"])]
+            group["max"] = [max(a, b) for a, b in zip(group["max"], box["max"])]
+    ordered = sorted(groups.values(), key=lambda g: (-g["parts"], g["path"]))
+    models = []
+    for group in ordered[:SUMMARY_LIMIT]:
+        entry = {"path": group["path"], "parts": group["parts"]}
+        if all(math.isfinite(v) for v in group["min"] + group["max"]):
+            entry["size"] = [round(group["max"][i] - group["min"][i], 3) for i in range(3)]
+            entry["center"] = [round((group["max"][i] + group["min"][i]) / 2, 3) for i in range(3)]
+        models.append(entry)
+    missing = [{"path": item["path"], "class": item["class"], "uri": item.get("uri")}
+               for item in scene_dump["assetReferences"]
+               if not item["available"] and (not path or _under(item["path"], path))]
+    missing_meshes = [item for item in scene_dump["meshReferences"]
+                      if not item.get("available", True) and (not path or _under(item.get("path", ""), path))]
+    return stamp("scene-summary", {
+        "source": scene_dump.get("source"),
+        "path": path,
+        "parts": sum(group["parts"] for group in ordered),
+        "bounds": scene_dump["bounds"] if not path else _group_bounds(ordered),
+        "classCounts": scene_dump["classCounts"],
+        "models": models,
+        "moreModels": max(0, len(ordered) - SUMMARY_LIMIT),
+        "cameras": len(scene_dump["cameras"]),
+        "preferredCamera": scene_dump["preferredCamera"],
+        "lights": len(scene_dump["lights"]),
+        "effects": {"beams": len(scene_dump["beams"]), "trails": len(scene_dump["trails"])},
+        "terrain": len(scene_dump["terrain"]) > 0,
+        "sky": scene_dump["sky"] is not None,
+        "fallbacks": scene_dump["fallbacks"],
+        "materialFallbacks": scene_dump["materialFallbacks"],
+        "unsupportedVisualClasses": scene_dump["unsupportedVisualClasses"],
+        "experimental": scene_dump["experimental"],
+        "missingAssets": missing[:SUMMARY_LIMIT],
+        "moreMissingAssets": max(0, len(missing) - SUMMARY_LIMIT),
+        "missingMeshes": len(missing_meshes),
+        "detail": ("rhr scene-dump <file> --path <models[].path>: the same summary of one model; "
+                   "--parts [--path P] [--class C] [--limit N]: every part"),
+    })
+
+
+def _group_bounds(groups: list[dict]) -> dict | None:
+    lo = [min((g["min"][i] for g in groups), default=math.inf) for i in range(3)]
+    hi = [max((g["max"][i] for g in groups), default=-math.inf) for i in range(3)]
+    if not all(math.isfinite(v) for v in lo + hi):
+        return None
+    return {"min": [round(v, 6) for v in lo], "max": [round(v, 6) for v in hi],
+            "center": [round((lo[i] + hi[i]) / 2, 6) for i in range(3)],
+            "size": [round(hi[i] - lo[i], 6) for i in range(3)]}
+
+
+def select(scene_dump: dict, *, path: str | None = None, classes: tuple[str, ...] = (),
+           limit: int | None = None) -> dict:
+    """`--parts` narrowed: the parts (and lights, effects, meshes, asset references) under
+    `path`, of `classes`, at most `limit` parts (`partsTotal` says how many matched)."""
+    def keep(item: dict) -> bool:
+        return path is None or _under(item.get("path", ""), path)
+
+    parts = [p for p in scene_dump["parts"] if keep(p) and (not classes or p["class"] in classes)]
+    out = dict(scene_dump)
+    out["partsTotal"] = len(parts)
+    out["parts"] = parts[:limit] if limit is not None else parts
+    if path is not None:
+        for key in ("cameras", "lights", "beams", "trails", "specialMeshes", "assetReferences", "meshReferences"):
+            out[key] = [item for item in scene_dump[key] if keep(item)]
+    return out
+
+
 def dump_json(scene_dump: dict) -> str:
     from rhr.schema import dumps
 

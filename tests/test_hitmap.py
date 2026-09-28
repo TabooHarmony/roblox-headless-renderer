@@ -101,7 +101,7 @@ def main() -> int:
     # CLI contract: JSON is stable and diagnostics stay on stderr.
     cli_out = OUT / "hitmap_cli.json"
     proc = subprocess.run(
-        [*RHR, "hitmap", str(FIXTURE), "--viewport", "400x300", "--out", str(cli_out)],
+        [*RHR, "hitmap", str(FIXTURE), "--all", "--viewport", "400x300", "--out", str(cli_out)],
         capture_output=True,
         text=True,
         cwd=str(REPO),

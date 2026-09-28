@@ -14,9 +14,11 @@ the edit loop, and how to read the output without being misled.
 | What each element is made of, and how its text laid out | `rhr layout <file> --rich` | `nodes[]`: class, rect, zIndex, colours, `text.drawnSize`, `text.lines`, `text.bounds` |
 | Whether the UI has obvious mistakes | `rhr check <file>` | `findings[]` (`check`, `severity`, `paths`, `detail`); exit code 1 if any is an error |
 | Whether an edit added a mistake | `rhr check <file> --out before.json` once, then `rhr check <file> --baseline before.json` after each edit | only the new findings |
-| What is clickable, and what is on top where things overlap | `rhr hitmap <file>` | `nodes[]` (interactive elements; `capturesClicks`), `hitTests[]` (who gets a click at each element's centre: `target`, `targetIsButton`). The rules are Studio's, measured: within a ScreenGui a visible, Interactable button always gets the click; a visible Active element in a ScreenGui above swallows it, even when transparent (`rhr check` reports that as `button-blocked`) |
+| What a player would click at one pixel | `rhr hitmap <file> --at X,Y` | `hitTests[0].target`, and every interactive element under the point |
+| What is clickable, and what is on top where things overlap | `rhr hitmap <file>` (`--path <screen>` for one) | `nodes[]` (interactive elements; `capturesClicks`), `hitTests[]` (who gets a click at each element's centre: `target`, `targetIsButton`). The rules are Studio's, measured: within a ScreenGui a visible, Interactable button always gets the click; a visible Active element in a ScreenGui above swallows it, even when transparent (`rhr check` reports that as `button-blocked`) |
 | What a 3D build looks like | `rhr scene <file> --view iso --out build.png --json` | the PNG; the report's `notes`, `missingAssets`, `fallbacks`, `camera` |
-| Where every part is, and what was approximated | `rhr scene-dump <file>` | `parts[]`, `bounds`, `fallbacks`, `unsupportedVisualClasses`, `experimental` |
+| What a place or model holds in 3D, and what was approximated | `rhr scene-dump <file>` | a summary (`rhr.scene-summary/1`, a few KB for any size): `parts`, `bounds`, `models[]` (biggest groups with part counts and bounds), `fallbacks`, `missingAssets`. `--path <models[].path>` summarises one of them |
+| Where the parts of one model are | `rhr scene-dump <file> --parts --path <model>` (`--class MeshPart`, `--limit N`) | `parts[]` (position, size, orientation, bounds, material), `partsTotal` |
 | World, in-world UI and screen UI together (use this when unsure) | `rhr preview <file> --view iso --out frame.png --json` | the PNG, and the same report |
 | Whether an edit changed geometry or only colours | `rhr compare before.png after.png` | `changedPct`, `silhouette.iou` |
 | Show a person the build to look around in (they fly the camera) | `rhr view <file> --no-open`, run in the background | the address it prints on stdout: give it to the person. The page redraws itself when you edit the file |
@@ -36,6 +38,10 @@ run in the Rojo project above it, so it needs `rojo` and runs the project's code
 (experimental in 1.0). Write one per screen you are building and check it after each
 edit, the same loop as a file. Code that reads the screen size gets `--viewport`;
 tweens end at their goal; controls take their defaults.
+
+Default outputs stay small (tens of KB even for a 100k-part place); narrow them with
+`--path <path>` on `layout`, `check`, `hitmap` and `scene-dump`, and ask for everything
+only when needed (`scene-dump --parts`, `hitmap --all`, `inspect --all`).
 
 Every JSON document has a `schema` field (`rhr.layout/1`, `rhr.check/1`, ...). Check
 it: a different version means the shape changed. Data commands print JSON on stdout;

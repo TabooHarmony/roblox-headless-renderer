@@ -4,6 +4,14 @@
 
 ### When upgrading
 
+- **Default outputs are summaries.** `rhr scene-dump` prints a summary
+  (`rhr.scene-summary/1`: counts, bounds, the biggest models with their part counts,
+  what was approximated or missing), a few KB for any place: the full dump of a
+  116k-part place was 52 MB. `--parts` prints every part as before (`rhr.scene-dump/1`),
+  narrowed by `--path`, `--class` and `--limit`. `rhr hitmap` lists visible elements
+  (`--all` adds hidden ones) and cuts each stack to its top four (`stackMore`); `rhr
+  inspect` lists the scripts with findings and the first 25 asset ids of each kind
+  (`scriptsTotal`, `assetCounts`; `--all` for everything).
 - **`--view front` shows the front.** Standard views are Roblox's sides: `front`
   looks at the Front face (-Z, a part's LookVector: a car's nose, a character's
   face); before, it looked from +Z and showed the back. `back` swapped with it, and
@@ -71,6 +79,9 @@
 
 ### Changes
 
+- **`--path <path>`** on `layout`, `check`, `hitmap` and `scene-dump`: one screen or
+  model instead of the whole file. **`rhr hitmap --at X,Y`**: who gets a click at one
+  pixel.
 - **`rhr check` finds what players see, and less noise.** Text checks read what the
   engine laid out instead of measuring again with another font (half of the old
   `text-wider-than-box` warnings on real games were wrong: TextScaled labels, other

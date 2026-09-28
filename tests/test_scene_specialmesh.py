@@ -90,7 +90,7 @@ def main() -> None:
         src = tmp / "mixed.json"
         src.write_text(json.dumps(mixed))
         proc = subprocess.run(
-            [*RHR, "scene-dump", str(src)],
+            [*RHR, "scene-dump", "--parts", str(src)],
             cwd=ROOT, capture_output=True, text=True, timeout=120,
         )
         assert proc.returncode == 0, proc.stderr

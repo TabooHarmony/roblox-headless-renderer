@@ -13,7 +13,8 @@ VERSIONS = {
     "layout-rich": 1,   # rhr layout --rich
     "check": 1,         # rhr check
     "hitmap": 1,        # rhr hitmap
-    "scene-dump": 1,    # rhr scene-dump
+    "scene-dump": 1,    # rhr scene-dump --parts
+    "scene-summary": 1,  # rhr scene-dump (the default: a summary)
     "compare": 2,       # rhr compare (2: camelCase keys, before/after instead of ref/out)
     "browser": 1,       # rhr browser start|status|stop
     "render": 1,        # rhr ui|scene|preview --json: the picture's report

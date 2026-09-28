@@ -99,7 +99,7 @@ def main() -> None:
         transitions = center_row_transitions(out)
         assert transitions >= 6, transitions
 
-        proc = run("scene-dump", str(ir), "--texture-dir", str(ASSETS))
+        proc = run("scene-dump", "--parts", str(ir), "--texture-dir", str(ASSETS))
         assert proc.returncode == 0, proc.stderr
         data = json.loads(proc.stdout)
         assert data["unsupportedVisualClasses"] == {}

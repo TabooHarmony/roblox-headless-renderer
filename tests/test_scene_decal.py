@@ -92,7 +92,7 @@ def main() -> None:
         red, blue = color_counts(out)
         assert red > 1000 and blue > 1000, (red, blue)
 
-        proc = run("scene-dump", str(good), "--texture-dir", str(ASSETS))
+        proc = run("scene-dump", "--parts", str(good), "--texture-dir", str(ASSETS))
         assert proc.returncode == 0, proc.stderr
         data = json.loads(proc.stdout)
         assert data["unsupportedVisualClasses"] == {}

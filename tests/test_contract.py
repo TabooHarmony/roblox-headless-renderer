@@ -40,6 +40,7 @@ FIX = ROOT / "tests" / "fixtures"
 DYNAMIC = {
     "layout": {"rects"},
     "scene-dump": {"classCounts", "fallbacks", "materialFallbacks", "unsupportedVisualClasses", "experimental"},
+    "scene-summary": {"classCounts", "fallbacks", "materialFallbacks", "unsupportedVisualClasses", "experimental"},
     "render": {"fallbacks", "materialFallbacks", "unsupportedVisualClasses", "experimental"},
 }
 
@@ -127,10 +128,11 @@ def json_outputs(tmp: Path) -> tuple[dict[str, dict], dict[str, int]]:
     record("check (warnings only)", run("check", str(shop)))
     record("check (error finding)", run("check", str(FIX / "zero_grid_cell.rbxmx")), expect=1)
     record("hitmap", run("hitmap", str(FIX / "hitmap_overlap.rbxmx")))
+    record("hitmap --at", run("hitmap", str(FIX / "hitmap_overlap.rbxmx"), "--at", "100,60"))
     for name in ("scene_lighting", "beam_transparency", "trail_motion", "particle_scene",
                  "scene_material_textures", "preview_world_ui", "scene_two_cameras"):
-        record(f"scene-dump {name}", run("scene-dump", str(FIX / f"{name}.rbxmx")))
-    record("scene-dump (placeholder meshes)", run("scene-dump", str(FIX / "scene_variants_placeholders.rbxlx")))
+        record(f"scene-dump {name}", run("scene-dump", "--parts", str(FIX / f"{name}.rbxmx")))
+    record("scene-dump (placeholder meshes)", run("scene-dump", "--parts", str(FIX / "scene_variants_placeholders.rbxlx")))
     ui_png, other_png = tmp / "ui.png", tmp / "other.png"
     record("ui --json", run("ui", str(shop), "--viewport", "400x300", "--out", str(ui_png), "--json"))
     record("ui --json (second)", run("ui", str(FIX / "panel_styles.rbxmx"), "--viewport", "400x300",
@@ -141,7 +143,9 @@ def json_outputs(tmp: Path) -> tuple[dict[str, dict], dict[str, int]]:
                                  "--out", str(tmp / "preview.png"), "--json"))
     scene_ir = tmp / "contract.json"
     scene_ir.write_text(json.dumps(contract_scene()), encoding="utf-8")
-    record("scene-dump (contract scene)", run("scene-dump", str(scene_ir)))
+    record("scene-dump (contract scene)", run("scene-dump", "--parts", str(scene_ir)))
+    record("scene-dump summary (contract scene)", run("scene-dump", str(scene_ir)))
+    record("scene-dump summary (placeholder meshes)", run("scene-dump", str(FIX / "scene_variants_placeholders.rbxlx")))
     record("scene --json (contract scene)", run("scene", str(scene_ir), "--viewport", "320x200",
                                                 "--out", str(tmp / "contract.png"), "--json"))
     record("scene --json (placeholder meshes)", run("scene", str(FIX / "scene_variants_placeholders.rbxlx"),

@@ -296,7 +296,7 @@ def main() -> None:
         assert len(silhouette(special_out)) > len(silhouette(special_missing)) * 10
 
         dump_proc = subprocess.run(
-            [*RHR, "scene-dump", str(tmp / "1002.json"), "--mesh-dir", str(meshes)],
+            [*RHR, "scene-dump", "--parts", str(tmp / "1002.json"), "--mesh-dir", str(meshes)],
             cwd=ROOT, capture_output=True, text=True, timeout=120,
         )
         assert dump_proc.returncode == 0, dump_proc.stderr
@@ -313,7 +313,7 @@ def main() -> None:
         }]
 
         special_dump_proc = subprocess.run(
-            [*RHR, "scene-dump", str(special_src), "--mesh-dir", str(meshes)],
+            [*RHR, "scene-dump", "--parts", str(special_src), "--mesh-dir", str(meshes)],
             cwd=ROOT, capture_output=True, text=True, timeout=120,
         )
         assert special_dump_proc.returncode == 0, special_dump_proc.stderr

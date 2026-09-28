@@ -68,7 +68,7 @@ def main() -> int:
         plain_png = render(plain_path, tmp / "plain.png")
         assert scaled_png == plain_png, "Model.Scale changed the render; stored parts must render as-is"
 
-        dump = json.loads(run(["scene-dump", str(ir_path)]).stdout)
+        dump = json.loads(run(["scene-dump", "--parts", str(ir_path)]).stdout)
         stored = {
             node["path"]: node["props"]
             for root in ir["roots"] for node in walk(root) if node["className"] == "Part"

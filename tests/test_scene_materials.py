@@ -99,7 +99,7 @@ def main() -> None:
         assert proc.returncode == 0, proc.stderr
         assert "material-fallbacks=1" in proc.stderr, proc.stderr
 
-        proc = run("scene-dump", str(unknown_ir))
+        proc = run("scene-dump", "--parts", str(unknown_ir))
         assert proc.returncode == 0, proc.stderr
         data = json.loads(proc.stdout)
         assert data["materialFallbacks"] == {"FutureMaterial": 1}

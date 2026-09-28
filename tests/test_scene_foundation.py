@@ -120,7 +120,7 @@ def main() -> None:
         assert "GreenWedge" in {node["name"] for node in find_nodes(ir["roots"][0], "WedgePart")}
 
         dump_proc = subprocess.run(
-            [*RHR, "scene-dump", str(emitted)],
+            [*RHR, "scene-dump", "--parts", str(emitted)],
             cwd=ROOT,
             capture_output=True,
             text=True,

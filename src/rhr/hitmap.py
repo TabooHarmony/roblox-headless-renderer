@@ -354,6 +354,51 @@ def build_hitmap(ir_path, width: int, height: int, topbar_height: float | None =
     })
 
 
+STACK_LIMIT = 4
+
+
+def _under(path: str, prefix: str) -> bool:
+    return path == prefix or path.startswith(prefix + "/")
+
+
+def narrowed(hitmap: dict, *, path: str | None = None, everything: bool = False) -> dict:
+    """What `rhr hitmap` prints: visible nodes only (a hidden one takes no click;
+    `--all` lists them), only those under `path`, the probes at their centres, each
+    stack cut to its top STACK_LIMIT (`stackMore` counts the rest). A whole game's UI
+    was 298 KB with every stack in full."""
+    nodes = [n for n in hitmap["nodes"] if (everything or n["visible"]) and (path is None or _under(n["path"], path))]
+    centres = {(round(n["rect"]["x"] + n["rect"]["w"] / 2, 3), round(n["rect"]["y"] + n["rect"]["h"] / 2, 3))
+               for n in nodes if n.get("rect")}
+    tests = []
+    for test in hitmap["hitTests"]:
+        if (test["point"]["x"], test["point"]["y"]) not in centres:
+            continue
+        test = dict(test)
+        if len(test["stack"]) > STACK_LIMIT:
+            test["stackMore"] = len(test["stack"]) - STACK_LIMIT
+            test["stack"] = test["stack"][:STACK_LIMIT]
+        tests.append(test)
+    return {**hitmap, "nodes": nodes, "hitTests": tests}
+
+
+def at_point(hitmap: dict, x: float, y: float) -> dict:
+    """`rhr hitmap --at X,Y`: who gets a click at one pixel, with every interactive
+    node under it (topmost first) and those nodes' records."""
+    under = [n for n in hitmap["nodes"] if n.get("rect")
+             and n["rect"]["x"] <= x < n["rect"]["x"] + n["rect"]["w"]
+             and n["rect"]["y"] <= y < n["rect"]["y"] + n["rect"]["h"]]
+    under.sort(key=lambda n: (n["pane"], n["zOrder"] if n["zOrder"] is not None else -1), reverse=True)
+    target = _click_target(under)
+    test = {
+        "point": {"x": _round(x), "y": _round(y)},
+        "stack": [n["path"] for n in under],
+        "target": target["path"] if target else None,
+        "targetIsButton": _is_button(target) if target else None,
+        "targetVisible": target["visible"] if target else None,
+    }
+    return {**hitmap, "nodes": under, "hitTests": [test]}
+
+
 def dump_json(hitmap: dict) -> str:
     """Canonical sorted JSON for stable diffs."""
     from rhr.schema import dumps
