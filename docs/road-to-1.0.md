@@ -462,8 +462,12 @@ right.
   fixtures, 1.79x on the 40k-part place (45 s against 91 s for four commands; each
   more view there is its effects and two frames). F13 wait up to 5 s; client-side
   `--version`, help from the server; F15 as a story and project-build cache (not one
-  Lune process for many stories: that is `rhr stories`, 1.1); `rhr batch`. Left: the
-  idle-machine wall times for the exit.
+  Lune process for many stories: that is `rhr stories`, 1.1); `rhr batch`. Near idle
+  (CPU ~10%, Studio and a Roblox client open), same day: four views 1.16-1.24x one
+  view on the fixtures, 1.62x on the 40k-part place (31 s against 77 s). Small commands
+  1.45 s wall, but a bare `python -c pass` took 1.3 s on this machine that afternoon
+  (node 0.05 s; 0.4 s for a warm check that morning): RHR's own share is about 0.15 s,
+  and `batch` of check, layout and ui 1.65 s against 4.5 s for three commands.
 - Then: CI green on Windows, macOS and Linux, a fresh `uvx` install from PyPI, and
   **1.0.0rc1** (release candidate, feedback asked for). Phase 4 below becomes what the
   rc's users do; 1.0.0 follows if no feedback breaks the interface in about two weeks.
