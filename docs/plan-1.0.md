@@ -380,13 +380,31 @@ README still to be rewritten from this.
   a Roblox emulation (instances, signals, `AbsoluteSize` from our layout,
   sourcemap `require`); a 2-day spike on one React-lua and one Fusion story decides.
 
-**Done since:** batch asset downloads (commit 342ea89): 256 ids per request, files in
-parallel; 204 assets 50.8 s -> 3.4 s, byte-identical files.
+**Done since (2026-09-27, all local commits, suite 89 passed / 1 skipped):**
+- Batch asset downloads (342ea89): 204 assets 50.8 s -> 3.4 s, byte-identical files.
+- Asset ids and Creator Store / library / catalog / game links as inputs (b355a09).
+- `rhr view` (b355a09): local page, orbit/pan/zoom/fly/touch, redraws ~1 s after
+  the file or Rojo project changes, camera kept.
+- `rhr icons` (fd8892c): square transparent icons, one kept page per batch, ~1 s each.
+- `RHR_ROBLOX_API_KEY` (46fa4fa): Open Cloud key between the login and public.
+- `rhr inspect` (9252fed): classes, scripts, assets, risky-code findings.
+- Story-runner spike: **one runner works for both libraries** (Fusion 0.3 and React-lua
+  17.2.1 drawn by `rhr ui` with nothing library-specific). Code and findings outside
+  the repo in `Desktop\Fileshr-story-spike\` (README there). Gap: AbsoluteSize /
+  ViewportSize cannot be provided through Lune's implementProperty.
 
-**Found, not fixed:** a 2016 Creator Store tree (580221169) whose MeshParts carry no
-mesh reference in the file draws as boxes (Studio shows the tree); the iso view crops
-a car model (2810302648); the cache prunes once a day, so a day of big places left
-10.8 GB against the 2 GB limit.
+**Found, not fixed:**
+- `--view front` looks from +Z, so it shows a model's **back** in Roblox terms (Roblox's
+  Front face is -Z; both Creator Store cars checked have their nose at -Z). `iso` is
+  from +X+Z too, so cars and icons show their rear. Changing it changes what a flag
+  means: maintainer's call before the freeze.
+- A 2016 Creator Store tree (580221169) with MeshParts carrying no mesh reference draws
+  as boxes; the iso view crops a car (2810302648); the cache prunes once a day (10.8 GB
+  against 2 GB after a day of big places).
+- A render on a fresh page and on the warm page can differ by 1/255 in places (seen on
+  one car); the old code does the same.
+- tests/test_server.py failed once in a full run and passed six times alone: flaky.
 
-**Next, in order:** asset ids/URLs as inputs; `rhr view`; `rhr icons`; API key path;
-story-runner spike; `rhr inspect`; then GOAL.md/README, and step 7.
+**Next:** decide the front/back question; productise the story runner (`rhr ui
+<x.story.luau>` in a Rojo repo: rojo build, sourcemap, run, draw) or leave it for
+after 1.0; GOAL.md and README rewritten around the scope; then step 7.
