@@ -134,3 +134,19 @@ or flag is allowed and printed. After an intentional change:
 2. `particles` removed.
 3. `--ir` removed from the render and data commands.
 4. `--json` report (`rhr.render/1`) added to `ui`, `scene` and `preview`.
+
+## Phase 2 (2026-09-28): outputs an agent can use
+
+- **Default screen 1920x1080**; `--device desktop|laptop|phone|android|tablet|console`
+  on `ui`, `layout`, `check`, `hitmap`, `preview` (rhr.devices, measured in Studio's
+  emulator); `check --devices all|NAMES` adds `devices` to each finding.
+- **Bounded defaults** (the budget: 50 KB on a 116k-part place, tests/test_output_budget.py):
+  `scene-dump` prints `rhr.scene-summary/1` (`--parts` for `rhr.scene-dump/1`, with
+  `--path`, `--class`, `--limit` and `partsTotal`); `hitmap` lists visible elements
+  (`--all`), stacks cut to four (`stackMore`), `--path`, `--at X,Y`; `inspect` lists
+  flagged scripts and 25 ids per asset kind (`scriptsTotal`, `assetCounts`, `--all`);
+  `--path` on `layout` and `check`.
+- **Pictures**: `ui --crop PATH`, `--fit`, `--annotate` (report: `crop`, `scale`,
+  `annotations[]` of `{n, path, class, rect}`), `--max-size PX` on `ui`, `scene`,
+  `preview` (report: `scale`, `size` of the written PNG).
+- **`rhr skill [--install DIR]`**: the agent skill.
