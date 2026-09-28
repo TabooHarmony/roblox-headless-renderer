@@ -167,12 +167,25 @@ class _SceneHandler(http.server.SimpleHTTPRequestHandler):
             request = json.loads(self.rfile.read(length) or b"{}")
             if self.ir_cache is None:
                 type(self).ir_cache = load_ir(self.ir_path)
-            with tempfile.TemporaryDirectory(prefix="rhr-gui-") as tmp:
-                out = render_gui_node(
-                    self.ir_cache, str(request["path"]), int(request["width"]), int(request["height"]),
-                    Path(tmp) / "gui.png",
-                )
-                payload = out.read_bytes()
+            # Kept while the IR is loaded (rhr.ir.derived) and the image cache unchanged:
+            # a warm render of the same place does not draw its hundred SurfaceGuis again.
+            from rhr.ir import derived
+            from rhr.paths import ICON_CACHE
+
+            try:
+                images_stamp = ICON_CACHE.stat().st_mtime_ns
+            except OSError:
+                images_stamp = None
+            drawn = derived(self.ir_cache, "in_world_gui", lambda _: {})
+            key = (str(request["path"]), int(request["width"]), int(request["height"]), images_stamp)
+            payload = drawn.get(key)
+            if payload is None:
+                with tempfile.TemporaryDirectory(prefix="rhr-gui-") as tmp:
+                    out = render_gui_node(
+                        self.ir_cache, str(request["path"]), int(request["width"]), int(request["height"]),
+                        Path(tmp) / "gui.png",
+                    )
+                    payload = drawn[key] = out.read_bytes()
         except Exception as exc:  # reported to the page, which fails the render loudly
             body = f"{type(exc).__name__}: {exc}".encode()
             self.send_response(500)

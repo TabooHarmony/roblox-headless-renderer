@@ -147,6 +147,32 @@ def _part_aabb(props: dict) -> tuple[list[float], list[float]] | None:
     )
 
 
+def cached_scene_dump(ir_path: Path, **options) -> tuple[dict, str]:
+    """(build_scene_dump(ir_path, **options), its JSON text), kept while the IR is
+    loaded and the asset caches are unchanged (rhr.ir.derived): a resident process asked
+    twice about a 100k-part place builds and writes the dump once."""
+    import os
+
+    from rhr.ir import derived
+
+    def stamp(path) -> int | None:
+        try:
+            return os.stat(path).st_mtime_ns
+        except (OSError, TypeError):
+            return None
+
+    data = load_ir(ir_path)
+    kept = derived(data, "scene_dumps", lambda _: {})
+    key = (tuple(sorted((name, str(value)) for name, value in options.items())),
+           stamp(ICON_CACHE), stamp(MESH_CACHE), stamp(UNION_CACHE), stamp(data.get("sourcePath")),
+           stamp(options.get("texture_dir")), stamp(options.get("mesh_dir")), _studio_installed())
+    if key not in kept:
+        dump = build_scene_dump(ir_path, **options)
+        kept.clear()  # one answer per IR is what an agent asks for again
+        kept[key] = (dump, dump_json(dump))
+    return kept[key]
+
+
 def build_scene_dump(
     ir_path: Path,
     texture_dir: Path | None = None,

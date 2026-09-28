@@ -3806,7 +3806,13 @@ function sceneGeometryBounds() {
 // Quarter turns per cube face (+X, -X, +Y, -Y, +Z, -Z), clockwise on the canvas.
 const SKY_FACE_TURNS = [0, 0, -1, 0, 0, 0];
 
-async function loadSquareCube(urls) {
+// Kept on a warm page by the faces' addresses (versioned by file), like other loads: six
+// decodes, canvas copies and a cube upload once, not on every render.
+function loadSquareCube(urls) {
+  return keep('cube', urls.join('|'), () => buildSquareCube(urls));
+}
+
+async function buildSquareCube(urls) {
   const images = await Promise.all(urls.map(url => new Promise(resolve => {
     const image = new Image();
     image.crossOrigin = 'anonymous';  // from this render's data server; drawn to a canvas below
