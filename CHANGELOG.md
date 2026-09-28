@@ -56,6 +56,10 @@
 
 ### Changes
 
+- **Assets without Studio: `RHR_ROBLOX_API_KEY`.** An Open Cloud API key (a user key
+  with `legacy-asset:manage`) downloads what the Studio login would, for cloud agents
+  and CI; it is asked for what the login could not get, before asking without either.
+  `rhr doctor` says whether one is set.
 - **`rhr icons`**: square icon PNGs of models on a transparent background, cropped to
   the model with the same margin on every icon (`--size`, `--margin`, `--view`,
   `--background`). Give it files, folders or asset ids; one page stays loaded for the

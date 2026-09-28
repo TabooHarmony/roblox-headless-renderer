@@ -109,6 +109,12 @@ builds or moves at runtime is previewed as saved in the file.
 
 ## Setup reminders
 
+- Assets (meshes, unions, full-size images, Roblox's material textures) download with
+  the Studio login on the machine. Without Studio (a cloud sandbox, CI), ask the
+  person for an Open Cloud API key (a user key with `legacy-asset:manage`) and set it
+  as `RHR_ROBLOX_API_KEY` from their secrets, never in a file you commit. Without
+  either, previews use stand-ins and the notes say so.
+
 - There is no setup step: the first command that needs Lune 0.10.5 (every Roblox
   file), Rojo 7.7.0 (Rojo projects) or, for 3D, a headless browser downloads it once
   (a line on stderr says so; the first run takes longer). 3D uses Chrome, Edge, Brave

@@ -297,6 +297,13 @@ def doctor() -> int:
     else:
         print(f"{'studio':9} missing  Roblox Studio is expected: without it previews use stand-in "
               "textures, meshes and unions")
+    from rhr.fetch import API_KEY_ENV, api_key
+
+    if api_key():
+        print(f"{'apikey':9} set      {API_KEY_ENV}: used for assets the Studio login cannot get")
+    else:
+        print(f"{'apikey':9} none     without Studio (cloud agents, CI), set {API_KEY_ENV} to an Open "
+              "Cloud API key (a user key with legacy-asset:manage) to download assets")
     from rhr import cache
 
     held = sum(cache.sizes().values())

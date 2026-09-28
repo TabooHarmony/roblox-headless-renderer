@@ -159,10 +159,17 @@ Python itself adds 0.1-3 s per command depending on the machine. `rhr cache` sho
     is never downloaded again. `--offline` (or `RHR_OFFLINE=1`) skips the download.
   - **The install's files.** The default sky, Plastic's surface relief and legacy
     surfaces (a Baseplate's studs) come from the Studio install, and RHR uses its fonts.
-  - **Without Studio** every command still works: images come as 420 px thumbnails,
-    meshes and unions are outlined boxes, materials use public-domain look-alike
-    textures, and the sky is a gradient. RHR says so on stderr, because the result
-    looks noticeably less like Roblox.
+  - **Without Studio** (a cloud agent, CI): set `RHR_ROBLOX_API_KEY` to an Open Cloud
+    API key, a *user* key with the `legacy-asset:manage` permission (create it at
+    create.roblox.com, Credentials; group keys cannot have it). It downloads what the
+    Studio login would, one request per asset (Roblox allows 1000 a minute); RHR sends
+    it only to Roblox's Open Cloud and never prints or stores it. `rhr doctor` says
+    whether one is set.
+  - **With neither**, every command still works: Roblox serves some meshes, images and
+    material textures to anyone, other images come as 420 px thumbnails, the rest of
+    the meshes and all unions are outlined boxes, materials use public-domain
+    look-alike textures, and the sky is a gradient. RHR says so on stderr, because the
+    result looks noticeably less like Roblox.
 - **Terrain** is drawn smooth, meshed from the place's voxels the way Roblox does it,
   with Roblox's terrain textures (top, side and bottom), blended where materials meet
   as in Studio, and grass blades (drawn still) when the place turns Decoration on.

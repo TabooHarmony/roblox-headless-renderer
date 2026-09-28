@@ -108,6 +108,13 @@ def _answer(asset: str, *, login: bool) -> dict:
                 return {"why": _refusal(asset, code, str(answer.get("message") or "no answer"), signed_in=True)}
         else:
             reason = answers
+    if fetch.api_key():
+        answer = fetch.answers_api_key([asset]).get(asset) or {}
+        if answer.get("location"):
+            return answer
+        code = int(answer.get("code") or 0)
+        if code in (403, 404, 409):
+            return {"why": _refusal(asset, code, str(answer.get("message") or "no answer"), signed_in="API key")}
     answer = fetch.answers_public([asset]).get(asset) or {}
     if answer.get("location"):
         return answer
@@ -115,14 +122,15 @@ def _answer(asset: str, *, login: bool) -> dict:
     if code in (401, 403):
         if reason == fetch._NO_LOGIN or not login:
             return {"why": f"asset {asset} needs a signed-in account: sign in to Roblox Studio on "
-                           "this machine and try again"}
+                           f"this machine, or set {fetch.API_KEY_ENV} to an Open Cloud API key "
+                           "(a user key with legacy-asset:manage)"}
         if reason:
             return {"why": f"asset {asset} needs a signed-in account, and the Studio login could "
                            f"not be used: {reason.removeprefix('missing (').removesuffix(')')}"}
     return {"why": _refusal(asset, code, str(answer.get("message") or "no answer"), signed_in=False)}
 
 
-def _refusal(asset: str, code: int, message: str, *, signed_in: bool) -> str:
+def _refusal(asset: str, code: int, message: str, *, signed_in: bool | str) -> str:
     if code == 404:
         return f"Roblox has no asset {asset}"
     if code == 403 and "approved" in message:
@@ -131,7 +139,7 @@ def _refusal(asset: str, code: int, message: str, *, signed_in: bool) -> str:
     if code == 409 and "authorized" in message.lower():
         return (f"Roblox will not give asset {asset} to this account ({message}): a place can be "
                 "downloaded only by people who can edit it, a private model only by its owner")
-    who = "the signed-in account" if signed_in else "anyone without a login"
+    who = {True: "the signed-in account", False: "anyone without a login"}.get(signed_in, "the API key")
     return f"Roblox refused asset {asset} to {who}: " + (f"HTTP {code}: {message}" if code else message)
 
 

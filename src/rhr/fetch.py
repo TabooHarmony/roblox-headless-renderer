@@ -355,15 +355,17 @@ _NO_LOGIN = "missing (no Roblox Studio login found on this machine)"
 _USER_AGENT = "roblox-headless-renderer"
 
 
-def _refused(code: int, message: str, *, signed_in: bool) -> str:
+def _refused(code: int, message: str, *, signed_in: bool | str) -> str:
+    """`signed_in`: True for the Studio login, "API key" for the key, False for neither."""
     if signed_in:
-        return f"missing (signed in: HTTP {code}: {message})" if code else f"missing (signed in: {message})"
+        via = "signed in" if signed_in is True else signed_in
+        return f"missing ({via}: HTTP {code}: {message})" if code else f"missing ({via}: {message})"
     if code in (401, 403):
         return f"missing (Roblox serves this asset only to a signed-in account: HTTP {code})"
     return f"missing (HTTP {code}: {message})" if code else f"missing ({message})"
 
 
-def _locations(answers: dict, ids: list[str], *, signed_in: bool) -> dict[str, str]:
+def _locations(answers: dict, ids: list[str], *, signed_in: bool | str) -> dict[str, str]:
     """id -> CDN link ('https://...') or 'missing (why)', from the batch answers."""
     out = {}
     for asset in ids:
@@ -450,6 +452,64 @@ def answers_signed_in(ids: list[str]) -> dict[str, dict] | str:
     return answers if isinstance(answers, dict) else {}
 
 
+API_KEY_ENV = "RHR_ROBLOX_API_KEY"
+API_KEY_URL = "https://apis.roblox.com/asset-delivery-api/v1/assetId/{}"
+
+
+def api_key() -> str | None:
+    """An Open Cloud API key (a user's key with `legacy-asset:manage`), for machines
+    without a Studio login: cloud agents, CI. Never printed or written anywhere."""
+    return os.environ.get(API_KEY_ENV, "").strip() or None
+
+
+def answers_api_key(ids: list[str], *, timeout: float = 30.0) -> dict[str, dict]:
+    """Where each asset is, asked with the API key: id -> {location, type} or {code,
+    message}. One request per asset (Open Cloud has no batch endpoint; its limit is
+    1000 a minute), in parallel, waiting out a rate limit."""
+    key = api_key()
+    if not key:
+        return {i: {"code": 0, "message": f"no {API_KEY_ENV}"} for i in ids}
+
+    def ask(asset: str) -> tuple[str, dict]:
+        request = urllib.request.Request(API_KEY_URL.format(asset),
+                                         headers={"x-api-key": key, "User-Agent": _USER_AGENT})
+        for attempt in range(4):
+            try:
+                with urllib.request.urlopen(request, timeout=timeout) as response:
+                    data = json.loads(response.read())
+            except urllib.error.HTTPError as exc:
+                if exc.code == 429 and attempt < 3:
+                    try:
+                        wait = float(exc.headers.get("x-ratelimit-reset") or 0)
+                    except ValueError:
+                        wait = 0
+                    time.sleep(min(max(wait, 2 ** attempt), 30))
+                    continue
+                try:
+                    data = json.loads(exc.read())
+                except (ValueError, OSError):
+                    data = {}
+                error = (data.get("errors") or [{}])[0] if isinstance(data, dict) else {}
+                return asset, {"code": exc.code, "message": error.get("message") or str(exc.reason)}
+            except (urllib.error.URLError, TimeoutError, OSError, ValueError) as exc:
+                return asset, {"code": 0, "message": str(exc)}
+            if isinstance(data, dict) and data.get("location"):
+                return asset, {"location": data["location"], "type": data.get("assetTypeId")}
+            error = (data.get("errors") or [{}])[0] if isinstance(data, dict) else {}
+            return asset, {"code": error.get("code") or 0, "message": error.get("message") or "no location"}
+        return asset, {"code": 429, "message": "rate limited"}
+
+    with ThreadPoolExecutor(max_workers=DOWNLOAD_WORKERS) as executor:
+        return dict(executor.map(ask, ids))
+
+
+def _final(where: str) -> bool:
+    """A link, or a refusal no other way of asking would change (not approved,
+    no such asset, not authorised for this account)."""
+    return where.startswith("https://") or any(
+        f"HTTP {code}:" in where for code in (403, 404, 409)) and "signed-in account" not in where
+
+
 def _download(location: str, *, timeout: float = 60.0) -> bytes | str:
     """One file from Roblox's CDN: its bytes, or 'missing (why)'."""
     request = urllib.request.Request(location, headers={"User-Agent": _USER_AGENT})
@@ -530,6 +590,11 @@ def ensure(refs: dict[str, set[str]], *, login: bool = True, log=None) -> dict[s
                 "Roblox Studio login)") if login_off else _NO_LOGIN
     located = locate_signed_in(ids) if login else {i: no_login for i in ids}
     unanswered = [i for i in ids if not located[i].startswith(("https://", "missing (signed in: HTTP"))]
+    if unanswered and api_key():
+        for asset, where in _locations(answers_api_key(unanswered), unanswered, signed_in="API key").items():
+            if _final(where):
+                located[asset] = where
+        unanswered = [i for i in unanswered if not _final(located[i])]
     if unanswered:
         for asset, where in locate_public(unanswered).items():
             if where.startswith("https://") or "signed-in account: HTTP" not in where:
@@ -576,7 +641,8 @@ def ensure(refs: dict[str, set[str]], *, login: bool = True, log=None) -> dict[s
     missing = sum(1 for s in results.values() for v in s.values() if v.startswith("missing"))
     log(f"fetch  {fetched} downloaded" + (f", {missing} unavailable" if missing else ""))
     if any(v == _NO_LOGIN for s in results.values() for v in s.values()):
-        log("note   no Roblox Studio login found: sign in to Roblox Studio so RHR can download "
+        log("note   no Roblox Studio login found: sign in to Roblox Studio (or set "
+            f"{API_KEY_ENV} to an Open Cloud key with legacy-asset:manage) so RHR can download "
             "meshes, unions and Roblox's material textures")
     return results
 

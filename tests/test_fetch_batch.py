@@ -158,6 +158,81 @@ def batch_sizes(fetch) -> None:
     check("signed-in account: HTTP 401" in located["990001000"], located["990001000"])
 
 
+def api_key(fetch) -> None:
+    print("the API key: one request per asset; what it answers, and in which order it is asked")
+    import os
+    import urllib.error
+    import urllib.request
+
+    class Response(io.BytesIO):
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+    limited = {"990003004": 1}
+    seen_keys: list[str] = []
+
+    def urlopen(request, timeout=None):
+        seen_keys.append(request.get_header("X-api-key"))
+        asset = request.full_url.rsplit("/", 1)[1]
+        if request.get_header("X-api-key") != "good":
+            raise urllib.error.HTTPError(request.full_url, 401, "Unauthorized", {},
+                                         io.BytesIO(b'{"errors":[{"code":401,"message":"Invalid API Key"}]}'))
+        if limited.get(asset):
+            limited[asset] -= 1
+            raise urllib.error.HTTPError(request.full_url, 429, "Too Many Requests", {"x-ratelimit-reset": "0"},
+                                         io.BytesIO(b"{}"))
+        if asset == "990003002":  # Roblox answers this refusal with HTTP 200
+            return Response(b'{"errors":[{"code":403,"message":"Asset is not approved for the requester"}]}')
+        return Response(json.dumps({"location": f"https://cdn.example/{asset}", "assetTypeId": 4}).encode())
+
+    saved = urllib.request.urlopen, os.environ.get(fetch.API_KEY_ENV)
+    urllib.request.urlopen = urlopen
+    try:
+        os.environ[fetch.API_KEY_ENV] = "good"
+        answers = fetch.answers_api_key(["990003001", "990003002", "990003004"])
+        check(answers["990003001"] == {"location": "https://cdn.example/990003001", "type": 4}, str(answers["990003001"]))
+        check(answers["990003002"]["code"] == 403, f"a refusal sent with HTTP 200: {answers['990003002']}")
+        check(answers["990003004"].get("location", "").endswith("990003004"), "a rate limit is waited out")
+        check(set(seen_keys) == {"good"}, "the key goes in the x-api-key header")
+        os.environ[fetch.API_KEY_ENV] = "bad"
+        bad = fetch.answers_api_key(["990003001"])["990003001"]
+        check(bad["code"] == 401 and "Invalid" in bad["message"], f"a bad key is reported: {bad}")
+    finally:
+        urllib.request.urlopen = saved[0]
+        if saved[1] is None:
+            os.environ.pop(fetch.API_KEY_ENV, None)
+        else:
+            os.environ[fetch.API_KEY_ENV] = saved[1]
+
+    ids = ["990003101", "990003102", "990003103"]
+    clear(fetch, ids)
+    asked_key: list[str] = []
+    saved_answers = fetch.answers_api_key
+
+    def key_answers(asked):
+        asked_key.extend(asked)
+        return {i: ({"location": f"https://cdn.example/{i}"} if i != ids[1] else {"code": 401, "message": "Invalid API Key"})
+                for i in asked}
+
+    os.environ[fetch.API_KEY_ENV] = "good"
+    try:
+        with Fake(fetch, {}, {ids[1]: "https://cdn.example/" + ids[1]}) as fake:
+            fetch.locate_signed_in = lambda asked: {i: fetch._NO_LOGIN for i in asked}
+            fetch.answers_api_key = key_answers
+            result = fetch.ensure({"meshes": set(ids)})
+        check(result["meshes"][ids[0]] == "fetched", "no login: the key gets the asset")
+        check(sorted(asked_key) == ids, "the key is asked for everything the login could not get")
+        check(fake.asked_public == [ids[1]] and result["meshes"][ids[1]] == "fetched",
+              "what the key could not get is asked for without it")
+    finally:
+        fetch.answers_api_key = saved_answers
+        os.environ.pop(fetch.API_KEY_ENV, None)
+        clear(fetch, ids)
+
+
 def main() -> int:
     import os
 
@@ -167,6 +242,7 @@ def main() -> int:
     try:
         ensure_cases(fetch)
         batch_sizes(fetch)
+        api_key(fetch)
     finally:
         if saved is not None:
             os.environ["RHR_OFFLINE"] = saved
