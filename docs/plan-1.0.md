@@ -442,6 +442,7 @@ as experimental; macOS is first class only after a real Mac run.
   `--baseline`, `RhrIgnore`; text-taller-than-box, off-screen, partly-off-screen,
   small-target, low-contrast), F18 (`--view front` = Roblox Front). Probe 6/6; on
   Steal An Egg, GAG, Heartsmm2 and CRATES GUI 4 warnings left, all judged right.
-- F8 (hit map rules) and the blocked-button check wait for a Studio measurement
-  (Studio MCP input simulation): a hidden Active frame over a button,
-  Interactable = false, Modal, a disabled ScreenGui.
+- F8 done: click rules measured in Studio (27 cases, docs/known-approximations.md "Hit
+  map"), hit map and `button-blocked` follow them; on the way, font name lookups are
+  remembered (check on Steal An Egg 13 s -> 1 s). Phase 1 is complete; next is Phase 2
+  (output an agent can use), after the push and 0.9.0b1 when the maintainer agrees.
