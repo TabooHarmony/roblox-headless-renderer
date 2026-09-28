@@ -151,6 +151,13 @@ def main() -> int:
           == [("Probe/MissingIcon", "rbxassetid://900000999")],
           f"ui --json: missingAssets names the image and where it is ({report.get('missingAssets')})")
 
+    # A button a transparent Active Frame in a ScreenGui above swallows clicks from, as
+    # measured in Studio (tests/fixtures/hitmap_studio.rbxmx): the one blocked button.
+    f = findings_for("hitmap_studio", viewport=(1000, 300))
+    blocked = [f0 for f0 in f if f0["check"] == "button-blocked"]
+    check([b["paths"][0] for b in blocked] == ["Main/UnderOtherGuiActive"] and blocked[0]["severity"] == "error",
+          f"button-blocked: only the button under the other ScreenGui's Active Frame ({blocked})")
+
     print("checks: leaving findings out")
 
     def cli(*args: str) -> tuple[int, dict, str]:

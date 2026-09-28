@@ -84,6 +84,22 @@
   tween grows open), is not judged. On four real games: 101 warnings on one became 1;
   the review's probe UI went from 0 of 6 mistakes found (and 2 fine labels flagged)
   to 5 of 6, with the sixth (a missing image) next.
+- **The hit map follows Studio.** Who gets a click was measured in Studio (simulated
+  clicks in a playtest, 27 cases): hidden elements never take a click, `Interactable
+  = false` (on a button or any parent) makes a button dead and lets clicks pass through
+  it, and within one ScreenGui a button gets the click even under an Active Frame; a
+  visible Active element in a ScreenGui with a higher DisplayOrder swallows clicks for
+  the ScreenGuis below, even when fully transparent. The old rule ("every Active
+  element captures clicks, visible or not") called 12 of 19 buttons blocked on one real
+  game; the new one calls none. `hitTests[].targetIsButton` and
+  `nodes[].interactable` are new. `rhr check` reports `button-blocked` (error) and
+  `button-covered` (info).
+- **UI commands on files with uploaded fonts are several times faster.** RHR asked
+  Roblox for the name of each uploaded font again on every command and never kept a
+  "not found": 28 requests, about 8 s, per command on one real game (`check` 13 s,
+  now 1 s). Answers are kept in the cache (a name for good, "not found" for a day).
+- **Avatar thumbnails and `rbxassetid://0`** (`rbxthumb://type=AvatarHeadShot&id=...`,
+  made by Roblox at run time; id 0, no image) are no longer taken for asset ids.
 - **Missing images are reported.** `rhr ui --json` lists the images it could not get
   in `missingAssets` (path, class, uri, and why: refused, unavailable, offline), and
   says so on stderr; `rhr check` reports `image-missing` for images Roblox refused the

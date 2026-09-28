@@ -27,6 +27,11 @@ The checks, by id (the ids are part of the interface):
                                   a panel: games park panels there to slide in)
   partly-off-screen      warning  a button, part of which is outside the screen
   small-target           warning  a button under 24 px on a side
+  button-blocked         error    a button whose clicks an Active element in a
+                                  ScreenGui above swallows (even a transparent one):
+                                  it cannot be clicked there (rules measured in Studio,
+                                  rhr.hitmap)
+  button-covered         info     a button under another button at its centre
   image-missing          warning  an image Roblox refused the last time RHR asked for
                                   it (`rhr check` never downloads; `rhr ui` does)
   zero-size-grid-cell    error    a UIGridLayout cell that resolves to nothing
@@ -430,7 +435,7 @@ CHECKS = [
 ]
 CHECK_IDS = (
     "text-wider-than-box", "text-taller-than-box", "text-truncated", "text-size-below-2px", "low-contrast",
-    "off-screen", "partly-off-screen", "small-target", "image-missing", "zero-size-grid-cell", "child-outside-clip",
+    "off-screen", "partly-off-screen", "small-target", "button-blocked", "button-covered", "image-missing", "zero-size-grid-cell", "child-outside-clip",
     "invisible-content", "duplicate-zindex", "max-visible-graphemes",
 )
 
@@ -472,6 +477,7 @@ def check_model(ir_path, width: int, height: int, topbar_height: float | None = 
     dump = build_dump(ir_path, width, height, topbar_height=topbar_height)
     ir = load_ir(ir_path)
     findings = run_checks(dump, _image_paths(ir), _missing_images(ir))
+    findings = _sort(findings + _blocked_buttons(ir_path, width, height, topbar_height, dump))
 
     left_out = {"severity": 0, "ignored": 0, "attribute": 0, "baseline": 0}
     suppressed = _suppressed(ir)
@@ -491,6 +497,37 @@ def check_model(ir_path, width: int, height: int, topbar_height: float | None = 
     document = stamp("check", {"model": dump["model"], "findings": kept})
     document["_left_out"] = left_out
     return document
+
+
+def _blocked_buttons(ir_path, width: int, height: int, topbar_height, dump: dict) -> list[dict]:
+    """Buttons whose centre another element takes a click from (rhr.hitmap's rules)."""
+    from rhr.hitmap import build_hitmap
+
+    hitmap = build_hitmap(ir_path, width, height, topbar_height=topbar_height)
+    targets = {(test["point"]["x"], test["point"]["y"]): test for test in hitmap["hitTests"]}
+    by_path = {entry["path"]: entry for entry in dump.get("nodes") or []}
+    ctx = {"by_path": by_path}
+    findings = []
+    for node in hitmap["nodes"]:
+        rect = node.get("rect")
+        if not node.get("activatedTargetCandidate") or rect is None:
+            continue
+        entry = by_path.get(node["path"])
+        if entry is not None and _collapsed(entry, ctx):
+            continue
+        test = targets.get((round(rect["x"] + rect["w"] / 2, 3), round(rect["y"] + rect["h"] / 2, 3)))
+        if test is None or test["target"] in (None, node["path"]):
+            continue
+        finding = {"paths": [node["path"], test["target"]]}
+        if test.get("targetIsButton"):
+            findings.append({**finding, "check": "button-covered", "severity": "info",
+                             "detail": f"{test['target']} is on top at this button's centre and gets the click"})
+        else:
+            findings.append({**finding, "check": "button-blocked", "severity": "error",
+                             "detail": (f"{test['target']}, an Active element in a ScreenGui above, swallows the "
+                                        "clicks at this button's centre (even when transparent): players cannot "
+                                        "click it there")})
+    return findings
 
 
 def _suppressed(ir: dict) -> dict[str, set[str]]:

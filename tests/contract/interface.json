@@ -894,6 +894,9 @@
     "hitTests[].target": [
      "string"
     ],
+    "hitTests[].targetIsButton": [
+     "boolean"
+    ],
     "hitTests[].targetVisible": [
      "boolean"
     ],
@@ -919,6 +922,9 @@
      "string"
     ],
     "nodes[].clearTextOnFocus": [
+     "boolean"
+    ],
+    "nodes[].interactable": [
      "boolean"
     ],
     "nodes[].pane": [

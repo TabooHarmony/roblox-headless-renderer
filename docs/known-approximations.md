@@ -422,3 +422,23 @@ in Roblox; one saved elsewhere in a model changes nothing.
 
 Scripts, physics, animation and anything else that happens at run time. A UI that a
 script builds or moves is previewed as it is saved in the file.
+
+## Hit map: who gets a click
+
+Measured in Studio on 2026-09-28 (a solo playtest, simulated left clicks at each
+button's centre, `Activated` counted on every button; 27 cases, kept as
+tests/fixtures/hitmap_studio.rbxmx). `rhr hitmap` and `rhr check`'s `button-blocked`
+follow these rules; they are exact for the cases measured, and the rest is inferred:
+
+- A button (TextButton, ImageButton; RHR treats a TextBox the same) gets clicks when it
+  and every ancestor are Visible and Interactable.
+- Within one ScreenGui the topmost such button under the pointer gets the click. A
+  Frame, TextLabel or ImageLabel over it never takes it, Active or not, at any ZIndex;
+  a button with Interactable false passes it through.
+- A visible, Interactable, Active non-button in a ScreenGui with a higher DisplayOrder
+  swallows the click for the ScreenGuis below, even at BackgroundTransparency 1 or in a
+  CanvasGroup at GroupTransparency 1. Hidden, non-Active or non-Interactable ones, and
+  those in a disabled ScreenGui or a lower DisplayOrder, do not.
+- Not measured: two ScreenGuis with equal DisplayOrder (RHR takes the later one as on
+  top), `Modal`, `Selectable`/gamepad selection, touch input, and a button with Active
+  false (RHR treats it like any button).

@@ -14,7 +14,7 @@ the edit loop, and how to read the output without being misled.
 | What each element is made of, and how its text laid out | `rhr layout <file> --rich` | `nodes[]`: class, rect, zIndex, colours, `text.drawnSize`, `text.lines`, `text.bounds` |
 | Whether the UI has obvious mistakes | `rhr check <file>` | `findings[]` (`check`, `severity`, `paths`, `detail`); exit code 1 if any is an error |
 | Whether an edit added a mistake | `rhr check <file> --out before.json` once, then `rhr check <file> --baseline before.json` after each edit | only the new findings |
-| What is clickable, and what is on top where things overlap | `rhr hitmap <file>` | `nodes[]` (interactive elements), `hitTests[]` (topmost target at each element's centre) |
+| What is clickable, and what is on top where things overlap | `rhr hitmap <file>` | `nodes[]` (interactive elements; `capturesClicks`), `hitTests[]` (who gets a click at each element's centre: `target`, `targetIsButton`). The rules are Studio's, measured: within a ScreenGui a visible, Interactable button always gets the click; a visible Active element in a ScreenGui above swallows it, even when transparent (`rhr check` reports that as `button-blocked`) |
 | What a 3D build looks like | `rhr scene <file> --view iso --out build.png --json` | the PNG; the report's `notes`, `missingAssets`, `fallbacks`, `camera` |
 | Where every part is, and what was approximated | `rhr scene-dump <file>` | `parts[]`, `bounds`, `fallbacks`, `unsupportedVisualClasses`, `experimental` |
 | World, in-world UI and screen UI together (use this when unsure) | `rhr preview <file> --view iso --out frame.png --json` | the PNG, and the same report |

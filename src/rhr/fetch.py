@@ -70,12 +70,16 @@ def offline() -> bool:
 
 def asset_id(value) -> str | None:
     text = str(value or "")
+    if text.startswith(("rbxasset://", "rbxthumb://")):
+        # Built into the client, or a thumbnail Roblox makes at run time (an avatar
+        # headshot: rbxthumb://type=AvatarHeadShot&id=<user>): not an asset id.
+        return None
     for pattern in (r"rbxassetid://(\d+)", r"[?&]id=(\d+)"):
         match = re.search(pattern, text, flags=re.IGNORECASE)
         if match:
-            return match.group(1)
-    if text.startswith(("rbxasset://", "rbxthumb://")):
-        return None  # built into the client, or a thumbnail URL: not an asset id
+            return match.group(1) if match.group(1).strip("0") else None  # id 0: no image
+    if text.strip() in ("0", ""):
+        return None
     matches = re.findall(r"(\d{3,})", text)
     return matches[-1] if matches else None
 
