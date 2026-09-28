@@ -209,6 +209,21 @@
     }
    ]
   },
+  "inspect": {
+   "flags": {
+    "--out": {
+     "choices": [],
+     "default": null,
+     "takesValue": true
+    }
+   },
+   "positionals": [
+    {
+     "choices": [],
+     "name": "file"
+    }
+   ]
+  },
   "ir": {
    "flags": {
     "--out": {

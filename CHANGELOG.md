@@ -56,6 +56,13 @@
 
 ### Changes
 
+- **`rhr inspect <file>`**: what a file holds (classes, scripts with their lines, the
+  asset ids it uses), and findings for script code worth a look before inserting a
+  model: `require(<id>)` (the classic backdoor: code loaded from Roblox at run time),
+  `getfenv`/`setfenv`, `loadstring`, obfuscated code, webhooks and HTTP posts,
+  `InsertService:LoadAsset`, purchase prompts, teleports, virus-named scripts. It
+  reads the scripts and never runs them; JSON `rhr.inspect/1`. A 180k-instance place
+  takes about 4 s, a model a few milliseconds.
 - **Assets without Studio: `RHR_ROBLOX_API_KEY`.** An Open Cloud API key (a user key
   with `legacy-asset:manage`) downloads what the Studio login would, for cloud agents
   and CI; it is asked for what the login could not get, before asking without either.

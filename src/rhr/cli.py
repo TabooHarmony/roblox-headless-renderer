@@ -5,6 +5,7 @@
     rhr preview <file>   the 3D world with the UI over it, to PNG
     rhr view    <file>   the 3D world in a local page to move around in, kept up to date
     rhr icons   <files or folders>   square icon PNGs of models, transparent background
+    rhr inspect <file>   JSON: classes, scripts, assets, and risky script code
     rhr layout | check | hitmap | scene-dump <file>   JSON
     rhr compare <before.png> <after.png>              JSON
     rhr ir <file> --out ir.json                       RHR's internal format (not stable)
@@ -555,6 +556,36 @@ def _scene(args) -> int:
     })
 
 
+def _inspect(args) -> int:
+    from rhr import rojo
+    from rhr.inspect import inspect
+    from rhr.schema import dumps
+
+    source = Path(args.file)
+    if not source.exists():
+        return _die(f"no such file: {source}")
+    t0 = time.perf_counter()
+    try:
+        project = rojo.project_file(source)
+        report = inspect(rojo.build(project, IR_DIR) if project is not None else source)
+    except (ValueError, RuntimeError, OSError) as exc:
+        return _die(str(exc))
+    text = dumps(report)
+    if args.out:
+        Path(args.out).parent.mkdir(parents=True, exist_ok=True)
+        Path(args.out).write_text(text, encoding="utf-8")
+        print(args.out, file=sys.stderr)
+    else:
+        print(text)
+    counts = {}
+    for finding in report["findings"]:
+        counts[finding["severity"]] = counts.get(finding["severity"], 0) + 1
+    print(f"inspect {report['instances']} instances, {len(report['scripts'])} scripts, findings: "
+          + (", ".join(f"{n} {s}" for s, n in counts.items()) or "none")
+          + f"  {int((time.perf_counter() - t0) * 1000)}ms", file=sys.stderr)
+    return 0
+
+
 def _icons(args) -> int:
     from rhr import icons, remote
     from rhr.ir import world_ir
@@ -924,6 +955,12 @@ def build_parser() -> argparse.ArgumentParser:
     _picture_arguments(p_scene)
     _test_hooks(p_scene)
     p_scene.set_defaults(func=_scene)
+
+    p_inspect = sub.add_parser("inspect", help="JSON: what a file holds (classes, scripts, assets) and "
+                                               "findings for risky script code (backdoors in free models)")
+    p_inspect.add_argument("file", help="Roblox model/place, Rojo project, or a Roblox asset id or link")
+    p_inspect.add_argument("--out", help="write JSON here instead of stdout")
+    p_inspect.set_defaults(func=_inspect)
 
     p_icons = sub.add_parser("icons", help="square icon PNGs of models on a transparent background, "
                                            "one per file, folder entry or asset id")

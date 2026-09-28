@@ -17,6 +17,7 @@ VERSIONS = {
     "compare": 2,       # rhr compare (2: camelCase keys, before/after instead of ref/out)
     "browser": 1,       # rhr browser start|status|stop
     "render": 1,        # rhr ui|scene|preview --json: the picture's report
+    "inspect": 1,       # rhr inspect: what a file holds, its scripts and findings
 }
 
 

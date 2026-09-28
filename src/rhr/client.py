@@ -16,7 +16,7 @@ import time
 import zlib
 
 # The commands the server runs; everything else runs here.
-SERVED = {"ui", "layout", "check", "hitmap", "scene", "preview", "scene-dump", "compare", "ir", "fetch"}
+SERVED = {"ui", "layout", "check", "hitmap", "scene", "preview", "scene-dump", "compare", "ir", "fetch", "inspect"}
 # Settings a request carries (rhr.server.REQUEST_ENV): read while the command runs, and
 # the colour switches Python's own help output follows. Other RHR_* settings pick the server.
 REQUEST_ENV = ("RHR_PROFILE", "RHR_OFFLINE", "NO_COLOR", "FORCE_COLOR", "PYTHON_COLORS", "TERM")
