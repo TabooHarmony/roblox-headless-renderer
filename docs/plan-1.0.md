@@ -315,3 +315,37 @@ camera-only renders, `scene-dump`'s size on big places, a Python XML reader.
   Windows users have Edge.
 - Local Python is 3.14, CI uses 3.12.
 - Commits carry no Claude attribution.
+
+## Pending for the next session (written 2026-09-27)
+
+Start here. Agreed positioning (not yet in GOAL.md): RHR is **headless preview and
+checks of Roblox files, for agents and automation**, not a Studio replacement. Studio
+wins when a place is open and edited live (instant edits, exact pixels); RHR wins
+where Studio cannot be driven (terminal/cloud/CI agents, Linux, Rojo repos where files
+are the truth) and with structured answers (rects, findings, hit map) Studio does not
+give. Unverified: what Roblox's Studio MCP returns today (screenshots? layout data?);
+check before 1.0, it decides how much of RHR is unique.
+
+1. **Scope conversation first**, then write it into GOAL.md and the README.
+   - Core, must be excellent: UI check/layout/hitmap, UI pictures, 3D pictures of
+     builds and models, compare, Rojo projects. Secondary: whole big places, effects,
+     terrain. Out: scripts, gameplay, live editing, exact Studio pixels.
+   - Open questions for the maintainer: main user is an agent in a Rojo repo, or also
+     loose .rbxl files? Mac/Linux at 1.0 or Windows first? Should RHR ever edit files,
+     or only look?
+2. **Agent tooling** (changes the JSON interface: before the freeze): scene-dump
+   summary by default (big places print tens of MB); targeted queries (what is at
+   pixel X,Y; one subtree; checks for one frame); watch mode / check changed files in
+   a Rojo repo; several viewports in one call; fix hints in check findings; rewrite
+   AGENTS.md around real agent loops.
+3. **Features:** more checks (off-screen, overlapping buttons, small tap targets,
+   contrast, aspect-ratio breakage); a way to check script-built UI (agent snapshots
+   the finished UI to a file); 3D gaps only where they mislead.
+4. **Optimizations, ranked for the scope** (docs/performance.md, "What is left"):
+   batch decals/parts (heavy scenes are GPU-bound; pixels move: decide); keep the
+   built scene for camera-only renders; native `rhr` launcher (~0.3 s -> ~0.05 s per
+   small command); Python XML reader; last, incremental re-reading of huge places.
+5. **Then** step 7 above: pre-release + CI on three systems, hardening, a stretch of
+   real agent use, freeze, tag 1.0.
+
+Suggested order: 1, 2, 4 (first two items), 5.
