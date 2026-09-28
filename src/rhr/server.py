@@ -14,6 +14,9 @@ line and working folder, and gets back stdout, stderr and the exit code.
   stale and the server exits; the client starts a new one.
 - It stops by itself after RHR_SERVER_IDLE_S seconds without a command (default 20
   minutes), and any time with `rhr server stop`.
+- After TRIM_AFTER_S idle seconds it lets go of the files it read beyond
+  RHR_SERVER_MEMORY_MB (default 512): a small UI stays warm, a big place (about a
+  gigabyte in memory) is read again when it is next asked for.
 
 Wire format, over a local TCP socket: the request is rhr.client.encode_request (a
 length, then NUL-separated fields: token, cwd, tty flags, argv, settings); the reply is
@@ -34,6 +37,13 @@ import traceback
 from pathlib import Path
 
 IDLE_S = float(os.environ.get("RHR_SERVER_IDLE_S", "1200") or 0)
+TRIM_AFTER_S = float(os.environ.get("RHR_SERVER_TRIM_S", "180") or 180)
+try:
+    MEMORY_MB = float(os.environ.get("RHR_SERVER_MEMORY_MB", "512"))
+except ValueError:
+    MEMORY_MB = 512.0
+# A loaded IR takes about 4.5 times its JSON's size in memory (rhr.ir._LOADED).
+IR_MEMORY_FACTOR = 4.5
 # Read while a command runs, so each request sets them (rhr.client.REQUEST_ENV); the
 # rest of RHR_* chose the server.
 REQUEST_ENV = ("RHR_PROFILE", "RHR_OFFLINE", "NO_COLOR", "FORCE_COLOR", "PYTHON_COLORS", "TERM")
@@ -149,6 +159,7 @@ class Server:
         self.stamp = code_stamp()
         self.busy = threading.Lock()
         self.last_used = time.monotonic()
+        self.trimmed = True
         self.stopping = False
         self.listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.listener.bind(("127.0.0.1", 0))
@@ -168,8 +179,11 @@ class Server:
                 try:
                     connection, _ = self.listener.accept()
                 except TimeoutError:
-                    if IDLE_S > 0 and not self.busy.locked() and time.monotonic() - self.last_used > IDLE_S:
+                    idle = time.monotonic() - self.last_used
+                    if IDLE_S > 0 and not self.busy.locked() and idle > IDLE_S:
                         break
+                    if not self.trimmed and idle > TRIM_AFTER_S:
+                        self.trim()
                     continue
                 except OSError:  # closed by stop()
                     break
@@ -179,6 +193,21 @@ class Server:
             # A command still running (stopped mid-way) finishes before the process ends.
             with self.busy:
                 pass
+
+    def trim(self) -> None:
+        """Let go of loaded files beyond the memory budget, between commands."""
+        if not self.busy.acquire(blocking=False):
+            return
+        try:
+            import gc
+
+            from rhr import ir
+
+            if ir.trim_loaded(int(MEMORY_MB * 1024 * 1024 / IR_MEMORY_FACTOR)):
+                gc.collect()
+            self.trimmed = True
+        finally:
+            self.busy.release()
 
     def stop(self) -> None:
         """Take no more commands: unpublished and closed at once (one running finishes)."""
@@ -220,6 +249,7 @@ class Server:
                     self._run(connection, request)
                 finally:
                     self.last_used = time.monotonic()
+                    self.trimmed = False
                     self.busy.release()
             except (OSError, ValueError):
                 return

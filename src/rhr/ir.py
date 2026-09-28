@@ -82,6 +82,17 @@ def _keep(key: tuple, document: dict) -> None:
         _forget(_LOADED.pop(next(iter(_LOADED)))[1])
 
 
+def trim_loaded(max_bytes: int) -> int:
+    """Forget loaded IRs, least recently read first, until those kept hold at most
+    `max_bytes` of JSON (the resident server, once idle: a big place's IR is a
+    gigabyte in memory). Returns how many were forgotten."""
+    dropped = 0
+    while _LOADED and sum(entry[2] for entry in _LOADED.values()) > max_bytes:
+        _forget(_LOADED.pop(next(iter(_LOADED)))[1])
+        dropped += 1
+    return dropped
+
+
 def _forget(document: dict) -> None:
     for key in [key for key, (ir, _) in _DERIVED.items() if ir is document]:
         del _DERIVED[key]

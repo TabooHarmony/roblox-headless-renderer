@@ -131,8 +131,9 @@ until it is run.
 
 `rhr` hands each command to a resident RHR server, started by the first command, which
 keeps Python, RHR and the files it read loaded: a command on an unchanged file costs
-little more than the work itself. It replaces itself when RHR is upgraded and stops
-after 20 idle minutes (`rhr server stop` stops it now; `RHR_SERVER=0` runs each command
+little more than the work itself. It replaces itself when RHR is upgraded, lets go
+of big files after 3 idle minutes (it keeps `RHR_SERVER_MEMORY_MB`, default 512) and
+stops after 20 (`rhr server stop` stops it now; `RHR_SERVER=0` runs each command
 in its own process). 3D renders use the GPU (about 8x faster than software rendering;
 set `RHR_WEBGL=software` for identical pixels on every machine, as the tests do). The
 first 3D render also starts a warm browser worker, which keeps the 3D page loaded;

@@ -67,6 +67,20 @@ def main() -> int:
     again = run("server", "stop", server=True)
     check(b"no server" in again.stderr, "a second stop finds none")
 
+    print("server: an idle server lets go of loaded files beyond its budget")
+    sys.path.insert(0, str(REPO / "src"))
+    from rhr import ir
+
+    ir.trim_loaded(0)
+    paths = [ir.cached_ir(REPO / "tests" / "fixtures" / name, profile="ui")
+             for name in ("grid_offset.rbxmx", "ir_profiles.rbxmx")]
+    for path in paths:
+        ir.load_ir(path)
+    sizes = [path.stat().st_size for path in paths]
+    check(ir.trim_loaded(sum(sizes)) == 0 and len(ir._LOADED) == 2, "within the budget: both kept")
+    check(ir.trim_loaded(sizes[1]) == 1 and len(ir._LOADED) == 1, "over it: the least recently read goes first")
+    check(ir.trim_loaded(0) == 1 and not ir._LOADED, "a budget of 0 lets go of everything")
+
     if failures:
         print(f"\n{len(failures)} failure(s)")
         return 1

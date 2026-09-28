@@ -69,6 +69,10 @@
   earlier conversion (a place's is about 25 times the file, and every edit made a new
   one: 10 GB in a day of work on big places, against a 2 GB limit). The limit is
   checked every hour instead of once a day, and right after writing a big conversion.
+- **The resident server lets go of big files.** After 3 idle minutes it keeps only
+  what fits in `RHR_SERVER_MEMORY_MB` (default 512): a small UI stays warm, a big
+  place's conversion is read again when next asked for. On a 116k-part place the
+  server went from 916 MB to 392 MB.
 - **`rhr inspect <file>`**: what a file holds (classes, scripts with their lines, the
   asset ids it uses), and findings for script code worth a look before inserting a
   model: `require(<id>)` (the classic backdoor: code loaded from Roblox at run time),
