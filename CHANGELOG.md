@@ -4,6 +4,10 @@
 
 ### When upgrading
 
+- **`rhr check` severities:** `duplicate-zindex`, `invisible-content`,
+  `child-outside-clip` and `max-visible-graphemes` are now `info`, not printed by
+  default (`--min-severity info`). `text-wider-than-box` no longer fires on TextScaled
+  or wrapped labels; wrapped text that does not fit is `text-taller-than-box`.
 - **Nothing to draw is an error.** `ui`, `layout`, `check` and `hitmap` on a file
   with no UI to draw exit 2 with the reason and what would draw something (a closed
   screen to `--show`, templates stored outside StarterGui, a Rojo project that maps
@@ -61,6 +65,19 @@
 
 ### Changes
 
+- **`rhr check` finds what players see, and less noise.** Text checks read what the
+  engine laid out instead of measuring again with another font (half of the old
+  `text-wider-than-box` warnings on real games were wrong: TextScaled labels, other
+  fonts). New checks: `text-taller-than-box` (wrapped text spilling out),
+  `off-screen` and `partly-off-screen`, `small-target`, `low-contrast`. A third
+  severity, `info`, for patterns that are often intended (`duplicate-zindex`,
+  `invisible-content`, `child-outside-clip`, `max-visible-graphemes`), left out
+  unless `--min-severity info`. `--ignore <check>`, `--baseline old.json` (only
+  what an edit added) and an `RhrIgnore` attribute in the file leave findings out.
+  Text in an uploaded font RHR cannot load, and UI collapsed to nothing (a menu a
+  tween grows open), is not judged. On four real games: 101 warnings on one became 1;
+  the review's probe UI went from 0 of 6 mistakes found (and 2 fine labels flagged)
+  to 5 of 6, with the sixth (a missing image) next.
 - **Screens code opens: `--show <path>` and `--only <path>`** on `ui`, `layout`,
   `check`, `hitmap` and `preview`. A screen saved closed (`ScreenGui.Enabled` or
   `Visible` false, as games save the screens their code opens) is drawn with

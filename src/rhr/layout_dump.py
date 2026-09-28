@@ -178,6 +178,11 @@ def _text_of(node: dict) -> dict | None:
         out["drawnSize"] = _round(laid_out["size"])
         out["lines"] = laid_out["lines"]
         out["bounds"] = [_round(value) for value in laid_out["bounds"]]
+        out["box"] = [_round(value) for value in laid_out["box"]]
+        if laid_out.get("truncated"):
+            out["truncated"] = True
+        if laid_out.get("fontSubstituted"):
+            out["fontSubstituted"] = True
     return out
 
 

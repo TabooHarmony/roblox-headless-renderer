@@ -12,7 +12,8 @@ the edit loop, and how to read the output without being misled.
 | What the UI looks like | `rhr ui <file> --out ui.png` | the PNG |
 | Where every UI element is | `rhr layout <file>` | `rects[path]` = `{x, y, w, h}` in pixels |
 | What each element is made of, and how its text laid out | `rhr layout <file> --rich` | `nodes[]`: class, rect, zIndex, colours, `text.drawnSize`, `text.lines`, `text.bounds` |
-| Whether the UI has obvious mistakes | `rhr check <file>` | `findings[]`; exit code 1 if any is an error |
+| Whether the UI has obvious mistakes | `rhr check <file>` | `findings[]` (`check`, `severity`, `paths`, `detail`); exit code 1 if any is an error |
+| Whether an edit added a mistake | `rhr check <file> --out before.json` once, then `rhr check <file> --baseline before.json` after each edit | only the new findings |
 | What is clickable, and what is on top where things overlap | `rhr hitmap <file>` | `nodes[]` (interactive elements), `hitTests[]` (topmost target at each element's centre) |
 | What a 3D build looks like | `rhr scene <file> --view iso --out build.png --json` | the PNG; the report's `notes`, `missingAssets`, `fallbacks`, `camera` |
 | Where every part is, and what was approximated | `rhr scene-dump <file>` | `parts[]`, `bounds`, `fallbacks`, `unsupportedVisualClasses`, `experimental` |
@@ -52,8 +53,11 @@ the commands on the place file or its place id.
 ## The loop
 
 1. Edit the model (or the Rojo project).
-2. `rhr check` it. Fix error findings first; they are real mistakes (zero-size grid
-   cells, unreadable text, text that cannot fit).
+2. `rhr check` it. Fix error findings first, then warnings: text spilling out of its
+   box, buttons off screen, too small or unreadable. `info` findings (`--min-severity
+   info`) are patterns that are often intended; look only when something seems off.
+   An instance the maintainer wants left alone can carry an `RhrIgnore` string
+   attribute ("all", or check ids separated by commas).
 3. `rhr layout` it and compare the rects you care about with what you intended,
    numerically. This is cheaper and more exact than reading pixels.
 4. `rhr ui` (UI) or `rhr scene` / `rhr preview` (3D) and look at the picture.

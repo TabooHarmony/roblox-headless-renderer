@@ -408,30 +408,43 @@ def _ir(args) -> int:
 
 
 def _check(args) -> int:
-    from rhr.checks import check_model, findings_json
+    from rhr.checks import CHECK_IDS, check_model, findings_json, load_baseline
 
     source = Path(args.file)
     if not source.exists():
         return _die(f"no such file: {source}")
+    unknown = [name for name in args.ignore if name not in CHECK_IDS]
+    if unknown:
+        return _die(f"unknown check {', '.join(unknown)}; the checks are: {', '.join(CHECK_IDS)}")
     width, height = args.viewport
     t0 = time.perf_counter()
     try:
+        baseline = load_baseline(Path(args.baseline)) if args.baseline else None
         ir_path = ir_for(source, profile="ui", viewport=(width, height))
-        result = check_model(ir_path, width, height, topbar_height=args.topbar_height)
+        result = check_model(ir_path, width, height, topbar_height=args.topbar_height,
+                             min_severity=args.min_severity, ignore=tuple(args.ignore), baseline=baseline)
     except (ValueError, RuntimeError, OSError) as exc:
         return _die(str(exc))
     elapsed = int((time.perf_counter() - t0) * 1000)
 
     findings = result["findings"]
+    left_out = result.pop("_left_out")
     errors = sum(1 for f in findings if f["severity"] == "error")
-    warnings = len(findings) - errors
+    warnings = sum(1 for f in findings if f["severity"] == "warning")
+    infos = len(findings) - errors - warnings
     if args.out:
         Path(args.out).parent.mkdir(parents=True, exist_ok=True)
         Path(args.out).write_text(findings_json(result), encoding="utf-8")
         print(args.out, file=sys.stderr)
     else:
         print(findings_json(result))
-    print(f"check {len(findings)} findings ({errors} error, {warnings} warning)  {elapsed}ms", file=sys.stderr)
+    counts = f"{errors} error, {warnings} warning" + (f", {infos} info" if infos else "")
+    print(f"check {len(findings)} findings ({counts})  {elapsed}ms", file=sys.stderr)
+    reasons = {"severity": f"below --min-severity {args.min_severity}", "ignored": "--ignore",
+               "attribute": "RhrIgnore attributes", "baseline": "already in the baseline"}
+    for key, count in left_out.items():
+        if count:
+            print(f"check {count} left out: {reasons[key]}", file=sys.stderr)
     # A build loop refuses to ship on error-class findings; warnings do not
     # block (they are visible reality, not defects).
     return 1 if errors else 0
@@ -939,6 +952,13 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="top bar inset in px for a CoreUISafeInsets ScreenGui (default: 58)",
     )
+    p_check.add_argument("--min-severity", choices=("error", "warning", "info"), default="warning",
+                         help="least severity reported (default: warning; info adds patterns that are "
+                              "often intended)")
+    p_check.add_argument("--ignore", action="append", default=[], metavar="CHECK",
+                         help="leave out one check by id (repeatable)")
+    p_check.add_argument("--baseline", metavar="JSON",
+                         help="an earlier `rhr check` output: report only findings not in it")
     p_check.add_argument("--all-guis", action="store_true",
                          help="in a place, also draw ScreenGuis stored outside StarterGui (templates scripts clone in)")
     p_check.add_argument("--show", action="append", default=[], metavar="PATH",

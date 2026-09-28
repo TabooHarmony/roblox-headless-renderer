@@ -610,6 +610,9 @@ class Emitter:
             kept = _attributes(inst)
             if kept:
                 node["attributes"] = kept
+        ignore = _rhr_ignore(inst)
+        if ignore:
+            node["rhrIgnore"] = ignore
         if unreadable:
             node["unreadable"] = unreadable
         if unmapped:
@@ -707,9 +710,22 @@ def _attributes(inst: Instance) -> dict:
     return kept
 
 
+def _rhr_ignore(inst: Instance) -> str | None:
+    """The `RhrIgnore` string attribute: which `rhr check` findings to leave out for
+    this instance and what it holds ("all", or check ids separated by commas)."""
+    stored = inst.get("Attributes")
+    if stored is None or not isinstance(stored.value, bytes) or b"RhrIgnore" not in stored.value:
+        return None
+    try:
+        value = decode_attributes(stored.value).get("RhrIgnore")
+    except (ValueError, IndexError, UnicodeDecodeError):
+        return None
+    return value.strip() if isinstance(value, str) and value.strip() else None
+
+
 def decode_attributes(data: bytes) -> dict:
-    """rbx_types' attribute encoding; numbers and booleans as Python values, the rest
-    as None (they are read past, not kept)."""
+    """rbx_types' attribute encoding; numbers, booleans and strings as Python values,
+    the rest as None (they are read past, not kept)."""
     import struct
 
     o = 0
@@ -735,7 +751,7 @@ def decode_attributes(data: bytes) -> dict:
         key = string().decode("utf-8")
         (ty,) = take("<B")
         if ty == 0x02:
-            string(); value = None
+            value = string().decode("utf-8", "replace")
         elif ty == 0x03:
             value = take("<B")[0] != 0
         elif ty == 0x04:

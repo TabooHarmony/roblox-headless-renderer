@@ -90,7 +90,7 @@ The shop has one deliberate mistake, and `rhr check` finds it:
 | --- | --- |
 | `rhr ui <file>` | PNG of the screen UI (every ScreenGui, in `DisplayOrder`), including ViewportFrames |
 | `rhr layout <file>` | JSON: the on-screen rectangle of every UI element. `--rich` adds class, z-index, colours and how each text laid out |
-| `rhr check <file>` | JSON findings for common UI mistakes: text that doesn't fit, zero-size grid cells, invisible content, ambiguous overlaps. Exits 1 on errors |
+| `rhr check <file>` | JSON findings for UI mistakes a player would see: text spilling out of its box, buttons off screen or too small to hit, text you can't read against its background, collapsed grid cells. Exits 1 on errors. `--baseline old.json` reports only what an edit added; `--min-severity info` adds patterns that are often intended |
 | `rhr hitmap <file>` | JSON: what is clickable, and which element is on top where things overlap |
 | `rhr scene <file>` | PNG of the 3D build. Standard views (`--view iso/front/back/left/right/top`), `--focus <path>`, or your own `--camera` / `--look-at` / `--fov` |
 | `rhr scene-dump <file>` | JSON: position, size, bounds and material of every part, plus everything that was approximated |

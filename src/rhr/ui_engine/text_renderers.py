@@ -153,6 +153,8 @@ def _draw_text_plain_rtl(canvas: skia.Canvas, x: float, y: float, w: float, h: f
         # skia-python exposes no line count; each line box is TextSize tall.
         "lines": max(1, round(measure_para.Height / max(float(text_size), 1e-6))),
         "bounds": [float(measure_para.LongestLine), float(total_text_h)],
+        "box": [float(content_w), float(content_h)],
+        "fontSubstituted": bool(node.get("fontUnknown")),
     }
     y_align = node.get("textYAlignment", "Center")
     if y_align == "Top":
@@ -308,6 +310,9 @@ def _draw_text_plain(canvas: skia.Canvas, x: float, y: float, w: float, h: float
     stroke_thickness_scale = _text_stroke_thickness_scale(family)
     italic = _is_italic_style(node.get("fontStyle"))
     typeface = _load_typeface(family, weight, fonts_dir, italic=italic)
+    # Drawn in another face than the model asks for: widths and line breaks are guesses.
+    substituted = bool(node.get("fontUnknown")) or (
+        _try_load_exact_typeface(family, weight, fonts_dir, italic=italic) is None)
     emoji_typeface = _get_emoji_typeface(fonts_dir)
     fallback_typefaces = _with_emoji_fallback_typefaces(
         _get_fallback_typefaces(fonts_dir), fonts_dir
@@ -370,6 +375,7 @@ def _draw_text_plain(canvas: skia.Canvas, x: float, y: float, w: float, h: float
         paint.setColor(skia.Color(r, g, b, alpha))
 
     # Build lines
+    truncated = False
     # Studio model (plan 0.2a): a TextScaled label whose string fits the
     # content width at the fitted size by the advance table stays on ONE
     # line even though TextWrapped is implied — the skia measure would wrap
@@ -404,6 +410,7 @@ def _draw_text_plain(canvas: skia.Canvas, x: float, y: float, w: float, h: float
                     _measure_mixed(line, font, emoji_font, fallback_fonts) > content_w):
                 line = _truncate_ellipsis(line, font, content_w, emoji_font, fallback_fonts,
                                           split_word=(truncate == "SplitWord"))
+                truncated = True
             lines.append(line)
 
     # Metrics
@@ -463,6 +470,11 @@ def _draw_text_plain(canvas: skia.Canvas, x: float, y: float, w: float, h: float
         "size": float(text_size),
         "lines": len(lines),
         "bounds": [max(line_widths, default=0.0), float(total_text_h)],
+        # The box the text was laid out in (the rect minus UIPadding), and
+        # whether TextTruncate cut a line: what the checks compare against.
+        "box": [float(content_w), float(content_h)],
+        "truncated": truncated,
+        "fontSubstituted": substituted,
     }
 
     # Vertical alignment

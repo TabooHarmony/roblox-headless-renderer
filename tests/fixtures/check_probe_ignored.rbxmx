@@ -1,0 +1,100 @@
+<roblox version="4">
+  <!-- Six mistakes a player would see, and two labels that are fine (review of
+       2026-09-28): WrappedTooTall, OffScreenButton, HalfOffButton, TinyClose,
+       LowContrast and MissingIcon are wrong; ScaledBig (TextScaled) and WideFont
+       (a wide font that fits) are not. tests/test_checks.py -->
+  <Item class="ScreenGui" referent="RBX0">
+    <Properties>
+      <string name="Name">Probe</string>
+    </Properties>
+    <Item class="TextLabel" referent="RBX1">
+      <Properties>
+        <string name="Name">ScaledBig</string>
+        <UDim2 name="Position"><XS>0</XS><XO>20</XO><YS>0</YS><YO>20</YO></UDim2>
+        <UDim2 name="Size"><XS>0</XS><XO>120</XO><YS>0</YS><YO>40</YO></UDim2>
+        <float name="BackgroundTransparency">0</float>
+        <Color3 name="BackgroundColor3"><R>0.2</R><G>0.2</G><B>0.2</B></Color3>
+        <string name="Text">PLAY NOW</string>
+        <Color3 name="TextColor3"><R>1</R><G>1</G><B>1</B></Color3>
+        <float name="TextSize">100</float>
+        <bool name="TextScaled">true</bool>
+        <bool name="TextWrapped">false</bool>
+      </Properties>
+    </Item>
+    <Item class="TextLabel" referent="RBX2">
+      <Properties>
+        <string name="Name">WrappedTooTall</string>
+        <UDim2 name="Position"><XS>0</XS><XO>20</XO><YS>0</YS><YO>80</YO></UDim2>
+        <UDim2 name="Size"><XS>0</XS><XO>120</XO><YS>0</YS><YO>30</YO></UDim2>
+        <float name="BackgroundTransparency">0</float>
+        <Color3 name="BackgroundColor3"><R>0.2</R><G>0.2</G><B>0.2</B></Color3>
+        <string name="Text">This description is far too long to fit in two lines of this small box</string>
+        <Color3 name="TextColor3"><R>1</R><G>1</G><B>1</B></Color3>
+        <float name="TextSize">18</float>
+        <bool name="TextWrapped">true</bool>
+      </Properties>
+    </Item>
+    <Item class="TextButton" referent="RBX3">
+      <Properties>
+        <string name="Name">OffScreenButton</string>
+        <UDim2 name="Position"><XS>1.05</XS><XO>0</XO><YS>0</YS><YO>200</YO></UDim2>
+        <UDim2 name="Size"><XS>0</XS><XO>100</XO><YS>0</YS><YO>40</YO></UDim2>
+        <string name="Text">Hidden</string>
+        <float name="TextSize">18</float>
+      </Properties>
+    </Item>
+    <Item class="TextButton" referent="RBX4">
+      <Properties>
+        <string name="Name">HalfOffButton</string>
+        <UDim2 name="Position"><XS>0</XS><XO>-60</XO><YS>0</YS><YO>260</YO></UDim2>
+        <UDim2 name="Size"><XS>0</XS><XO>100</XO><YS>0</YS><YO>40</YO></UDim2>
+        <string name="Text">Half</string>
+        <float name="TextSize">18</float>
+      </Properties>
+    </Item>
+    <Item class="ImageButton" referent="RBX5">
+      <Properties>
+        <string name="Name">TinyClose</string>
+        <BinaryString name="AttributesSerialize">AQAAAAkAAABSaHJJZ25vcmUCDAAAAHNtYWxsLXRhcmdldA==</BinaryString>
+        <UDim2 name="Position"><XS>0</XS><XO>300</XO><YS>0</YS><YO>20</YO></UDim2>
+        <UDim2 name="Size"><XS>0</XS><XO>12</XO><YS>0</YS><YO>12</YO></UDim2>
+        <Color3 name="BackgroundColor3"><R>1</R><G>0</G><B>0</B></Color3>
+      </Properties>
+    </Item>
+    <Item class="TextLabel" referent="RBX6">
+      <Properties>
+        <string name="Name">LowContrast</string>
+        <UDim2 name="Position"><XS>0</XS><XO>300</XO><YS>0</YS><YO>80</YO></UDim2>
+        <UDim2 name="Size"><XS>0</XS><XO>200</XO><YS>0</YS><YO>40</YO></UDim2>
+        <float name="BackgroundTransparency">0</float>
+        <Color3 name="BackgroundColor3"><R>1</R><G>1</G><B>1</B></Color3>
+        <string name="Text">Hard to read</string>
+        <Color3 name="TextColor3"><R>0.93</R><G>0.93</G><B>0.93</B></Color3>
+        <float name="TextSize">20</float>
+      </Properties>
+    </Item>
+    <Item class="ImageLabel" referent="RBX7">
+      <Properties>
+        <string name="Name">MissingIcon</string>
+        <UDim2 name="Position"><XS>0</XS><XO>300</XO><YS>0</YS><YO>140</YO></UDim2>
+        <UDim2 name="Size"><XS>0</XS><XO>64</XO><YS>0</YS><YO>64</YO></UDim2>
+        <float name="BackgroundTransparency">1</float>
+        <Content name="ImageContent"><uri>rbxassetid://900000999</uri></Content>
+      </Properties>
+    </Item>
+    <Item class="TextLabel" referent="RBX8">
+      <Properties>
+        <string name="Name">WideFont</string>
+        <UDim2 name="Position"><XS>0</XS><XO>20</XO><YS>0</YS><YO>320</YO></UDim2>
+        <UDim2 name="Size"><XS>0</XS><XO>230</XO><YS>0</YS><YO>40</YO></UDim2>
+        <float name="BackgroundTransparency">0</float>
+        <Color3 name="BackgroundColor3"><R>0.2</R><G>0.2</G><B>0.2</B></Color3>
+        <string name="Text">LEADERBOARD</string>
+        <Color3 name="TextColor3"><R>1</R><G>1</G><B>1</B></Color3>
+        <Font name="FontFace"><Family><url>rbxasset://fonts/families/LuckiestGuy.json</url></Family><Weight>400</Weight><Style>Normal</Style></Font>
+        <float name="TextSize">36</float>
+        <bool name="TextWrapped">false</bool>
+      </Properties>
+    </Item>
+  </Item>
+</roblox>

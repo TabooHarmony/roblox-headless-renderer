@@ -30,6 +30,25 @@
      "default": false,
      "takesValue": false
     },
+    "--baseline": {
+     "choices": [],
+     "default": null,
+     "takesValue": true
+    },
+    "--ignore": {
+     "choices": [],
+     "default": [],
+     "takesValue": true
+    },
+    "--min-severity": {
+     "choices": [
+      "error",
+      "warning",
+      "info"
+     ],
+     "default": "warning",
+     "takesValue": true
+    },
     "--only": {
      "choices": [],
      "default": null,
@@ -1115,6 +1134,12 @@
      "array"
     ],
     "nodes[].text.bounds[]": [
+     "number"
+    ],
+    "nodes[].text.box": [
+     "array"
+    ],
+    "nodes[].text.box[]": [
      "number"
     ],
     "nodes[].text.color": [

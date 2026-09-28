@@ -83,6 +83,15 @@ test fixtures).
 - **Defaults kept as contract:** `--viewport 1615x1080`, `--topbar-height 58`, shadows
   on, effects on at their fullest moment, `--seed 0`.
 
+## Check severities (decided 2026-09-28)
+
+`error` (exit 1), `warning`, and `info`: patterns that are often intended
+(`duplicate-zindex`, `invisible-content`, `child-outside-clip`, `max-visible-graphemes`,
+an off-screen panel, contrast between 1.5:1 and 3:1), left out unless
+`--min-severity info`. The check ids are listed in `rhr.checks` and are contract;
+new checks are additive. `--ignore <id>`, `--baseline <json>` and the `RhrIgnore`
+attribute leave findings out; stderr says how many and why.
+
 ## JSON outputs
 
 | Schema | Today | Proposal |

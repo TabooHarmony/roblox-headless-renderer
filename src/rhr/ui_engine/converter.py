@@ -560,6 +560,10 @@ def flatten_node(raw: dict) -> dict:
     font_family = _extract_font_family(font_face)
     if font_family:
         result["font"] = font_family
+    elif isinstance(font_face, dict) and str(font_face.get("family", font_face.get("Family", ""))).startswith("rbx"):
+        # A font RHR could not name (one uploaded by asset id): drawn in the default
+        # face, so its sizes are guesses (the layout dump says so; checks skip it).
+        result["fontUnknown"] = True
     font_weight = _extract_font_weight(font_face)
     if font_weight and font_weight != "Regular":
         result["fontWeight"] = font_weight

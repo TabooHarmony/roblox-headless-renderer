@@ -784,6 +784,9 @@ local function walk(inst)
       if next(kept) then node.attributes = kept end
     end
   end
+  -- `RhrIgnore`: which `rhr check` findings to leave out here (rhr.checks).
+  local okIgnore, ignore = pcall(function() return inst:GetAttribute("RhrIgnore") end)
+  if okIgnore and type(ignore) == "string" and ignore ~= "" then node.rhrIgnore = ignore end
   if #recover > 0 then
     table.insert(pending_recovery, { inst = inst, index = node_index, node = node, names = recover })
   end
