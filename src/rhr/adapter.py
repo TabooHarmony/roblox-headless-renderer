@@ -199,6 +199,46 @@ def _ui_skeleton(node: dict, branches: frozenset[int]) -> dict:
     return raw
 
 
+def _screen_gui_branches(ir: dict) -> frozenset[int]:
+    """id() of every node that is a ScreenGui or has one below it (not inside one)."""
+    from rhr.ir import derived
+
+    def compute(document: dict) -> frozenset[int]:
+        found: set[int] = set()
+
+        def walk(node: dict) -> bool:
+            if node.get("className") == "ScreenGui":
+                found.add(id(node))
+                return True
+            has = False
+            for child in node.get("children") or []:
+                has = walk(child) or has
+            if has:
+                found.add(id(node))
+            return has
+
+        for root in document["roots"]:
+            walk(root)
+        return frozenset(found)
+
+    return derived(ir, "screen_gui_branches", compute)
+
+
+def _screen_gui_skeleton(node: dict, branches: frozenset[int]) -> dict:
+    """What a service a place does not draw holds for the note naming its ScreenGuis:
+    the path to each ScreenGui, the ScreenGui with its own properties (Enabled), and
+    stubs for its children (whether it has any)."""
+    raw = ir_node_to_raw({**node, "children": []})
+    if node.get("className") == "ScreenGui":
+        raw["children"] = [{"className": child.get("className", "Frame"), "name": child.get("name"),
+                            "_path": child["path"], "properties": {}, "children": []}
+                           for child in node.get("children") or []]
+        return raw
+    raw["children"] = [_screen_gui_skeleton(child, branches) for child in node.get("children") or []
+                       if id(child) in branches]
+    return raw
+
+
 def ir_to_raw_nodes(ir: dict) -> list[dict]:
     """The UI of the file (see _ui_skeleton), roots in paint order: highest
     `ScreenGui.DisplayOrder` first.
@@ -210,9 +250,19 @@ def ir_to_raw_nodes(ir: dict) -> list[dict]:
     """
     from rhr.ir import ensure_ir_paths
 
+    from rhr import pipeline
+
     ensure_ir_paths(ir)
     branches = ui_branches(ir)
-    nodes = [_ui_skeleton(root, branches) for root in ir["roots"]]  # roots are always kept
+    # A place draws StarterGui's UI (and what is outside its services); of the other
+    # services it only names the ScreenGuis (rhr.pipeline.shown_ui_roots), unless
+    # --all-guis. Their UI (a game's templates: 18k nodes on a real one) is not converted.
+    place = not pipeline.INCLUDE_STORED_GUIS and any(
+        root.get("className") in pipeline.PLACE_SERVICES for root in ir["roots"])
+    nodes = [_screen_gui_skeleton(root, _screen_gui_branches(ir))
+             if place and root.get("className") in pipeline.PLACE_SERVICES and root.get("className") != "StarterGui"
+             else _ui_skeleton(root, branches)
+             for root in ir["roots"]]  # roots are always kept
     nodes.sort(key=_display_order, reverse=True)
     return nodes
 
