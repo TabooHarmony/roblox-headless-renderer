@@ -73,6 +73,14 @@
   what fits in `RHR_SERVER_MEMORY_MB` (default 512): a small UI stays warm, a big
   place's conversion is read again when next asked for. On a 116k-part place the
   server went from 916 MB to 392 MB.
+- **Hardening.** The headless browser keeps Chromium's sandbox (it decodes images
+  and meshes from the internet); only Linux as root turns it off, as Chromium
+  requires, and `RHR_BROWSER_SANDBOX=0` where it fails for another reason. RHR's
+  local servers (renders, `rhr view`) answer only requests addressed to this machine
+  and share data only with local pages, so a web page cannot read a scene through
+  them. A binary file whose chunks claim impossible sizes is refused before anything
+  is allocated. A story cannot use `getfenv`/`setfenv` (they led to Lune's own
+  `require`).
 - **`rhr inspect <file>`**: what a file holds (classes, scripts with their lines, the
   asset ids it uses), and findings for script code worth a look before inserting a
   model: `require(<id>)` (the classic backdoor: code loaded from Roblox at run time),

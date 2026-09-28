@@ -113,8 +113,10 @@ def _tidy(text: str) -> str:
     message: list[str] = []
     frames: list[str] = []
     for line in text.splitlines():
-        frame = re.search(r'\[string "([^"]+)"\]:(\d+)', line)
+        frame = re.search(r'\[string "([^"]+)"\]:(\d+)(?::\s*(.+))?', line)
         if frame:
+            if frame.group(3) and not message and not frames:  # `[string "x"]:3: the error`
+                message.append(frame.group(3))
             where = f"  at {frame.group(1)}:{frame.group(2)}"
             if where not in frames:
                 frames.append(where)

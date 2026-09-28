@@ -4,7 +4,8 @@
 `tests/fixtures/rojo_stories/` is a place project with a tiny UI helper standing in
 for a UI library (Packages/Mini.luau) and one story per form: a function(target)
 that reads sizes and tweens (Badge), a UI Labs table with controls (Panel), one that
-sizes itself from the screen (Viewport) and one that fails (Broken).
+sizes itself from the screen (Viewport), one that fails (Broken) and one that
+reaches for Lune's own globals (Escape).
 
     python tests/test_story.py
 """
@@ -88,6 +89,11 @@ def main() -> int:
     check("NotAProperty is not a valid member of Frame" in proc.stderr, f"the error: {proc.stderr.strip()[-300:]}")
     check(re.search(r"at src[\\/]Broken\.story\.luau:5", proc.stderr) is not None, "the line, in the story's file")
     check("story-runtime" not in proc.stderr, "not RHR's own runtime frames")
+
+    print("story: no way to Lune's own globals through getfenv")
+    proc = run(["layout", str(STORIES / "Escape.story.luau")])
+    check(proc.returncode == 2 and "getfenv is not available" in proc.stderr,
+          f"refused: {proc.stderr.strip()[-200:]}")
 
     print("story: outside a Rojo project")
     with tempfile.TemporaryDirectory(prefix="rhr-story-loose-") as directory:

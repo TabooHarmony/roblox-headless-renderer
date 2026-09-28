@@ -5,6 +5,7 @@ from __future__ import annotations
 import http.server
 import json
 import os
+import re
 import struct
 import threading
 from pathlib import Path
@@ -13,6 +14,8 @@ from urllib.parse import urlencode, urlparse
 from rhr.listing import listing as _listing
 from rhr.paths import ICON_CACHE, MESH_CACHE, PACKAGE
 
+_LOCAL_HOST = re.compile(r"^(?:127\.0\.0\.1|localhost|\[::1\])(?::\d+)?$", re.IGNORECASE)
+_LOCAL_ORIGIN = re.compile(r"^http://(?:127\.0\.0\.1|localhost|\[::1\])(?::\d+)?$", re.IGNORECASE)
 
 
 class _SceneHandler(http.server.SimpleHTTPRequestHandler):
@@ -32,10 +35,24 @@ class _SceneHandler(http.server.SimpleHTTPRequestHandler):
         kwargs["directory"] = str(PACKAGE)
         super().__init__(*args, **kwargs)
 
+    def parse_request(self):
+        # Pages on this machine only: a web page open in the user's browser, or one that
+        # points its own name at 127.0.0.1 (DNS rebinding), must not read the scene.
+        if not super().parse_request():
+            return False
+        if not _LOCAL_HOST.match(self.headers.get("Host", "")):
+            self.send_error(421, "RHR serves pages on this machine only")
+            return False
+        return True
+
     def end_headers(self):
         # The warm worker's page is on another local address (see rhr.browser_daemon)
-        # and fetches this render's data from here.
-        self.send_header("Access-Control-Allow-Origin", "*")
+        # and fetches this render's data from here; no other origin may.
+        headers = getattr(self, "headers", None)
+        origin = headers.get("Origin", "") if headers is not None else ""
+        if _LOCAL_ORIGIN.match(origin):
+            self.send_header("Access-Control-Allow-Origin", origin)
+            self.send_header("Vary", "Origin")
         super().end_headers()
 
     def do_OPTIONS(self):  # noqa: N802 - CORS preflight for the page's JSON POSTs

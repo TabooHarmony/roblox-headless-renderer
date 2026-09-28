@@ -318,6 +318,15 @@ base = {
 		stdio.ewrite("[warn] " .. table.concat(table.pack(...) :: any, " ") .. "\n")
 	end,
 	print = function() end, -- a story's prints are noise in a render
+	-- The way from a story's globals to Lune's own (getfenv(0).require reaches
+	-- @lune/process). Not a sandbox: a story still runs with Lune's powers in reach;
+	-- the docs say not to run untrusted ones.
+	getfenv = function()
+		error("getfenv is not available when running a story", 2)
+	end,
+	setfenv = function()
+		error("setfenv is not available when running a story", 2)
+	end,
 	typeof = function(value)
 		if type(value) == "table" then
 			local meta = getmetatable(value)

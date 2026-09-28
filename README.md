@@ -52,9 +52,12 @@ into RHR's cache (one line on stderr says so):
 `rhr setup` downloads Lune and Rojo ahead of time, `rhr setup --browser` the headless
 shell too (CI, offline machines). `--offline` or `RHR_OFFLINE=1` never downloads
 anything; `RHR_TOOL_DOWNLOAD=0` and `RHR_BROWSER_DOWNLOAD=0` turn off one kind. On a
-bare Linux machine the headless shell also needs system libraries (on Ubuntu:
-`libnss3 libatk-bridge2.0-0t64 libgbm1 libxkbcommon0 libxcomposite1 libxdamage1
-libxrandr2 libcups2t64 libasound2t64 libpango-1.0-0`).
+bare Linux machine RHR also needs system libraries (on Ubuntu: `libegl1 libgl1` for
+the 2D drawing library, and for the headless shell `libnss3 libatk-bridge2.0-0t64
+libgbm1 libxkbcommon0 libxcomposite1 libxdamage1 libxrandr2 libcups2t64
+libasound2t64 libpango-1.0-0`). The browser runs in Chromium's sandbox, except as
+root on Linux (containers), where Chromium cannot; `RHR_BROWSER_SANDBOX=0` turns it
+off where it fails for another reason.
 
 ## Try it
 

@@ -155,6 +155,13 @@ def _decode(name: bytes, body: bytes, compressed: int, uncompressed: int, limit:
         if len(body) != uncompressed:
             raise BinaryRbxError(f"bad uncompressed length for {name!r}")
         return body
+    # The declared size is trusted for the output buffer, and `inspect` exists to open
+    # untrusted files: refuse sizes no real chunk has. LZ4 cannot expand more than
+    # about 255 times; real ZSTD chunks reach about 3,600 times (a 23.6 MB chunk was
+    # the biggest in the maintainer's places).
+    ceiling = min(len(body) * 16384, 1 << 30) if body.startswith(ZSTD_MAGIC) else len(body) * 255 + 256
+    if uncompressed > ceiling:
+        raise BinaryRbxError(f"{name!r} chunk claims {uncompressed} bytes from {len(body)}: not a real Roblox file")
     if body.startswith(ZSTD_MAGIC):
         # Recent Studio builds save some places with ZSTD chunks.
         import zstandard

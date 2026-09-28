@@ -15,13 +15,13 @@ with `RHR_WEBGL=software` so pixels do not depend on the host GPU or driver.
 from __future__ import annotations
 
 import os
+import sys
 import time
 from pathlib import Path
 
 from rhr.cdp import READY, Browser, BrowserError
 
 _COMMON_ARGS = [
-    "--no-sandbox",
     "--disable-dev-shm-usage",
     "--disable-background-networking",
     "--hide-scrollbars",
@@ -46,10 +46,20 @@ def webgl_mode() -> str:
     return "software" if value in {"software", "swiftshader", "cpu"} else "gpu"
 
 
+def sandboxed() -> bool:
+    """Whether the browser keeps its sandbox: it decodes images and meshes from the
+    internet. Chromium's sandbox cannot start as root on Linux (containers, CI images);
+    `RHR_BROWSER_SANDBOX=0` turns it off where it fails for another reason."""
+    if os.environ.get("RHR_BROWSER_SANDBOX", "").strip().lower() in {"0", "no", "off", "false"}:
+        return False
+    return not (sys.platform.startswith("linux") and hasattr(os, "geteuid") and os.geteuid() == 0)
+
+
 def launch_args() -> list[str]:
+    args = _COMMON_ARGS if sandboxed() else [*_COMMON_ARGS, "--no-sandbox"]
     if webgl_mode() == "software":
-        return [*_COMMON_ARGS, "--use-angle=swiftshader"]
-    return [*_COMMON_ARGS, "--enable-gpu"]
+        return [*args, "--use-angle=swiftshader"]
+    return [*args, "--enable-gpu"]
 
 
 # A slow machine drawing WebGL in software needs well over the old 45 s.
