@@ -134,6 +134,18 @@ def _stored_gui_note(ir_path) -> str | None:
     return note
 
 
+def _no_world_hint(message: str, args) -> str:
+    """A 3D command's error, with what to try when the file has no 3D world to draw."""
+    if "no renderable 3D geometry" not in message:
+        return message
+    focus = getattr(args, "focus", None)
+    if focus:
+        return f"nothing to draw under {focus}: it holds no parts, meshes or effects"
+    return ("no 3D world to draw: the file has no parts, meshes, terrain or effects outside storage. "
+            "A place keeping its maps in ServerStorage or ReplicatedStorage: --focus <path> draws one "
+            "(the note on a render of the place names them); a UI file: rhr ui draws it")
+
+
 def _finish_picture(args, report: dict) -> int:
     """A picture command's stdout: the PNG's path, or with --json the whole report."""
     from rhr import browsers
@@ -543,7 +555,7 @@ def _scene(args) -> int:
             if scene_dump.get("_storedNote"):
                 page_notes.append(scene_dump["_storedNote"])
     except (ValueError, RuntimeError, OSError) as exc:
-        return _die(str(exc))
+        return _die(_no_world_hint(str(exc), args))
     elapsed = int((time.perf_counter() - t0) * 1000)
     print(f"ir     {ir_path}", file=sys.stderr)
     print(f"scene  {out}  {actual[0]}x{actual[1]}  {elapsed}ms", file=sys.stderr)
@@ -708,7 +720,7 @@ def _preview(args) -> int:
                 out.parent.mkdir(parents=True, exist_ok=True)
                 composite.save(out)
     except (ValueError, RuntimeError, OSError) as exc:
-        return _die(str(exc))
+        return _die(_no_world_hint(str(exc), args))
     elapsed = int((time.perf_counter() - t0) * 1000)
     print(f"ir      {ir_path}", file=sys.stderr)
     print(f"preview {out}  {width}x{height}  {elapsed}ms", file=sys.stderr)
