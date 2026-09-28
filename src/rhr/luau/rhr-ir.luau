@@ -575,7 +575,17 @@ local function preorder_classes(roots, keep_map)
   return out
 end
 
-local emission_profile = process.args[3] or "full"
+-- Arguments: this chunk's own (rhr-ir-serve.luau runs it once per file in one Lune
+-- process), else the command line's.
+local ARGS = table.pack(...)
+local serving = ARGS.n > 0
+if not serving then ARGS = process.args end
+-- A failure ends a command-line run with exit code 1; a served one reports it.
+local function fail()
+  if serving then error("rhr-ir failed", 0) end
+  process.exit(1)
+end
+local emission_profile = ARGS[3] or "full"
 local node_index = 0
 local visual_keep = {}
 
@@ -786,12 +796,18 @@ local function walk(inst)
   return node
 end
 
-local path, out = process.args[1], process.args[2]
+local path, out = ARGS[1], ARGS[2]
 if not path or not out or (emission_profile ~= "full" and emission_profile ~= "visual" and emission_profile ~= "static") then
   print("usage: lune run src/rhr/luau/rhr-ir.luau <source.rbxm|.rbxmx|.rbxl> <out.json> [full|visual|static]")
-  process.exit(1)
+  fail()
 end
 local data = fs.readFile(path)
+-- An XML declaration (`<?xml version="1.0"?>`, which some tools write before <roblox>)
+-- makes rbx-dom's format detection give up; Studio reads such files, so drop it.
+if string.sub(data, 1, 5) == "<?xml" then
+  local close = string.find(data, "?>", 1, true)
+  if close then data = string.gsub(string.sub(data, close + 2), "^%s+", "") end
+end
 local roots
 local ok = pcall(function() roots = roblox.deserializeModel(data) end)
 if not ok then roots = roblox.deserializePlace(data) end
@@ -945,5 +961,5 @@ if filter_mismatches.narrow > 0 then
   print("emitter: the reflection database is narrower than the bridge on "
     .. tostring(filter_mismatches.narrow) .. " names; the IR written to " .. out
     .. " may be missing them")
-  process.exit(1)
+  fail()
 end

@@ -277,6 +277,9 @@ class Server:
 def main() -> int:
     session = Path(sys.argv[1])
     _warm()
+    import rhr.ir
+
+    rhr.ir.USE_LUNE_WORKER = True
     server = Server(session)
     server.publish()
     server.serve()
