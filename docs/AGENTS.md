@@ -112,8 +112,9 @@ What RHR tells you it did not do exactly:
   about colours, `--flat-materials` draws plain colours.
 - `docs/known-approximations.md` lists every known difference.
 
-What RHR does not do at all: run scripts, physics or animation. A UI that a script
-builds or moves at runtime is previewed as saved in the file.
+What RHR does not do at all: run a game's scripts, physics or animation. A UI that a
+script builds or moves at runtime is previewed as saved in the file; for UI built by
+code, write a story and run that (above).
 
 ## Setup reminders
 

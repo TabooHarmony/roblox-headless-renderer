@@ -1,11 +1,13 @@
 # roblox-headless-renderer (rhr)
 
-**See Roblox UI and 3D builds from the command line.** Point `rhr` at a `.rbxm`,
-`.rbxmx`, `.rbxl` or `.rbxlx` file, or a Rojo project, and get a preview PNG plus
-JSON: where everything is, how big it is, what overlaps, what is clickable, and what
-looks broken. It is built for AI agents that make Roblox content and need to check
-their work. It also works for people who just want a quick look from the command
-line or in CI. No GPU or display is needed.
+**Lets an agent see Roblox content without Studio.** Point `rhr` at a `.rbxm`,
+`.rbxmx`, `.rbxl` or `.rbxlx` file, a Rojo project, a UI story (React-lua, Fusion) or
+a Creator Store asset id, and in about a second get a picture plus JSON: where
+everything is, what overlaps, what is clickable, what looks broken, and what RHR had
+to approximate. It is built for AI agents that make Roblox content and need to check
+their work, and works just as well for a person who wants a quick look. Headless and
+parallel, on Windows, macOS and Linux, in CI and cloud sandboxes; no GPU, display or
+running Studio needed.
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/TabooHarmony/roblox-headless-renderer/main/docs/images/build.png" width="98%" alt="Roblox's game template rendered by rhr scene: a pastel tower of platforms and stairs with shadows, plants, a floating sphere and cube, under a cloudy sky">
@@ -17,12 +19,13 @@ line or in CI. No GPU or display is needed.
 
 <p align="center"><sub>A 3D build (<code>rhr scene</code> on Roblox's game template), a UI (<code>rhr ui examples/shop.rbxmx</code>) and an effect frozen at its fullest moment (<code>rhr scene</code> on Jaxelos's open-source star VFX).</sub></p>
 
-> **Status: v0.7, an early alpha.** The UI layout numbers are solid: they match
-> Studio within 2 px on every test place. The pictures are *previews*: close enough
-> to spot mistakes, not a copy of Studio's renderer. Anything RHR can't draw
+> **Status: 0.9 beta, on the way to 1.0.** The UI layout numbers are solid: they
+> match Studio within 2 px on every test place. The pictures are *previews*: close
+> enough to spot mistakes, not a copy of Studio's renderer. Anything RHR can't draw
 > faithfully, it says so in its output instead of guessing quietly. See
-> [what is approximated](https://github.com/TabooHarmony/roblox-headless-renderer/blob/main/docs/known-approximations.md). Bug reports with a small
-> file attached are very welcome.
+> [what is approximated](https://github.com/TabooHarmony/roblox-headless-renderer/blob/main/docs/known-approximations.md).
+> Commands, flags and JSON may still change before 1.0 (the CHANGELOG says how).
+> Bug reports with a small file attached are very welcome.
 
 ## Install
 
