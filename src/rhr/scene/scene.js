@@ -3608,13 +3608,19 @@ function addLocalLight(node, parentNode) {
 // matter from this camera: nearest first, weighted by range and brightness. The
 // rest are removed and counted in a note.
 const MAX_LOCAL_LIGHTS = 16;
+// Each shadow-casting local light takes one of a shader's 16 texture units, which the
+// materials' own maps, the sky and the sun's shadow also need: past the limit the
+// browser refuses the shader and every part using it vanishes (a 17-SpotLight shop
+// drew only its Neon trim). The most relevant few keep their shadows.
+const MAX_LOCAL_SHADOWS = 4;
 let localLightsDropped = 0;
+let localShadowsDropped = 0;
+const unshadowedLights = [];
 
 function pruneLocalLights(camera) {
   const lights = [];
   scene.updateMatrixWorld(true);
   scene.traverse(object => { if (object.userData?.rhrLocalLight) lights.push(object); });
-  if (lights.length <= MAX_LOCAL_LIGHTS) return;
   const position = new THREE.Vector3();
   const score = light => {
     const {range, brightness} = light.userData.rhrLocalLight;
@@ -3622,6 +3628,12 @@ function pruneLocalLights(camera) {
     return Math.max(0, distance - range) / Math.max(0.1, Math.sqrt(brightness));
   };
   lights.sort((a, b) => score(a) - score(b));
+  const kept = lights.slice(0, MAX_LOCAL_LIGHTS);
+  for (const light of kept.filter(light => light.castShadow).slice(MAX_LOCAL_SHADOWS)) {
+    light.castShadow = false;
+    unshadowedLights.push(light);
+    localShadowsDropped += 1;
+  }
   const take = object => {
     if (!object.parent) return;
     prunedObjects.push({object, parent: object.parent, at: object.parent.children.indexOf(object)});
@@ -4878,6 +4890,9 @@ async function reportNotes() {
   if (localLightsDropped) {
     notes.push(`drew the ${MAX_LOCAL_LIGHTS} most relevant local lights; ${localLightsDropped} farther ones were left out`);
   }
+  if (localShadowsDropped) {
+    notes.push(`the ${MAX_LOCAL_SHADOWS} most relevant local lights cast shadows; ${localShadowsDropped} more light without them`);
+  }
   if (particleState.emitters.length || particleState.idle.length) {
     const played = particleState.emitters.filter(emitter => emitter.schedule.played).length;
     const when = particleState.auto ? `${particleState.time.toFixed(2)} s into the effect (the fullest moment; --effect-time T picks another)` : `${particleState.time.toFixed(2)} s into the effect`;
@@ -5547,7 +5562,7 @@ async function main() {
     // What a view adds or changes is undone before another view of this scene (undoView).
     viewState = {
       index, cameraNode, children: new Set(scene.children), fogDensity: scene.fog?.density,
-      lightsDropped: localLightsDropped, particlesDrawn: particleState.drawn, highlight: {...highlightState},
+      lightsDropped: localLightsDropped, shadowsDropped: localShadowsDropped, particlesDrawn: particleState.drawn, highlight: {...highlightState},
       framingIgnored: framingIgnored.length, framingStrays: framingStrays.length, grassBlades: terrainSummary?.grassBlades,
     };
     await drawView();
@@ -5561,7 +5576,27 @@ async function main() {
   await finishPage();
 }
 
+// A shader the browser refuses (too many textures, say) draws nothing at all, with no
+// error the page would otherwise see: every part using it just vanishes. Say so.
+async function reportShaderFailures() {
+  const failed = (renderer.info.programs || []).filter(program => program.diagnostics && !program.diagnostics.runnable);
+  if (!failed.length) return;
+  const log = failed.map(program => `${program.diagnostics.programLog || ''} ${program.diagnostics.fragmentShader?.log || ''}`.trim())
+    .find(Boolean) || 'no log';
+  try {
+    await fetch('/__rhr_notes__.json', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify([`the browser could not draw ${failed.length} material kind(s), so parts using them are `
+        + `missing from the picture (WebGL: ${log.split('\n')[0].slice(0, 200)}); please report this`]),
+    });
+  } catch (_) {
+    // Notes are advisory.
+  }
+}
+
 async function finishPage() {
+  await reportShaderFailures();
   if (profiling) {
     try {
       await fetch('/__rhr_timing__.json', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(pageMarks)});
@@ -5656,10 +5691,12 @@ function undoView() {
     parent.children.splice(parent.children.indexOf(object), 1);
     parent.children.splice(at, 0, object);
   }
+  for (const light of unshadowedLights.splice(0)) light.castShadow = true;
   if (scene.fog?.isFogExp2) scene.fog.density = viewState.fogDensity;
   // No sky visibility until the next view builds its own (buildSkyVisibility).
   if (skyVisibility) skyVisibility.strength.value = 0;
   localLightsDropped = viewState.lightsDropped;
+  localShadowsDropped = viewState.shadowsDropped;
   particleState.drawn = viewState.particlesDrawn;
   Object.assign(highlightState, viewState.highlight);
   framingIgnored.length = viewState.framingIgnored;
@@ -5724,6 +5761,8 @@ function resetScene() {
   sunState = null;
   postEffects = null;
   localLightsDropped = 0;
+  localShadowsDropped = 0;
+  unshadowedLights.length = 0;
   charactersDressed = 0;
   layeredClothingFitted = 0;
   partsWithoutDecals.clear();

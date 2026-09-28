@@ -82,6 +82,12 @@
 
 ### Changes
 
+- **Places with many shadow-casting lights no longer lose their parts.** Each
+  shadow takes one of a shader's 16 texture units; a shop with 17 SpotLights went past
+  the limit and every textured part (Wood, Plastic, Fabric) vanished, with nothing
+  reported. The 4 most relevant local lights now cast shadows (a note says how many
+  more light without them), and a shader the browser refuses is reported in the notes
+  instead of dropping parts silently.
 - **Several views on one build:** `rhr scene --views iso,front,top,right` draws each
   view on one build of the scene, one PNG each (`--out`'s name plus `-<view>`), every
   one identical to a render of that view alone; `--json` lists them in `views[]` with
