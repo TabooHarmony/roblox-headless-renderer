@@ -90,6 +90,7 @@ The shop has one deliberate mistake, and `rhr check` finds it:
 | `rhr scene-dump <file>` | JSON: position, size, bounds and material of every part, plus everything that was approximated |
 | `rhr preview <file>` | One PNG with the 3D world, in-world UI (BillboardGui, SurfaceGui) and screen UI together |
 | `rhr view <file>` | Opens the 3D world in a local page you can fly around in (drag, wheel, WASD). It stays up to date: when the file or Rojo project changes, the page redraws with the camera where it was. For a person looking at an agent's work; Ctrl+C stops it |
+| `rhr icons <files or folders>` | Square icon PNGs (512 px by default) of models on a transparent background, cropped to each model with the same margin: shop and inventory icons for a folder of pets or items, in about a second each. Takes asset ids too |
 | `rhr compare a.png b.png` | JSON: how much changed between two renders, to tell a geometry change from a colour change |
 | `rhr scene 2810302648` | Any command also takes a Roblox asset id or link (Creator Store, library, catalog) in place of a file: it downloads the model once, with your Studio login, and previews it |
 | `rhr ir <file>` | RHR's internal form of the file, for debugging (its shape may change in any release) |

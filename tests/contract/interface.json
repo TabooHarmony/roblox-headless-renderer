@@ -147,6 +147,68 @@
     }
    ]
   },
+  "icons": {
+   "flags": {
+    "--background": {
+     "choices": [],
+     "default": null,
+     "takesValue": true
+    },
+    "--fov": {
+     "choices": [],
+     "default": 30.0,
+     "takesValue": true
+    },
+    "--margin": {
+     "choices": [],
+     "default": 0.06,
+     "takesValue": true
+    },
+    "--no-effects": {
+     "choices": [],
+     "default": false,
+     "takesValue": false
+    },
+    "--no-shadows": {
+     "choices": [],
+     "default": false,
+     "takesValue": false
+    },
+    "--offline": {
+     "choices": [],
+     "default": false,
+     "takesValue": false
+    },
+    "--out-dir": {
+     "choices": [],
+     "default": "icons",
+     "takesValue": true
+    },
+    "--size": {
+     "choices": [],
+     "default": 512,
+     "takesValue": true
+    },
+    "--view": {
+     "choices": [
+      "iso",
+      "front",
+      "back",
+      "left",
+      "right",
+      "top"
+     ],
+     "default": null,
+     "takesValue": true
+    }
+   },
+   "positionals": [
+    {
+     "choices": [],
+     "name": "files"
+    }
+   ]
+  },
   "ir": {
    "flags": {
     "--out": {

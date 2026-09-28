@@ -76,6 +76,7 @@ BROWSER = {
     "test_billboard", "test_browser_session", "test_particles",
     "test_preview", "test_preview_particles", "test_surface", "test_viewport_frame", "test_kept_page",
     "test_visual_gallery", "test_place_realism", "test_terrain", "test_contract", "test_browser_lifetime", "test_large_place",
+    "test_icons",
 }
 NOT_LUNE = {
     "test_compare", "test_groundtruth_diff", "test_mesh_assets", "test_project", "test_roblox_assets", "test_cache",

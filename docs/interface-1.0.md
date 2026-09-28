@@ -57,6 +57,7 @@ test fixtures).
 | `doctor` | keep; names the browser RHR would use | |
 | `cache` | keep | |
 | `browser start/status/stop` | keep as advanced | The warm worker starts by itself; this is for scripts that want control. |
+| new: `icons` (2026-09-27) | square transparent PNGs of models, one per file, folder entry or asset id; paths on stdout | Flags: `--out-dir`, `--size`, `--view`, `--margin`, `--fov`, `--background`, `--no-shadows`, `--no-effects`, `--offline`. Exit 2 if any failed. |
 | new: `view` (2026-09-27) | the 3D world in a local page to move around in; prints the page's address on stdout, serves until stopped, redraws when the source changes | For people: "have a look" without Studio. Flags: `--focus`, `--view`, `--no-shadows`, `--flat-materials`, `--no-effects`, `--no-open`, `--port`, `--offline`. |
 | `ir` | keep, but **not contract**: its JSON may change in any release | It is RHR's internal format; agents should use `scene-dump`/`layout`. |
 | `particles` (contact sheet) | **Decided:** removed | A calibration tool; `--effect-time` covers "show another moment". Its checks in tests/test_particles.py now run through `rhr scene`. |

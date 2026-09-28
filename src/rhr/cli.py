@@ -4,6 +4,7 @@
     rhr scene   <file>   the 3D world to PNG
     rhr preview <file>   the 3D world with the UI over it, to PNG
     rhr view    <file>   the 3D world in a local page to move around in, kept up to date
+    rhr icons   <files or folders>   square icon PNGs of models, transparent background
     rhr layout | check | hitmap | scene-dump <file>   JSON
     rhr compare <before.png> <after.png>              JSON
     rhr ir <file> --out ir.json                       RHR's internal format (not stable)
@@ -554,6 +555,28 @@ def _scene(args) -> int:
     })
 
 
+def _icons(args) -> int:
+    from rhr import icons, remote
+    from rhr.ir import world_ir
+
+    def resolve(item: str) -> Path:
+        path = Path(item)
+        if path.exists():
+            return path
+        if remote.asset_reference(item) is not None:
+            return remote.resolve(item)
+        raise ValueError(f"no such file: {item}")
+
+    def prepare(source: Path) -> Path:
+        ir_path = world_ir(ir_for(source, profile="world"), None)
+        _prepare_scene_assets(ir_path, args.offline, None)
+        return ir_path
+
+    return icons.run(args.files, out_dir=Path(args.out_dir), size=args.size, view=args.view or "iso",
+                     margin=args.margin, fov=args.fov, background=args.background,
+                     shadows=not args.no_shadows, effects=not args.no_effects, prepare=prepare, resolve=resolve)
+
+
 def _view(args) -> int:
     from rhr import view
     from rhr.ir import world_ir
@@ -901,6 +924,24 @@ def build_parser() -> argparse.ArgumentParser:
     _picture_arguments(p_scene)
     _test_hooks(p_scene)
     p_scene.set_defaults(func=_scene)
+
+    p_icons = sub.add_parser("icons", help="square icon PNGs of models on a transparent background, "
+                                           "one per file, folder entry or asset id")
+    p_icons.add_argument("files", nargs="+",
+                         help="models (.rbxm/.rbxmx), folders of them, or Roblox asset ids or links")
+    p_icons.add_argument("--out-dir", default="icons", help="where the PNGs go, named <stem>.png (default: icons)")
+    p_icons.add_argument("--size", type=int, default=512, help="icon side in px (default: 512)")
+    p_icons.add_argument("--view", choices=("iso", "front", "back", "left", "right", "top"),
+                         help="the side the model is seen from (default: iso)")
+    p_icons.add_argument("--margin", type=float, default=0.06, help="empty border, as a share of the side (default: 0.06)")
+    p_icons.add_argument("--fov", type=parse_fov, default=30.0, help="field of view in degrees (default: 30)")
+    p_icons.add_argument("--background", type=parse_background, default=None,
+                         help="RRGGBB or RRGGBBAA instead of transparent")
+    p_icons.add_argument("--no-shadows", action="store_true", help="no sun shadows on the model")
+    p_icons.add_argument("--no-effects", action="store_true", help="leave out particles, Beams and Trails")
+    p_icons.add_argument("--offline", action="store_true",
+                         help="do not download missing assets first (also: RHR_OFFLINE=1)")
+    p_icons.set_defaults(func=_icons)
 
     p_view = sub.add_parser("view", help="open the 3D world in a local page to move around in; "
                                          "it updates when the file changes (Ctrl+C stops)")

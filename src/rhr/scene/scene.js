@@ -35,10 +35,14 @@ function mark(name) {
 mark('scripts loaded and parsed');
 const viewportMode = pageParams.get('mode') === 'viewport';  // never on a persistent page
 const canvas = document.querySelector('#rhr-scene');
-if (viewportMode) document.body.style.background = 'transparent';
+if (viewportMode || pageParams.get('alpha') === '1') {
+  document.documentElement.style.background = 'transparent';
+  document.body.style.background = 'transparent';
+}
 let width = Math.max(1, window.innerWidth);
 let height = Math.max(1, window.innerHeight);
-const renderer = new THREE.WebGLRenderer({canvas, antialias: true, alpha: viewportMode, stencil: true});
+// `alpha=1`: a page whose canvas can be see-through (`rhr icons`, with `icon=1` per scene).
+const renderer = new THREE.WebGLRenderer({canvas, antialias: true, alpha: viewportMode || pageParams.get('alpha') === '1', stencil: true});
 renderer.setPixelRatio(1);
 renderer.setSize(width, height, false);
 renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -62,6 +66,9 @@ const TUNE_DEFAULTS = {
   gNear: 40, gFar: 200, gCarpet: 0.75, gCarpetNear: 20, gCarpetFar: 150, gOn: 1,
 };
 let TUNE = {...TUNE_DEFAULTS};
+// `icon=1` (rhr icons): the model alone on a transparent background: no sky, clouds,
+// sun disc or fog, and no post effects (they are drawn over an opaque frame).
+let iconMode = false;
 let shadowsRequested = true;
 let flatMaterials = false;
 
@@ -102,6 +109,8 @@ function configure(query) {
   // Shadows are on unless the caller turns them off (Studio draws them by default).
   shadowsRequested = !viewportMode && params.get('shadows') !== '0';
   renderer.shadowMap.enabled = shadowsRequested;
+  iconMode = params.get('icon') === '1';
+  renderer.setClearColor(viewportMode || iconMode ? 0x000000 : 0x20242b, viewportMode || iconMode ? 0 : 1);
   flatMaterials = params.get('flatMaterials') === '1';
   sceneAssetManifest = jsonOrEmpty('/__rhr_assets__.json');
   sceneMeshManifest = jsonOrEmpty('/__rhr_meshes__.json');
@@ -5340,7 +5349,7 @@ function renderFrame(camera) {
   if (!postEffects) postEffects = readPostEffects(sceneIndex);
   const effects = postEffects;
   const separateParticles = !viewportMode && !effects.modern && particleState.drawn > 0;
-  if (viewportMode || (!separateParticles && !effects.modern && !effects.neon.length && !effects.bloom && !effects.sunRays && !effects.corrections.length && !effects.exposure)) {
+  if (viewportMode || iconMode || (!separateParticles && !effects.modern && !effects.neon.length && !effects.bloom && !effects.sunRays && !effects.corrections.length && !effects.exposure)) {
     renderer.setRenderTarget(null);
     renderer.render(scene, camera);
     return;
@@ -5490,9 +5499,14 @@ async function main() {
     } else {
       configureEnvironment(index);
     }
-    await prepareClouds(index);
-    await prepareSun(index);
-    if (skyCube) {
+    if (!iconMode) {
+      await prepareClouds(index);
+      await prepareSun(index);
+    }
+    if (iconMode) {
+      scene.background = null;
+      scene.fog = null;
+    } else if (skyCube) {
       // Drawn as a dome so the Atmosphere can veil it.
       scene.background = null;
       scene.add(makeSkyDome(skyCube));

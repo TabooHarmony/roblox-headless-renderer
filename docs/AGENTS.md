@@ -19,6 +19,7 @@ the edit loop, and how to read the output without being misled.
 | World, in-world UI and screen UI together (use this when unsure) | `rhr preview <file> --view iso --out frame.png --json` | the PNG, and the same report |
 | Whether an edit changed geometry or only colours | `rhr compare before.png after.png` | `changedPct`, `silhouette.iou` |
 | Show a person the build to look around in (they fly the camera) | `rhr view <file> --no-open`, run in the background | the address it prints on stdout: give it to the person. The page redraws itself when you edit the file |
+| Icons for a set of models (shop, inventory) | `rhr icons models/ --out-dir icons --size 512` | one `<stem>.png` per model, paths on stdout |
 | What a Creator Store model looks like, before inserting it | `rhr scene <id or link> --view iso --out model.png` | the PNG; stderr names the asset and its creator |
 
 `<file>` can also be an asset id (`2810302648`), `rbxassetid://...`, or a Creator

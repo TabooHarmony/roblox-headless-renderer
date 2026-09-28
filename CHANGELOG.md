@@ -56,6 +56,10 @@
 
 ### Changes
 
+- **`rhr icons`**: square icon PNGs of models on a transparent background, cropped to
+  the model with the same margin on every icon (`--size`, `--margin`, `--view`,
+  `--background`). Give it files, folders or asset ids; one page stays loaded for the
+  batch, so after the first each icon costs about a second.
 - **`rhr view <file>`**: the 3D world in a local page you move around in: drag to
   orbit, right-drag to pan, wheel to zoom, WASD/QE to fly, double-click to aim, F to
   frame everything; pinch and two-finger drag on a touch screen. It keeps up with the

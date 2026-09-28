@@ -135,11 +135,14 @@ class KeptScenePage:
 
     RENDER_TIMEOUT_S = 60
 
-    def __init__(self, browser: Browser):
+    def __init__(self, browser: Browser, *, page_query: str = "persistent=1", transparent: bool = False):
         self.browser = browser
         self.static = None
         self.page = None
         self.renders = 0
+        # `rhr icons`: a page whose canvas can be see-through, saved with its alpha.
+        self.page_query = page_query
+        self.transparent = transparent
 
     def _serve_static(self) -> int:
         if self.static is None:
@@ -167,7 +170,7 @@ class KeptScenePage:
     def _open(self, width: int, height: int) -> None:
         port = self._serve_static()
         self.page = self.browser.new_page(width, height)
-        self.page.goto(f"http://127.0.0.1:{port}/scene/index.html?persistent=1", timeout=TIMEOUT_S)
+        self.page.goto(f"http://127.0.0.1:{port}/scene/index.html?{self.page_query}", timeout=TIMEOUT_S)
         self.page.wait_for("document.documentElement.dataset.rhrPersistent === 'ready'", timeout=TIMEOUT_S)
         self.renders = 0
 
@@ -205,7 +208,7 @@ class KeptScenePage:
         timings["page work until ready (kept page)"] = time.perf_counter() - step
         step = time.perf_counter()
         out.parent.mkdir(parents=True, exist_ok=True)
-        self.page.screenshot(out)
+        self.page.screenshot(out, transparent=self.transparent)
         timings["screenshot"] = time.perf_counter() - step
         self.renders += 1
         return timings
