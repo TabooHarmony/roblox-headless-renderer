@@ -13,6 +13,7 @@ the edit loop, and how to read the output without being misled.
 | Where every UI element is | `rhr layout <file>` | `rects[path]` = `{x, y, w, h}` in pixels |
 | What each element is made of, and how its text laid out | `rhr layout <file> --rich` | `nodes[]`: class, rect, zIndex, colours, `text.drawnSize`, `text.lines`, `text.bounds` |
 | Whether the UI has obvious mistakes | `rhr check <file>` | `findings[]` (`check`, `severity`, `paths`, `detail`); exit code 1 if any is an error |
+| Whether the UI works on phones and tablets | `rhr check <file> --devices all`; `rhr ui <file> --device phone --out phone.png` | findings with `devices`; the picture at the phone's size, with its notch insets |
 | Whether an edit added a mistake | `rhr check <file> --out before.json` once, then `rhr check <file> --baseline before.json` after each edit | only the new findings |
 | What a player would click at one pixel | `rhr hitmap <file> --at X,Y` | `hitTests[0].target`, and every interactive element under the point |
 | What is clickable, and what is on top where things overlap | `rhr hitmap <file>` (`--path <screen>` for one) | `nodes[]` (interactive elements; `capturesClicks`), `hitTests[]` (who gets a click at each element's centre: `target`, `targetIsButton`). The rules are Studio's, measured: within a ScreenGui a visible, Interactable button always gets the click; a visible Active element in a ScreenGui above swallows it, even when transparent (`rhr check` reports that as `button-blocked`) |

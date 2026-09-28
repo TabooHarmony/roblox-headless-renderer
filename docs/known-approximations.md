@@ -442,3 +442,15 @@ follow these rules; they are exact for the cases measured, and the rest is infer
 - Not measured: two ScreenGuis with equal DisplayOrder (RHR takes the later one as on
   top), `Modal`, `Selectable`/gamepad selection, touch input, and a button with Active
   false (RHR treats it like any button).
+
+## Devices (`--device`)
+
+Measured in Studio's device emulator on 2026-09-28 (a playtest client per preset: the
+camera's viewport, where a full-size Frame lands under each ScreenInsets mode, the
+touch controls' AbsolutePosition and size); rhr.devices holds the numbers. The top
+bar is 58 px on every device measured; phones in landscape have notch insets on both
+sides (iPhone 16: 59 px; Galaxy A16: 47 px) and a 21 px home bar. Not modelled:
+portrait, the on-screen keyboard, console "title safe" margins, the thumbstick's
+exact dead zones (the check uses the frame Roblox reserves for it), and changes to
+Roblox's touch controls after that date.
+

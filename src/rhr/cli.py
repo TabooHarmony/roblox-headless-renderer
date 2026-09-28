@@ -35,9 +35,9 @@ from rhr.paths import IR_DIR
 from rhr.schema import dumps, stamp
 
 
-# The reference viewport: upstream pinevex's reference renders and this project's
-# early Studio captures are 1615x1080. Override with --viewport.
-DEFAULT_VIEWPORT = (1615, 1080)
+# The default screen: a 1920x1080 desktop, what most players have (decided 2026-09-28;
+# 1615x1080 before, from pinevex's reference renders). --viewport or --device change it.
+DEFAULT_VIEWPORT = (1920, 1080)
 
 MODEL_SUFFIXES = {".rbxm", ".rbxmx", ".rbxl", ".rbxlx"}
 
@@ -459,8 +459,11 @@ def _check(args) -> int:
     try:
         baseline = load_baseline(Path(args.baseline)) if args.baseline else None
         ir_path = ir_for(source, profile="ui", viewport=(width, height))
-        result = check_model(ir_path, width, height, topbar_height=args.topbar_height,
-                             min_severity=args.min_severity, ignore=tuple(args.ignore), baseline=baseline)
+        if args.devices:
+            result = _check_devices(args, ir_path, baseline)
+        else:
+            result = check_model(ir_path, width, height, topbar_height=args.topbar_height,
+                                 min_severity=args.min_severity, ignore=tuple(args.ignore), baseline=baseline)
     except (ValueError, RuntimeError, OSError) as exc:
         return _die(str(exc))
     elapsed = int((time.perf_counter() - t0) * 1000)
@@ -488,6 +491,41 @@ def _check(args) -> int:
     # A build loop refuses to ship on error-class findings; warnings do not
     # block (they are visible reality, not defects).
     return 1 if errors else 0
+
+
+def _check_devices(args, ir_path, baseline) -> dict:
+    """`check --devices all|phone,tablet`: the checks on each screen, one document; a
+    finding seen on several screens is listed once, with them in `devices`."""
+    from rhr import devices
+    from rhr.checks import check_model
+
+    names = list(devices.DEVICES) if args.devices == "all" else [n.strip() for n in args.devices.split(",")]
+    unknown = [n for n in names if n not in devices.DEVICES]
+    if unknown:
+        raise ValueError(f"unknown device {', '.join(unknown)}; the devices are: all, {', '.join(devices.DEVICES)}")
+    merged: dict[tuple, dict] = {}
+    left_out: dict[str, int] = {}
+    model = None
+    try:
+        for name in names:
+            devices.CURRENT = devices.DEVICES[name]
+            width, height = devices.CURRENT.viewport
+            result = check_model(ir_path, width, height, topbar_height=args.topbar_height,
+                                 min_severity=args.min_severity, ignore=tuple(args.ignore), baseline=baseline)
+            model = result["model"]
+            for key, count in result["_left_out"].items():
+                left_out[key] = left_out.get(key, 0) + count
+            for finding in result["findings"]:
+                entry = merged.setdefault((finding["check"], tuple(finding["paths"])), {**finding, "devices": []})
+                entry["devices"].append(name)
+    finally:
+        devices.CURRENT = None
+    from rhr.checks import _sort
+    from rhr.schema import stamp
+
+    document = stamp("check", {"model": model, "findings": _sort(list(merged.values()))})
+    document["_left_out"] = left_out
+    return document
 
 
 def _browser(args) -> int:
@@ -964,7 +1002,10 @@ def build_parser() -> argparse.ArgumentParser:
                   "or a UI story (*.story.luau, run in its Rojo project)")
     p_ui.add_argument("--out", help="PNG path (default: <input stem>-ui.png)")
     p_ui.add_argument("--viewport", type=parse_viewport, default=DEFAULT_VIEWPORT,
-                      help="WxH (default: 1615x1080)")
+                      help="WxH (default: 1920x1080; --device sets it too)")
+    p_ui.add_argument("--device", choices=("desktop", "laptop", "phone", "android", "tablet", "console"),
+                     help="a player's screen, measured in Studio's emulator: its viewport, notch and "
+                          "home bar, and on touch screens the jump button and thumbstick")
     p_ui.add_argument("--transparent", action="store_true",
                       help="alpha background instead of an opaque one")
     p_ui.add_argument("--background", type=parse_background, default=(255, 255, 255, 255),
@@ -994,7 +1035,10 @@ def build_parser() -> argparse.ArgumentParser:
     p_layout.add_argument("file", help="Roblox model/place, Rojo project, IR .json, a Roblox asset id or link, "
                       "or a UI story (*.story.luau, run in its Rojo project)")
     p_layout.add_argument("--viewport", type=parse_viewport, default=DEFAULT_VIEWPORT,
-                          help="WxH (default: 1615x1080)")
+                          help="WxH (default: 1920x1080; --device sets it too)")
+    p_layout.add_argument("--device", choices=("desktop", "laptop", "phone", "android", "tablet", "console"),
+                         help="a player's screen, measured in Studio's emulator: its viewport, notch and "
+                              "home bar, and on touch screens the jump button and thumbstick")
     p_layout.add_argument("--out", help="write JSON here instead of stdout")
     p_layout.add_argument(
         "--rich",
@@ -1023,7 +1067,10 @@ def build_parser() -> argparse.ArgumentParser:
     p_check.add_argument("file", help="Roblox model/place, Rojo project, IR .json, a Roblox asset id or link, "
                      "or a UI story (*.story.luau, run in its Rojo project)")
     p_check.add_argument("--viewport", type=parse_viewport, default=DEFAULT_VIEWPORT,
-                         help="WxH (default: 1615x1080)")
+                         help="WxH (default: 1920x1080; --device sets it too)")
+    p_check.add_argument("--device", choices=("desktop", "laptop", "phone", "android", "tablet", "console"),
+                        help="a player's screen, measured in Studio's emulator: its viewport, notch and "
+                             "home bar, and on touch screens the jump button and thumbstick")
     p_check.add_argument("--out", help="write JSON here instead of stdout")
     p_check.add_argument(
         "--topbar-height",
@@ -1039,6 +1086,9 @@ def build_parser() -> argparse.ArgumentParser:
     p_check.add_argument("--baseline", metavar="JSON",
                          help="an earlier `rhr check` output: report only findings not in it")
     p_check.add_argument("--path", metavar="PATH", help="only the findings about elements under PATH")
+    p_check.add_argument("--devices", metavar="all|NAMES",
+                         help="check on several --device screens (all, or e.g. phone,tablet); each finding "
+                              "lists the devices it was seen on")
     p_check.add_argument("--all-guis", action="store_true",
                          help="in a place, also draw ScreenGuis stored outside StarterGui (templates scripts clone in)")
     p_check.add_argument("--show", action="append", default=[], metavar="PATH",
@@ -1068,7 +1118,10 @@ def build_parser() -> argparse.ArgumentParser:
     p_hitmap.add_argument("file", help="Roblox model/place, Rojo project, IR .json, a Roblox asset id or link, "
                       "or a UI story (*.story.luau, run in its Rojo project)")
     p_hitmap.add_argument("--viewport", type=parse_viewport, default=DEFAULT_VIEWPORT,
-                          help="WxH (default: 1615x1080)")
+                          help="WxH (default: 1920x1080; --device sets it too)")
+    p_hitmap.add_argument("--device", choices=("desktop", "laptop", "phone", "android", "tablet", "console"),
+                         help="a player's screen, measured in Studio's emulator: its viewport, notch and "
+                              "home bar, and on touch screens the jump button and thumbstick")
     p_hitmap.add_argument("--out", help="write JSON here instead of stdout")
     p_hitmap.add_argument(
         "--topbar-height",
@@ -1094,7 +1147,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_scene.add_argument("file", help="Roblox model/place, Rojo project, IR .json, or a Roblox asset id or link")
     p_scene.add_argument("--out", help="PNG path (default: <input stem>-scene.png)")
     p_scene.add_argument("--viewport", type=parse_viewport, default=DEFAULT_VIEWPORT,
-                         help="WxH (default: 1615x1080)")
+                         help="WxH (default: 1920x1080; --device sets it too)")
     _camera_arguments(p_scene)
     p_scene.add_argument("--offline", action="store_true",
                          help="do not download missing assets first (also: RHR_OFFLINE=1)")
@@ -1165,7 +1218,10 @@ def build_parser() -> argparse.ArgumentParser:
     p_preview.add_argument("file", help="Roblox model/place, Rojo project, IR .json, or a Roblox asset id or link")
     p_preview.add_argument("--out", help="PNG path (default: <input stem>-preview.png)")
     p_preview.add_argument("--viewport", type=parse_viewport, default=DEFAULT_VIEWPORT,
-                           help="WxH (default: 1615x1080)")
+                           help="WxH (default: 1920x1080; --device sets it too)")
+    p_preview.add_argument("--device", choices=("desktop", "laptop", "phone", "android", "tablet", "console"),
+                          help="a player's screen, measured in Studio's emulator: its viewport, notch and "
+                               "home bar, and on touch screens the jump button and thumbstick")
     _camera_arguments(p_preview)
     _effect_arguments(p_preview)
     p_preview.add_argument(
@@ -1237,6 +1293,13 @@ def main(argv: list[str] | None = None) -> int:
         from rhr import pipeline
 
         pipeline.INCLUDE_STORED_GUIS = True
+    if getattr(args, "device", None):
+        from rhr import devices
+
+        devices.CURRENT = devices.DEVICES[args.device]
+        if args.viewport != DEFAULT_VIEWPORT and tuple(args.viewport) != devices.CURRENT.viewport:
+            return _die("--device sets the viewport; leave out --viewport (or use --viewport without --device)")
+        args.viewport = devices.CURRENT.viewport
     if getattr(args, "show", None) or getattr(args, "only", None):
         from rhr import pipeline
 

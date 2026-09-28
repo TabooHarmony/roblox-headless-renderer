@@ -4,6 +4,9 @@
 
 ### When upgrading
 
+- **The default screen is 1920x1080** (it was 1615x1080, from the engine's reference
+  renders): what most players have. Every layout, hit map and check without
+  `--viewport` is at the new size.
 - **Default outputs are summaries.** `rhr scene-dump` prints a summary
   (`rhr.scene-summary/1`: counts, bounds, the biggest models with their part counts,
   what was approximated or missing), a few KB for any place: the full dump of a
@@ -79,6 +82,13 @@
 
 ### Changes
 
+- **`--device desktop|laptop|phone|android|tablet|console`** on `ui`, `layout`,
+  `check`, `hitmap` and `preview`: a player's screen, measured in Studio's device
+  emulator (iPhone 16, Galaxy A16, iPad, Xbox, ...): its viewport, the notch and home
+  bar that `DeviceSafeInsets` and `CoreUISafeInsets` keep out of, and on touch screens
+  where Roblox puts the jump button and thumbstick. `rhr check --devices all` checks
+  every one in one run (each finding lists its devices), with touch-only checks: 44 px
+  targets, `under-touch-controls`, `under-notch`.
 - **`--path <path>`** on `layout`, `check`, `hitmap` and `scene-dump`: one screen or
   model instead of the whole file. **`rhr hitmap --at X,Y`**: who gets a click at one
   pixel.

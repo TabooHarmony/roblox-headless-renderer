@@ -35,6 +35,23 @@
      "default": null,
      "takesValue": true
     },
+    "--device": {
+     "choices": [
+      "desktop",
+      "laptop",
+      "phone",
+      "android",
+      "tablet",
+      "console"
+     ],
+     "default": null,
+     "takesValue": true
+    },
+    "--devices": {
+     "choices": [],
+     "default": null,
+     "takesValue": true
+    },
     "--ignore": {
      "choices": [],
      "default": [],
@@ -59,6 +76,11 @@
      "default": null,
      "takesValue": true
     },
+    "--path": {
+     "choices": [],
+     "default": null,
+     "takesValue": true
+    },
     "--show": {
      "choices": [],
      "default": [],
@@ -72,7 +94,7 @@
     "--viewport": {
      "choices": [],
      "default": [
-      1615,
+      1920,
       1080
      ],
      "takesValue": true
@@ -145,10 +167,32 @@
   },
   "hitmap": {
    "flags": {
+    "--all": {
+     "choices": [],
+     "default": false,
+     "takesValue": false
+    },
     "--all-guis": {
      "choices": [],
      "default": false,
      "takesValue": false
+    },
+    "--at": {
+     "choices": [],
+     "default": null,
+     "takesValue": true
+    },
+    "--device": {
+     "choices": [
+      "desktop",
+      "laptop",
+      "phone",
+      "android",
+      "tablet",
+      "console"
+     ],
+     "default": null,
+     "takesValue": true
     },
     "--only": {
      "choices": [],
@@ -156,6 +200,11 @@
      "takesValue": true
     },
     "--out": {
+     "choices": [],
+     "default": null,
+     "takesValue": true
+    },
+    "--path": {
      "choices": [],
      "default": null,
      "takesValue": true
@@ -173,7 +222,7 @@
     "--viewport": {
      "choices": [],
      "default": [
-      1615,
+      1920,
       1080
      ],
      "takesValue": true
@@ -250,6 +299,11 @@
   },
   "inspect": {
    "flags": {
+    "--all": {
+     "choices": [],
+     "default": false,
+     "takesValue": false
+    },
     "--out": {
      "choices": [],
      "default": null,
@@ -285,12 +339,29 @@
      "default": false,
      "takesValue": false
     },
+    "--device": {
+     "choices": [
+      "desktop",
+      "laptop",
+      "phone",
+      "android",
+      "tablet",
+      "console"
+     ],
+     "default": null,
+     "takesValue": true
+    },
     "--only": {
      "choices": [],
      "default": null,
      "takesValue": true
     },
     "--out": {
+     "choices": [],
+     "default": null,
+     "takesValue": true
+    },
+    "--path": {
      "choices": [],
      "default": null,
      "takesValue": true
@@ -313,7 +384,7 @@
     "--viewport": {
      "choices": [],
      "default": [
-      1615,
+      1920,
       1080
      ],
      "takesValue": true
@@ -335,6 +406,18 @@
     },
     "--camera": {
      "choices": [],
+     "default": null,
+     "takesValue": true
+    },
+    "--device": {
+     "choices": [
+      "desktop",
+      "laptop",
+      "phone",
+      "android",
+      "tablet",
+      "console"
+     ],
      "default": null,
      "takesValue": true
     },
@@ -423,7 +506,7 @@
     "--viewport": {
      "choices": [],
      "default": [
-      1615,
+      1920,
       1080
      ],
      "takesValue": true
@@ -513,7 +596,7 @@
     "--viewport": {
      "choices": [],
      "default": [
-      1615,
+      1920,
       1080
      ],
      "takesValue": true
@@ -528,7 +611,27 @@
   },
   "scene-dump": {
    "flags": {
+    "--class": {
+     "choices": [],
+     "default": [],
+     "takesValue": true
+    },
+    "--limit": {
+     "choices": [],
+     "default": null,
+     "takesValue": true
+    },
     "--out": {
+     "choices": [],
+     "default": null,
+     "takesValue": true
+    },
+    "--parts": {
+     "choices": [],
+     "default": false,
+     "takesValue": false
+    },
+    "--path": {
      "choices": [],
      "default": null,
      "takesValue": true
@@ -571,6 +674,18 @@
       255,
       255
      ],
+     "takesValue": true
+    },
+    "--device": {
+     "choices": [
+      "desktop",
+      "laptop",
+      "phone",
+      "android",
+      "tablet",
+      "console"
+     ],
+     "default": null,
      "takesValue": true
     },
     "--dump-layout": {
@@ -616,7 +731,7 @@
     "--viewport": {
      "choices": [],
      "default": [
-      1615,
+      1920,
       1080
      ],
      "takesValue": true
@@ -695,6 +810,7 @@
   "check (warnings only)": 0,
   "compare": 0,
   "hitmap": 0,
+  "hitmap --at": 0,
   "layout": 0,
   "layout --rich": 0,
   "missing file": 2,
@@ -710,6 +826,8 @@
   "scene-dump scene_lighting": 0,
   "scene-dump scene_material_textures": 0,
   "scene-dump scene_two_cameras": 0,
+  "scene-dump summary (contract scene)": 0,
+  "scene-dump summary (placeholder meshes)": 0,
   "scene-dump trail_motion": 0,
   "ui --json": 0,
   "ui --json (second)": 0
@@ -1842,6 +1960,159 @@
      "string"
     ],
     "trails[].supported": [
+     "boolean"
+    ],
+    "unsupportedVisualClasses": [
+     "object"
+    ],
+    "unsupportedVisualClasses.*": [
+     "number"
+    ]
+   },
+   "version": 1
+  },
+  "scene-summary": {
+   "fields": {
+    ".": [
+     "object"
+    ],
+    "bounds": [
+     "object"
+    ],
+    "bounds.center": [
+     "array"
+    ],
+    "bounds.center[]": [
+     "number"
+    ],
+    "bounds.max": [
+     "array"
+    ],
+    "bounds.max[]": [
+     "number"
+    ],
+    "bounds.min": [
+     "array"
+    ],
+    "bounds.min[]": [
+     "number"
+    ],
+    "bounds.size": [
+     "array"
+    ],
+    "bounds.size[]": [
+     "number"
+    ],
+    "cameras": [
+     "number"
+    ],
+    "classCounts": [
+     "object"
+    ],
+    "classCounts.*": [
+     "number"
+    ],
+    "detail": [
+     "string"
+    ],
+    "effects": [
+     "object"
+    ],
+    "effects.beams": [
+     "number"
+    ],
+    "effects.trails": [
+     "number"
+    ],
+    "experimental": [
+     "object"
+    ],
+    "experimental.*": [
+     "number"
+    ],
+    "fallbacks": [
+     "object"
+    ],
+    "fallbacks.*": [
+     "number"
+    ],
+    "lights": [
+     "number"
+    ],
+    "materialFallbacks": [
+     "object"
+    ],
+    "materialFallbacks.*": [
+     "number"
+    ],
+    "missingAssets": [
+     "array"
+    ],
+    "missingAssets[]": [
+     "object"
+    ],
+    "missingAssets[].class": [
+     "string"
+    ],
+    "missingAssets[].path": [
+     "string"
+    ],
+    "missingAssets[].uri": [
+     "string"
+    ],
+    "missingMeshes": [
+     "number"
+    ],
+    "models": [
+     "array"
+    ],
+    "models[]": [
+     "object"
+    ],
+    "models[].center": [
+     "array"
+    ],
+    "models[].center[]": [
+     "number"
+    ],
+    "models[].parts": [
+     "number"
+    ],
+    "models[].path": [
+     "string"
+    ],
+    "models[].size": [
+     "array"
+    ],
+    "models[].size[]": [
+     "number"
+    ],
+    "moreMissingAssets": [
+     "number"
+    ],
+    "moreModels": [
+     "number"
+    ],
+    "parts": [
+     "number"
+    ],
+    "path": [
+     "null"
+    ],
+    "preferredCamera": [
+     "null",
+     "string"
+    ],
+    "schema": [
+     "string"
+    ],
+    "sky": [
+     "boolean"
+    ],
+    "source": [
+     "string"
+    ],
+    "terrain": [
      "boolean"
     ],
     "unsupportedVisualClasses": [

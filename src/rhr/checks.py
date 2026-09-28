@@ -26,7 +26,12 @@ The checks, by id (the ids are part of the interface):
   off-screen             warning  a button entirely outside the screen (info for
                                   a panel: games park panels there to slide in)
   partly-off-screen      warning  a button, part of which is outside the screen
-  small-target           warning  a button under 24 px on a side
+  small-target           warning  a button under 24 px on a side (44 px on a touch
+                                  --device)
+  under-touch-controls   warning  on a touch --device, a button under the jump button
+                                  or in the thumbstick's corner
+  under-notch            warning  on a --device with a notch or home bar, a button
+                                  reaching into it
   button-blocked         error    a button whose clicks an Active element in a
                                   ScreenGui above swallows (even a transparent one):
                                   it cannot be clicked there (rules measured in Studio,
@@ -61,8 +66,10 @@ SEVERITIES = ("error", "warning", "info")
 _RANK = {name: rank for rank, name in enumerate(SEVERITIES)}
 TRUNCATE_OVERFLOW_MODES = {"AtEnd", "SplitWord"}
 BUTTON_CLASSES = {"TextButton", "ImageButton", "TextBox"}
-# A comfortable pointer target; touch needs more (Phase 2: --device).
+# A comfortable pointer target; a finger needs more (Apple's and Google's guidance:
+# 44 pt, 48 dp; Roblox's own touch buttons are 70 px on a phone).
 MIN_TARGET_PX = 24
+MIN_TOUCH_PX = 44
 # The engine's grey for a background the model did not set.
 _DEFAULT_GREY = [163, 162, 165]
 # Rounding slack: a box the text fills to the pixel is not an overflow.
@@ -270,16 +277,55 @@ def check_off_screen(nodes: list[dict], ctx: dict) -> list[dict]:
 
 
 def check_small_target(nodes: list[dict], ctx: dict) -> list[dict]:
+    device = ctx.get("device")
+    touch = device is not None and device.touch
+    least = MIN_TOUCH_PX if touch else MIN_TARGET_PX
     findings = []
     for entry in nodes:
         rect = entry["rect"]
         if entry.get("class") not in BUTTON_CLASSES or not entry.get("visible") or _collapsed(entry, ctx):
             continue
-        if 0 < min(rect["w"], rect["h"]) < MIN_TARGET_PX:
+        if 0 < min(rect["w"], rect["h"]) < least:
+            how = f"at least {least}px on a touch screen" if touch else f"at least {MIN_TARGET_PX}px with a mouse, more on touch"
             findings.append(_finding(
                 "small-target", "warning", entry,
-                f"a {rect['w']:.0f}x{rect['h']:.0f}px {entry['class']} is hard to hit "
-                f"(at least {MIN_TARGET_PX}px with a mouse, more on touch)"))
+                f"a {rect['w']:.0f}x{rect['h']:.0f}px {entry['class']} is hard to hit ({how})"))
+    return findings
+
+
+def _overlap(rect: dict, box: tuple[float, float, float, float]) -> float:
+    x, y, w, h = box
+    ow = min(rect["x"] + rect["w"], x + w) - max(rect["x"], x)
+    oh = min(rect["y"] + rect["h"], y + h) - max(rect["y"], y)
+    return max(0.0, ow) * max(0.0, oh)
+
+
+def check_device_obstructions(nodes: list[dict], ctx: dict) -> list[dict]:
+    """On a --device: buttons where Roblox's touch controls are (a player's thumbs
+    rest there, and the jump button is drawn on top), and buttons reaching into the
+    notch or home bar (measured in Studio's emulator, rhr.devices)."""
+    device = ctx.get("device")
+    if device is None:
+        return []
+    width, height = ctx["viewport"]
+    left, top, right, bottom = device.safe
+    unsafe = [box for box in ((0.0, 0.0, left, height), (width - right, 0.0, right, height),
+                              (0.0, height - bottom, width, bottom), (0.0, 0.0, width, top)) if box[2] > 0 and box[3] > 0]
+    findings = []
+    for entry in nodes:
+        rect = entry["rect"]
+        if entry.get("class") not in BUTTON_CLASSES or not entry.get("visible") or _collapsed(entry, ctx):
+            continue
+        for name, box in device.touch_controls.items():
+            if _overlap(rect, box) > 0.2 * min(rect["w"] * rect["h"], box[2] * box[3]):
+                what = "the jump button" if name == "jumpButton" else "the thumbstick's corner"
+                findings.append(_finding("under-touch-controls", "warning", entry,
+                                         f"on a {device.name} this {entry['class']} is under {what} "
+                                         f"({box[0]:.0f},{box[1]:.0f} {box[2]:.0f}x{box[3]:.0f})"))
+        if any(_overlap(rect, box) > 0 for box in unsafe):
+            findings.append(_finding("under-notch", "warning", entry,
+                                     f"on a {device.name} this {entry['class']} reaches into the notch or home bar "
+                                     f"(safe area insets left {left:g}, right {right:g}, bottom {bottom:g})"))
     return findings
 
 
@@ -426,6 +472,7 @@ CHECKS = [
     check_low_contrast,
     check_off_screen,
     check_small_target,
+    check_device_obstructions,
     check_image_missing,
     check_zero_size_grid_cell,
     check_child_outside_clip,
@@ -435,7 +482,7 @@ CHECKS = [
 ]
 CHECK_IDS = (
     "text-wider-than-box", "text-taller-than-box", "text-truncated", "text-size-below-2px", "low-contrast",
-    "off-screen", "partly-off-screen", "small-target", "button-blocked", "button-covered", "image-missing", "zero-size-grid-cell", "child-outside-clip",
+    "off-screen", "partly-off-screen", "small-target", "under-touch-controls", "under-notch", "button-blocked", "button-covered", "image-missing", "zero-size-grid-cell", "child-outside-clip",
     "invisible-content", "duplicate-zindex", "max-visible-graphemes",
 )
 
@@ -454,6 +501,7 @@ def run_checks(dump: dict, image_paths: set[str] | None = None,
         "by_path": {entry["path"]: entry for entry in nodes},
         "image_paths": image_paths or set(),
         "missing_images": missing_images or {},
+        "device": __import__("rhr.devices", fromlist=["CURRENT"]).CURRENT,
     }
     findings: list[dict] = []
     for check in CHECKS:

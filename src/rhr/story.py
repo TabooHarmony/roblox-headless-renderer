@@ -126,7 +126,7 @@ def _tidy(text: str) -> str:
     return "\n".join(message + frames) or text
 
 
-def build(story: Path, *, width: int = 1615, height: int = 1080, log=None) -> Path:
+def build(story: Path, *, width: int = 1920, height: int = 1080, log=None) -> Path:
     """Run `story` and return the model file with the UI it built."""
     from rhr import rojo
     from rhr.ir import lune_executable

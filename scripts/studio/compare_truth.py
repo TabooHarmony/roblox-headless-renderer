@@ -146,7 +146,7 @@ def compare(place: Path, tolerance: float, stud_tolerance: float, topbar_height:
             "rhr": got,
         })
 
-    dump = rhr_json(["scene-dump", str(place)]) if truth["parts"] else {"parts": []}
+    dump = rhr_json(["scene-dump", "--parts", str(place)]) if truth["parts"] else {"parts": []}
     rhr_parts = {part["path"]: part for part in dump["parts"]}
     part_rows = []
     for path, want in sorted(truth["parts"].items()):

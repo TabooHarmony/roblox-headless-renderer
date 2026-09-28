@@ -114,20 +114,22 @@ def mode_of(props: dict) -> str:
 
 
 def resolve(mode: str, topbar_height: float = REFERENCE_TOPBAR_HEIGHT) -> Inset:
-    """The inset for one mode in the reference environment."""
-    if mode == "CoreUISafeInsets":
-        return Inset(0.0, float(topbar_height), 0.0, 0.0, mode)
-    if mode == "TopbarSafeInsets":
-        return Inset(
-            0.0,
-            float(topbar_height),
-            0.0,
-            0.0,
-            mode,
-            "not modelled: dynamic, resolves to CoreUISafeInsets",
-        )
-    # None and DeviceSafeInsets: nothing on a desktop, no notch, no home bar.
-    return Inset(0.0, 0.0, 0.0, 0.0, mode, "desktop: device insets are zero")
+    """The inset for one mode, on the `--device` screen (rhr.devices) or the desktop
+    reference. Measured in Studio's emulator (2026-09-28): None is the whole screen,
+    under a notch too; DeviceSafeInsets keeps out of the notch and home bar;
+    CoreUISafeInsets also keeps below the 58 px top bar."""
+    from rhr import devices
+
+    left, top, right, bottom = devices.safe_insets()
+    where = f"{devices.CURRENT.name}" if devices.CURRENT is not None else "desktop"
+    if mode in ("CoreUISafeInsets", "TopbarSafeInsets"):
+        note = "not modelled: dynamic, resolves to CoreUISafeInsets" if mode == "TopbarSafeInsets" else ""
+        return Inset(left, max(top, float(topbar_height)), right, bottom, mode, note)
+    if mode == "DeviceSafeInsets":
+        note = "" if any((left, top, right, bottom)) else f"{where}: device insets are zero"
+        return Inset(left, top, right, bottom, mode, note)
+    return Inset(0.0, 0.0, 0.0, 0.0, mode, "the whole screen" if any((left, top, right, bottom))
+                 else f"{where}: device insets are zero")
 
 
 def for_nodes(

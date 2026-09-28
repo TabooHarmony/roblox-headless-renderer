@@ -190,6 +190,9 @@ def reset_options() -> None:
     INCLUDE_STORED_GUIS = False
     SHOW.clear()
     ONLY = None
+    from rhr import devices
+
+    devices.CURRENT = None
 
 
 def reveals_storage() -> bool:
