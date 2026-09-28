@@ -4,6 +4,15 @@
 
 ### When upgrading
 
+- **`rhr` runs commands in a resident server.** The first command starts it in the
+  background; later ones hand it their command line and get the output back, with
+  Python, RHR and the converted files already loaded. Output, exit codes and files
+  are the same as before. It replaces itself when RHR is upgraded, stops after 20 idle
+  minutes (`RHR_SERVER_IDLE_S`) or with `rhr server stop`; `RHR_SERVER=0` runs every
+  command in its own process as before.
+- **JSON output is compact**: the same documents (same keys, sorted, same values),
+  without indentation, and non-ASCII text written as UTF-8 rather than escaped. Parse
+  it as JSON; do not rely on its whitespace.
 - The MCP server (`rhr-mcp`, the `mcp` extra) is gone: RHR is a command-line tool only.
   An agent runs `rhr` from its shell, which costs nothing in its context until it is
   run; docs/AGENTS.md is its guide.
@@ -47,6 +56,19 @@
 
 ### Changes
 
+- **Much faster in an agent's loop** (numbers in docs/performance.md, measured one
+  process per command as an agent runs them). The main changes:
+  - the resident server (above): no Python start-up, imports or re-reading of the
+    converted file per command;
+  - UI commands (`ui`, `layout`, `check`, `hitmap`) read only a file's UI, and
+    `layout`/`check` no longer paint a picture to measure it: on a 40k-instance model
+    `layout` went from a minute to under a second;
+  - `scene` and `preview` on a place read only its world, not its storage;
+  - 3D renders no longer list the whole asset cache, re-check every asset, recompile
+    shaders or rebuild the sky each time;
+  - XML files convert in a Lune process that stays running (4x faster per edit).
+- **XML files with an XML declaration** (`<?xml version="1.0"?>` before `<roblox>`)
+  now read; Lune refused them ("Unknown document format").
 - **Big places are fast.** RHR reads binary files (`.rbxm`, `.rbxl`) itself instead of
   asking Lune for every property of every instance: the same result (checked
   identical on 63 real files and every fixture), 10-60x faster. On a 22k-part map a

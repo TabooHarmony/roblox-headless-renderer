@@ -36,9 +36,13 @@ failed (the reason is on stderr).
 5. After the next edit, `rhr compare` the two PNGs to confirm only what you meant to
    change moved.
 
-The first 3D render starts a warm browser worker; later renders reuse its loaded
-page and take well under a second inside RHR on a machine with a GPU. It stops by
-itself after 10 idle minutes. `RHR_PROFILE=1` prints where a command's time went.
+Commands are cheap to repeat: `rhr` hands them to a resident server that keeps the
+files it read loaded, so a command on an unchanged file costs little more than its
+own work, and one after an edit reads only what it needs (a UI command reads the UI,
+a 3D render the world). The first 3D render starts a warm browser worker; later
+renders reuse its loaded page. Both stop by themselves when idle. Prefer the cheapest
+command that answers the question (`layout`, `check`, `hitmap` before a picture).
+`RHR_PROFILE=1` prints where a command's time went.
 
 ## Reading paths
 

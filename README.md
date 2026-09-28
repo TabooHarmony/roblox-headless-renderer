@@ -124,12 +124,16 @@ an edit → check → preview loop, and how far to trust each output. RHR is a c
 tool only: an agent runs it from its shell, and it costs nothing in the agent's context
 until it is run.
 
-3D renders use the GPU (about 8x faster than software rendering; set
-`RHR_WEBGL=software` for identical pixels on every machine, as the tests do). The first
-3D render starts a warm browser worker in the background, which keeps the 3D page
-loaded; later renders reuse it and it stops itself after 10 idle minutes
-(`RHR_PERSISTENT_BROWSER=0` turns it off). RHR also remembers the last conversion of
-each file, so several commands on an unchanged file only read it once.
+`rhr` hands each command to a resident RHR server, started by the first command, which
+keeps Python, RHR and the files it read loaded: a command on an unchanged file costs
+little more than the work itself. It replaces itself when RHR is upgraded and stops
+after 20 idle minutes (`rhr server stop` stops it now; `RHR_SERVER=0` runs each command
+in its own process). 3D renders use the GPU (about 8x faster than software rendering;
+set `RHR_WEBGL=software` for identical pixels on every machine, as the tests do). The
+first 3D render also starts a warm browser worker, which keeps the 3D page loaded;
+later renders reuse it and it stops itself after 10 idle minutes
+(`RHR_PERSISTENT_BROWSER=0` turns it off). How RHR is built to be fast:
+[`docs/performance.md`](https://github.com/TabooHarmony/roblox-headless-renderer/blob/main/docs/performance.md).
 
 Measured on a Windows machine with a GPU (`RHR_PROFILE=1` prints the same breakdown
 for any command): once the worker is warm, a small 3D scene takes about 0.7 s inside
