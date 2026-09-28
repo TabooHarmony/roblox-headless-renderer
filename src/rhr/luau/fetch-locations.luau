@@ -5,7 +5,7 @@
 -- stdin is a JSON array of asset ids (strings). Studio's saved login is read here
 -- (Lune's roblox.getAuthCookie) and sent only to Roblox's asset delivery batch
 -- endpoint, the same service Studio asks. It is never printed, written or handed back
--- to RHR. What is printed is one JSON object, id -> {location} or {code, message}:
+-- to RHR. What is printed is one JSON object, id -> {location, type} or {code, message}:
 -- a location is a short-lived signed link on Roblox's CDN for that one file, not the
 -- login. Prints "nologin" when there is no saved login.
 local net = require("@lune/net")
@@ -54,7 +54,7 @@ local function ask(chunk)
 		for _, item in serde.decode("json", response.body) do
 			local locations = item.locations
 			if locations and locations[1] and locations[1].location then
-				results[item.requestId] = { location = locations[1].location }
+				results[item.requestId] = { location = locations[1].location, type = item.assetTypeId }
 			else
 				local err = item.errors and item.errors[1] or {}
 				results[item.requestId] = { code = err.code or 0, message = err.message or "no location" }

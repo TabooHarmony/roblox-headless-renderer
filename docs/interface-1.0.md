@@ -31,7 +31,12 @@ test fixtures).
    renamed, so it becomes `rhr.compare/2`.
 5. **Paths:** one format everywhere, `Model/Child/Grandchild`, the same in `layout`,
    `hitmap`, `scene-dump` and `--focus` (checked: it already is). Contract.
-6. **Units:** UI rects in pixels `{x, y, w, h}` from the viewport's top-left; 3D
+6. **Inputs** (added 2026-09-27, additive): wherever a command takes a file it also
+   takes a Roblox asset id, `rbxassetid://<id>`, or a Creator Store / library /
+   catalog / game link, when no file of that name exists (rhr.remote). The asset is
+   downloaded into the cache (`models` area) and used as a file; default outputs are
+   named after the id.
+7. **Units:** UI rects in pixels `{x, y, w, h}` from the viewport's top-left; 3D
    positions and sizes in studs as `[x, y, z]`, orientations in degrees. Contract.
 
 ## Commands
@@ -52,6 +57,7 @@ test fixtures).
 | `doctor` | keep; names the browser RHR would use | |
 | `cache` | keep | |
 | `browser start/status/stop` | keep as advanced | The warm worker starts by itself; this is for scripts that want control. |
+| new: `view` (2026-09-27) | the 3D world in a local page to move around in; prints the page's address on stdout, serves until stopped, redraws when the source changes | For people: "have a look" without Studio. Flags: `--focus`, `--view`, `--no-shadows`, `--flat-materials`, `--no-effects`, `--no-open`, `--port`, `--offline`. |
 | `ir` | keep, but **not contract**: its JSON may change in any release | It is RHR's internal format; agents should use `scene-dump`/`layout`. |
 | `particles` (contact sheet) | **Decided:** removed | A calibration tool; `--effect-time` covers "show another moment". Its checks in tests/test_particles.py now run through `rhr scene`. |
 

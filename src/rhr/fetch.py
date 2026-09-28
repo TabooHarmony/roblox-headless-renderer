@@ -379,6 +379,11 @@ def _locations(answers: dict, ids: list[str], *, signed_in: bool) -> dict[str, s
 
 def locate_public(ids: list[str], *, timeout: float = 30.0) -> dict[str, str]:
     """Where to download each asset without a sign-in: id -> link or 'missing (why)'."""
+    return _locations(answers_public(ids, timeout=timeout), ids, signed_in=False)
+
+
+def answers_public(ids: list[str], *, timeout: float = 30.0) -> dict[str, dict]:
+    """The batch endpoint's answers without a sign-in: id -> {location, type} or {code, message}."""
     def ask(chunk: list[str]) -> dict:
         body = json.dumps([{"assetId": int(i), "requestId": i} for i in chunk]).encode()
         request = urllib.request.Request(BATCH_URL, data=body, headers={
@@ -394,7 +399,7 @@ def locate_public(ids: list[str], *, timeout: float = 30.0) -> dict[str, str]:
         for item in items if isinstance(items, list) else []:
             found = [entry.get("location") for entry in item.get("locations") or [] if entry.get("location")]
             error = (item.get("errors") or [{}])[0]
-            answers[str(item.get("requestId"))] = ({"location": found[0]} if found else
+            answers[str(item.get("requestId"))] = ({"location": found[0], "type": item.get("assetTypeId")} if found else
                                                    {"code": error.get("code"), "message": error.get("message")})
         return answers
 
@@ -403,12 +408,21 @@ def locate_public(ids: list[str], *, timeout: float = 30.0) -> dict[str, str]:
     with ThreadPoolExecutor(max_workers=4) as executor:
         for result in executor.map(ask, chunks):
             answers.update(result)
-    return _locations(answers, ids, signed_in=False)
+    return answers
 
 
 def locate_signed_in(ids: list[str]) -> dict[str, str]:
     """Where to download each asset as the Roblox Studio user on this machine:
     id -> link or 'missing (why)'; every id is _NO_LOGIN when there is no login."""
+    answers = answers_signed_in(ids)
+    if isinstance(answers, str):
+        return {i: answers for i in ids}
+    return _locations(answers, ids, signed_in=True)
+
+
+def answers_signed_in(ids: list[str]) -> dict[str, dict] | str:
+    """The batch endpoint's answers as the Studio user: id -> {location, type} or
+    {code, message}; or one 'missing (why)' for all (no login, no Lune, ...)."""
     import subprocess
 
     from rhr.ir import lune_executable
@@ -419,22 +433,21 @@ def locate_signed_in(ids: list[str]) -> dict[str, str]:
     try:
         lune = lune_executable()
     except (RuntimeError, OSError) as exc:
-        return {i: f"missing (signed-in download needs Lune: {exc})" for i in ids}
+        return f"missing (signed-in download needs Lune: {exc})"
     script = PACKAGE / "luau" / "fetch-locations.luau"
     try:
         proc = subprocess.run([lune, "run", str(script)], input=json.dumps(ids), capture_output=True,
                               text=True, encoding="utf-8", timeout=300, **no_window())
     except (OSError, subprocess.TimeoutExpired) as exc:
-        return {i: f"missing (signed in: {exc})" for i in ids}
+        return f"missing (signed in: {exc})"
     out = proc.stdout.strip()
     if out == "nologin":
-        return {i: _NO_LOGIN for i in ids}
+        return _NO_LOGIN
     try:
         answers = json.loads(out)
     except ValueError:
-        reason = (proc.stderr.strip().splitlines() or ["no answer"])[-1]
-        return {i: f"missing (signed in: {reason})" for i in ids}
-    return _locations(answers if isinstance(answers, dict) else {}, ids, signed_in=True)
+        return f"missing (signed in: {(proc.stderr.strip().splitlines() or ['no answer'])[-1]})"
+    return answers if isinstance(answers, dict) else {}
 
 
 def _download(location: str, *, timeout: float = 60.0) -> bytes | str:

@@ -482,6 +482,63 @@
      "name": "file"
     }
    ]
+  },
+  "view": {
+   "flags": {
+    "--flat-materials": {
+     "choices": [],
+     "default": false,
+     "takesValue": false
+    },
+    "--focus": {
+     "choices": [],
+     "default": null,
+     "takesValue": true
+    },
+    "--no-effects": {
+     "choices": [],
+     "default": false,
+     "takesValue": false
+    },
+    "--no-open": {
+     "choices": [],
+     "default": false,
+     "takesValue": false
+    },
+    "--no-shadows": {
+     "choices": [],
+     "default": false,
+     "takesValue": false
+    },
+    "--offline": {
+     "choices": [],
+     "default": false,
+     "takesValue": false
+    },
+    "--port": {
+     "choices": [],
+     "default": 0,
+     "takesValue": true
+    },
+    "--view": {
+     "choices": [
+      "iso",
+      "front",
+      "back",
+      "left",
+      "right",
+      "top"
+     ],
+     "default": null,
+     "takesValue": true
+    }
+   },
+   "positionals": [
+    {
+     "choices": [],
+     "name": "file"
+    }
+   ]
   }
  },
  "exitCodes": {

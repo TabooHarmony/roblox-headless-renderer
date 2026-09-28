@@ -56,6 +56,18 @@
 
 ### Changes
 
+- **`rhr view <file>`**: the 3D world in a local page you move around in: drag to
+  orbit, right-drag to pan, wheel to zoom, WASD/QE to fly, double-click to aim, F to
+  frame everything; pinch and two-finger drag on a touch screen. It keeps up with the
+  source: when the file (or any file of a Rojo project) changes, the page redraws in
+  about a second with the camera where it was, so an agent's edits appear while you
+  look. Served on this machine only (127.0.0.1); the address is printed on stdout.
+- **Preview any Roblox asset by id or link**: `rhr scene 2810302648`, or a Creator
+  Store, library, catalog or game link, anywhere a file goes. RHR downloads the model
+  with the Studio login into its cache (the `models` area of `rhr cache`) and names
+  it on stderr (`asset  2810302648  "a CAR" by CS_GO2321`). Used again without asking
+  Roblox for 10 minutes, then downloaded again only when it changed. Meshes, images
+  and others' places are refused with what they are and why.
 - **Assets download about 15x faster.** RHR asks Roblox where up to 256 assets are in
   one request, then downloads the files in parallel, instead of one asset at a time
   (204 assets from three Creator Store models: 50.8 s -> 3.4 s; the first render of a

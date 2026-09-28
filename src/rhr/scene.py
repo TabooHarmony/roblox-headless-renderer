@@ -368,25 +368,12 @@ def _png_size(path: Path) -> tuple[int, int]:
     return struct.unpack(">II", header[16:24])
 
 
-def _render_browser(
-    ir_path: Path,
-    out: Path,
-    width: int,
-    height: int,
-    page: str,
-    query: str = "",
-    metadata_sink: dict | None = None,
-    asset_files: dict[str, Path] | None = None,
-    mesh_files: dict[str, Path] | None = None,
-    notes_out: list[str] | None = None,
-) -> tuple[int, int]:
-    """Render one local browser page and return its verified PNG dimensions."""
-    # Absolute: the warm worker writes the file, and its working folder is not ours.
-    out = Path(out).resolve()
-    out.parent.mkdir(parents=True, exist_ok=True)
-    handler = type(
+def scene_handler(ir_path: Path, asset_files: dict | None = None, mesh_files: dict | None = None, *,
+                  metadata_sink: dict | None = None, notes_out: list[str] | None = None, base=None) -> type:
+    """The request handler that serves the scene page and one scene's data."""
+    return type(
         "RHRSceneHandler",
-        (_SceneHandler,),
+        (base or _SceneHandler,),
         {
             "ir_path": ir_path,
             "metadata_sink": metadata_sink,
@@ -404,6 +391,30 @@ def _render_browser(
             **_extras(ir_path),
         },
     )
+
+
+def cached_asset_files() -> tuple[dict, dict]:
+    """(images, meshes) in the cache, for a scene page: id -> listing entry."""
+    return _asset_files([ICON_CACHE]), _mesh_files([MESH_CACHE])
+
+
+def _render_browser(
+    ir_path: Path,
+    out: Path,
+    width: int,
+    height: int,
+    page: str,
+    query: str = "",
+    metadata_sink: dict | None = None,
+    asset_files: dict[str, Path] | None = None,
+    mesh_files: dict[str, Path] | None = None,
+    notes_out: list[str] | None = None,
+) -> tuple[int, int]:
+    """Render one local browser page and return its verified PNG dimensions."""
+    # Absolute: the warm worker writes the file, and its working folder is not ours.
+    out = Path(out).resolve()
+    out.parent.mkdir(parents=True, exist_ok=True)
+    handler = scene_handler(ir_path, asset_files, mesh_files, metadata_sink=metadata_sink, notes_out=notes_out)
     server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
     thread = threading.Thread(
         target=lambda: server.serve_forever(poll_interval=0.01),

@@ -1,7 +1,7 @@
 """RHR's cache on disk: how big each part is, clearing it, and keeping it under a limit.
 
-The cache holds downloaded images, meshes, unions and material maps, converted Studio
-textures and IR conversions. It is only a cache: anything removed is downloaded or
+The cache holds downloaded images, meshes, unions, material maps and models (asset ids
+given as input), converted Studio textures and IR conversions. It is only a cache: anything removed is downloaded or
 converted again when needed. The pinned tools (`bin`) and the warm worker's session
 are never pruned or cleared by `--clear all`.
 
@@ -25,6 +25,7 @@ AREAS = {
     "unions": CACHE / "cache" / "unions",
     "materials": CACHE / "cache" / "materials",
     "studio": CACHE / "cache" / "studio",
+    "models": CACHE / "cache" / "models",
     "ir": CACHE / "ir",
 }
 PRUNE_STAMP = CACHE / "cache" / ".last-prune"

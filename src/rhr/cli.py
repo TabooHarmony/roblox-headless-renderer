@@ -3,12 +3,13 @@
     rhr ui      <file>   the ScreenGuis (2D UI) to PNG
     rhr scene   <file>   the 3D world to PNG
     rhr preview <file>   the 3D world with the UI over it, to PNG
+    rhr view    <file>   the 3D world in a local page to move around in, kept up to date
     rhr layout | check | hitmap | scene-dump <file>   JSON
     rhr compare <before.png> <after.png>              JSON
     rhr ir <file> --out ir.json                       RHR's internal format (not stable)
 
-Input is a Roblox model or place (.rbxm/.rbxmx/.rbxl/.rbxlx), a Rojo project, or
-an IR JSON file. The public interface is listed in docs/interface-1.0.md.
+Input is a Roblox model or place (.rbxm/.rbxmx/.rbxl/.rbxlx), a Rojo project, an
+IR JSON file, or a Roblox asset id or link (downloaded first: rhr.remote). The public interface is listed in docs/interface-1.0.md.
 
 Output rules: data commands print one JSON document on stdout (or write it with
 `--out`); picture commands print the PNG's path, or with `--json` a report
@@ -553,6 +554,32 @@ def _scene(args) -> int:
     })
 
 
+def _view(args) -> int:
+    from rhr import view
+    from rhr.ir import world_ir
+
+    source = Path(args.file)
+    if not source.exists():
+        return _die(f"no such file: {source}")
+
+    def build() -> Path:
+        ir_path = world_ir(ir_for(source, profile="static" if args.focus else "world"), args.focus)
+        _prepare_scene_assets(ir_path, args.offline, args.focus)
+        return ir_path
+
+    query: dict[str, str] = {"view": args.view or "iso", "shadows": "0" if args.no_shadows else "1"}
+    if args.focus:
+        query["focus"] = args.focus
+    if args.no_effects:
+        query["effects"] = "0"
+    if args.flat_materials:
+        query["flatMaterials"] = "1"
+    try:
+        return view.serve(source, build, query=query, open_browser=not args.no_open, port=args.port)
+    except (ValueError, RuntimeError, OSError) as exc:
+        return _die(str(exc))
+
+
 def _preview(args) -> int:
     from PIL import Image
     from rhr.pipeline import load_screens, render_screens
@@ -745,7 +772,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_fetch = sub.add_parser(
         "fetch", help="download the images, meshes, unions and Roblox material textures a model uses "
                       "into the local cache, as the Roblox Studio user (scene and preview do this themselves)")
-    p_fetch.add_argument("file", help="Roblox model/place, Rojo project, or IR .json")
+    p_fetch.add_argument("file", help="Roblox model/place, Rojo project, IR .json, or a Roblox asset id or link")
     only = p_fetch.add_mutually_exclusive_group()
     only.add_argument("--images-only", action="store_true", help="fetch images only")
     only.add_argument("--meshes-only", action="store_true",
@@ -770,7 +797,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_ir.set_defaults(func=_ir)
 
     p_ui = sub.add_parser("ui", help="draw the ScreenGuis (2D UI) to PNG")
-    p_ui.add_argument("file", help="Roblox model/place, Rojo project, or IR .json")
+    p_ui.add_argument("file", help="Roblox model/place, Rojo project, IR .json, or a Roblox asset id or link")
     p_ui.add_argument("--out", help="PNG path (default: <input stem>-ui.png)")
     p_ui.add_argument("--viewport", type=parse_viewport, default=DEFAULT_VIEWPORT,
                       help="WxH (default: 1615x1080)")
@@ -795,7 +822,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_ui.set_defaults(func=_ui)
 
     p_layout = sub.add_parser("layout", help="resolved rect per node, as JSON")
-    p_layout.add_argument("file", help="Roblox model/place, Rojo project, or IR .json")
+    p_layout.add_argument("file", help="Roblox model/place, Rojo project, IR .json, or a Roblox asset id or link")
     p_layout.add_argument("--viewport", type=parse_viewport, default=DEFAULT_VIEWPORT,
                           help="WxH (default: 1615x1080)")
     p_layout.add_argument("--out", help="write JSON here instead of stdout")
@@ -817,7 +844,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_check = sub.add_parser("check", help="model smells that should fail a build, as JSON findings "
                                           "(exit 1 when any is an error)")
-    p_check.add_argument("file", help="Roblox model/place, Rojo project, or IR .json")
+    p_check.add_argument("file", help="Roblox model/place, Rojo project, IR .json, or a Roblox asset id or link")
     p_check.add_argument("--viewport", type=parse_viewport, default=DEFAULT_VIEWPORT,
                          help="WxH (default: 1615x1080)")
     p_check.add_argument("--out", help="write JSON here instead of stdout")
@@ -848,7 +875,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_compare.set_defaults(func=_compare)
 
     p_hitmap = sub.add_parser("hitmap", help="interactive GUI hit regions, as JSON")
-    p_hitmap.add_argument("file", help="Roblox model/place, Rojo project, or IR .json")
+    p_hitmap.add_argument("file", help="Roblox model/place, Rojo project, IR .json, or a Roblox asset id or link")
     p_hitmap.add_argument("--viewport", type=parse_viewport, default=DEFAULT_VIEWPORT,
                           help="WxH (default: 1615x1080)")
     p_hitmap.add_argument("--out", help="write JSON here instead of stdout")
@@ -863,7 +890,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_hitmap.set_defaults(func=_hitmap)
 
     p_scene = sub.add_parser("scene", help="draw the 3D world to PNG")
-    p_scene.add_argument("file", help="Roblox model/place, Rojo project, or IR .json")
+    p_scene.add_argument("file", help="Roblox model/place, Rojo project, IR .json, or a Roblox asset id or link")
     p_scene.add_argument("--out", help="PNG path (default: <input stem>-scene.png)")
     p_scene.add_argument("--viewport", type=parse_viewport, default=DEFAULT_VIEWPORT,
                          help="WxH (default: 1615x1080)")
@@ -875,16 +902,31 @@ def build_parser() -> argparse.ArgumentParser:
     _test_hooks(p_scene)
     p_scene.set_defaults(func=_scene)
 
+    p_view = sub.add_parser("view", help="open the 3D world in a local page to move around in; "
+                                         "it updates when the file changes (Ctrl+C stops)")
+    p_view.add_argument("file", help="Roblox model/place, Rojo project, IR .json, or a Roblox asset id or link")
+    p_view.add_argument("--focus", metavar="PATH", help="start framed on this part or model")
+    p_view.add_argument("--view", choices=("iso", "front", "back", "left", "right", "top"),
+                        help="the side to start from (default: iso)")
+    p_view.add_argument("--no-shadows", action="store_true", help="no sun shadows")
+    p_view.add_argument("--flat-materials", action="store_true", help="plain colours: no material textures")
+    p_view.add_argument("--no-effects", action="store_true", help="leave out particles, Beams and Trails")
+    p_view.add_argument("--no-open", action="store_true", help="print the address; do not open a browser")
+    p_view.add_argument("--port", type=int, default=0, help="local port (default: any free one)")
+    p_view.add_argument("--offline", action="store_true",
+                        help="do not download missing assets first (also: RHR_OFFLINE=1)")
+    p_view.set_defaults(func=_view)
+
     p_scene_dump = sub.add_parser("scene-dump", help="the 3D world as JSON: parts, cameras, lights, "
                                                     "effects, and what is approximated or missing")
-    p_scene_dump.add_argument("file", help="Roblox model/place, Rojo project, or IR .json")
+    p_scene_dump.add_argument("file", help="Roblox model/place, Rojo project, IR .json, or a Roblox asset id or link")
     p_scene_dump.add_argument("--out", help="write JSON here instead of stdout")
     _test_hooks(p_scene_dump)
     p_scene_dump.set_defaults(func=_scene_dump)
 
     p_preview = sub.add_parser("preview", help="draw the 3D world with in-world UI and the ScreenGuis "
                                               "over it, to PNG (the one to use when unsure)")
-    p_preview.add_argument("file", help="Roblox model/place, Rojo project, or IR .json")
+    p_preview.add_argument("file", help="Roblox model/place, Rojo project, IR .json, or a Roblox asset id or link")
     p_preview.add_argument("--out", help="PNG path (default: <input stem>-preview.png)")
     p_preview.add_argument("--viewport", type=parse_viewport, default=DEFAULT_VIEWPORT,
                            help="WxH (default: 1615x1080)")
@@ -955,6 +997,16 @@ def main(argv: list[str] | None = None) -> int:
     if getattr(args, "offline", False):
         # One switch for every download: assets, tools, the browser, font names.
         os.environ["RHR_OFFLINE"] = "1"
+    file = getattr(args, "file", None)
+    if file and not Path(file).exists():
+        from rhr import remote
+
+        if remote.asset_reference(file) is not None:
+            # A Roblox asset id or link: downloaded into the cache, then used as a file.
+            try:
+                args.file = str(remote.resolve(file, login=not getattr(args, "no_studio_login", False)))
+            except remote.AssetError as exc:
+                return _die(str(exc))
     return args.func(args)
 
 

@@ -7,6 +7,10 @@ import { flipbookLayout, hashSeed, particleLook, playEmitter, playHorizon, playS
 // everything about the scene is reset). `persistent=1` in the address picks the second.
 const pageParams = new URLSearchParams(location.search);
 const persistentPage = pageParams.get('persistent') === '1';
+// `rhr view` (startViewer): a person moves around in the scene; its camera and target.
+const interactivePage = pageParams.get('interactive') === '1';
+let viewCamera = null;
+let viewTarget = null;
 let params = pageParams;
 
 // Data (the IR, images, meshes, notes) comes from the command's own local server. On a
@@ -5524,6 +5528,9 @@ async function main() {
     camera.updateMatrixWorld(true);
     fitSunShadow(camera, lookAtOverride || framedCenter || null);
     pruneLocalLights(camera);
+    viewCamera = camera;
+    viewTarget = (lookAtOverride || framedCenter
+      || camera.position.clone().add(camera.getWorldDirection(new THREE.Vector3()).multiplyScalar(50))).clone();
     mark('camera and framing');
     addTerrainGrass(camera);
     mark('terrain grass');
@@ -5626,6 +5633,230 @@ function resetScene() {
   delete document.documentElement.dataset.rhrError;
 }
 
+// `rhr view`: the same scene in a page a person moves around in (`interactive=1`).
+// Drag to orbit, right-drag (or shift-drag, or two fingers) to pan, wheel or pinch to
+// zoom, WASD/QE to fly, double-click to aim at a point, F to frame everything. The
+// page asks its server for the source's version and redraws the scene when the file
+// changes, keeping the camera where it is. In-world GUIs are screen overlays placed
+// for one camera: hidden while the camera moves, placed again when it stops.
+function startViewer() {
+  const overlay = document.querySelector('#rhr-overlay');
+  const hud = document.createElement('div');
+  hud.style.cssText = 'position:fixed;left:12px;bottom:10px;font:12px/1.5 system-ui,sans-serif;'
+    + 'color:#d7dce4;background:rgba(20,23,28,.72);padding:6px 10px;border-radius:6px;user-select:none;max-width:calc(100vw - 48px)';
+  const status = document.createElement('div');
+  const help = document.createElement('div');
+  help.style.opacity = '0.75';
+  help.textContent = 'drag: orbit · right-drag: pan · wheel: zoom · WASD/QE: fly · double-click: aim · F: frame all';
+  hud.append(status, help);
+  document.body.append(hud);
+  const name = pageParams.get('name') || 'scene';
+  document.title = `${name} · rhr view`;
+  const say = (text, error = false) => { status.textContent = text; status.style.color = error ? '#ff8a80' : ''; };
+  say(`${name} · live`);
+
+  let dirty = true;
+  let busy = false;
+  let overlayTimer = 0;
+  const keys = new Set();
+  const offset = new THREE.Vector3();
+  const spherical = new THREE.Spherical();
+  const distance = () => viewCamera.position.distanceTo(viewTarget);
+  viewCamera.up.set(0, 1, 0);
+  viewCamera.lookAt(viewTarget);
+
+  async function placeOverlay() {
+    if (busy || !sceneIndex) return;
+    overlay.replaceChildren();
+    overlay.style.visibility = '';
+    try {
+      await addBillboards(sceneIndex, viewCamera);
+      await addSurfaceGuis(sceneIndex, viewCamera);
+    } catch (_) {
+      // In-world GUIs are a nicety while moving around.
+    }
+  }
+  function moved() {
+    dirty = true;
+    overlay.style.visibility = 'hidden';
+    clearTimeout(overlayTimer);
+    overlayTimer = setTimeout(placeOverlay, 250);
+  }
+  function orbit(dx, dy) {
+    offset.subVectors(viewCamera.position, viewTarget);
+    spherical.setFromVector3(offset);
+    spherical.theta -= dx * 0.006;
+    spherical.phi = Math.min(Math.PI - 0.01, Math.max(0.01, spherical.phi - dy * 0.006));
+    offset.setFromSpherical(spherical);
+    viewCamera.position.copy(viewTarget).add(offset);
+    viewCamera.lookAt(viewTarget);
+    moved();
+  }
+  function pan(dx, dy) {
+    viewCamera.updateMatrixWorld(true);
+    const perPixel = (2 * distance() * Math.tan(THREE.MathUtils.degToRad(viewCamera.fov) / 2)) / height;
+    const right = new THREE.Vector3().setFromMatrixColumn(viewCamera.matrixWorld, 0).multiplyScalar(-dx * perPixel);
+    const up = new THREE.Vector3().setFromMatrixColumn(viewCamera.matrixWorld, 1).multiplyScalar(dy * perPixel);
+    viewCamera.position.add(right).add(up);
+    viewTarget.add(right).add(up);
+    moved();
+  }
+  function zoom(factor) {
+    offset.subVectors(viewCamera.position, viewTarget).multiplyScalar(factor);
+    if (offset.length() < 0.25) offset.setLength(0.25);
+    viewCamera.position.copy(viewTarget).add(offset);
+    moved();
+  }
+
+  const canvasElement = renderer.domElement;
+  canvasElement.style.touchAction = 'none';
+  const pointers = new Map();
+  let pinch = null;
+  canvasElement.addEventListener('contextmenu', event => event.preventDefault());
+  canvasElement.addEventListener('pointerdown', event => {
+    canvasElement.setPointerCapture(event.pointerId);
+    pointers.set(event.pointerId, {x: event.clientX, y: event.clientY, button: event.button, shift: event.shiftKey});
+    pinch = null;
+  });
+  const release = event => { pointers.delete(event.pointerId); pinch = null; };
+  canvasElement.addEventListener('pointerup', release);
+  canvasElement.addEventListener('pointercancel', release);
+  canvasElement.addEventListener('pointermove', event => {
+    const pointer = pointers.get(event.pointerId);
+    if (!pointer) return;
+    const dx = event.clientX - pointer.x;
+    const dy = event.clientY - pointer.y;
+    pointer.x = event.clientX;
+    pointer.y = event.clientY;
+    if (pointers.size >= 2) {
+      const [a, b] = [...pointers.values()];
+      const spread = Math.hypot(a.x - b.x, a.y - b.y);
+      const middle = {x: (a.x + b.x) / 2, y: (a.y + b.y) / 2};
+      if (pinch) {
+        if (spread > 0 && pinch.spread > 0) zoom(pinch.spread / spread);
+        pan(middle.x - pinch.middle.x, middle.y - pinch.middle.y);
+      }
+      pinch = {spread, middle};
+    } else if (pointer.button === 2 || pointer.button === 1 || pointer.shift) {
+      pan(dx, dy);
+    } else {
+      orbit(dx, dy);
+    }
+  });
+  canvasElement.addEventListener('wheel', event => {
+    event.preventDefault();
+    zoom(Math.exp(Math.max(-100, Math.min(100, event.deltaY)) * 0.0015));
+  }, {passive: false});
+  canvasElement.addEventListener('dblclick', event => {
+    const ray = new THREE.Raycaster();
+    ray.layers.set(0);
+    ray.setFromCamera(new THREE.Vector2((event.clientX / width) * 2 - 1, -(event.clientY / height) * 2 + 1), viewCamera);
+    const hit = ray.intersectObjects(scene.children, true)
+      .find(entry => entry.object.isMesh && entry.object.visible && entry.object.userData?.rhrNode);
+    if (!hit) return;
+    viewTarget.copy(hit.point);
+    viewCamera.lookAt(viewTarget);
+    moved();
+  });
+  window.addEventListener('keydown', event => {
+    if (event.ctrlKey || event.metaKey || event.altKey) return;
+    const key = event.key.toLowerCase();
+    if (key === 'f' && sceneIndex && !busy) {
+      viewTarget.copy(frameScene(viewCamera, sceneIndex, pageParams.get('focus'), 'iso'));
+      viewCamera.up.set(0, 1, 0);
+      viewCamera.lookAt(viewTarget);
+      moved();
+      return;
+    }
+    keys.add(key);
+  });
+  window.addEventListener('keyup', event => keys.delete(event.key.toLowerCase()));
+  window.addEventListener('blur', () => keys.clear());
+  function fly(dt) {
+    const direction = new THREE.Vector3();
+    const forward = viewCamera.getWorldDirection(new THREE.Vector3());
+    const right = new THREE.Vector3().crossVectors(forward, viewCamera.up).normalize();
+    if (keys.has('w') || keys.has('arrowup')) direction.add(forward);
+    if (keys.has('s') || keys.has('arrowdown')) direction.sub(forward);
+    if (keys.has('d') || keys.has('arrowright')) direction.add(right);
+    if (keys.has('a') || keys.has('arrowleft')) direction.sub(right);
+    if (keys.has('e') || keys.has(' ')) direction.y += 1;
+    if (keys.has('q')) direction.y -= 1;
+    if (!direction.lengthSq()) return;
+    const speed = Math.max(8, distance()) * (keys.has('shift') ? 2.5 : 0.8);
+    direction.normalize().multiplyScalar(speed * dt);
+    viewCamera.position.add(direction);
+    viewTarget.add(direction);
+    moved();
+  }
+  window.addEventListener('resize', () => {
+    width = Math.max(1, window.innerWidth);
+    height = Math.max(1, window.innerHeight);
+    renderer.setSize(width, height, false);
+    viewCamera.aspect = width / height;
+    viewCamera.updateProjectionMatrix();
+    moved();
+  });
+
+  let last = performance.now();
+  function tick(now) {
+    const dt = Math.min(0.1, (now - last) / 1000);
+    last = now;
+    if (!busy) {
+      if (keys.size) fly(dt);
+      if (dirty) {
+        dirty = false;
+        renderFrame(viewCamera);
+      }
+    }
+    requestAnimationFrame(tick);
+  }
+  requestAnimationFrame(tick);
+
+  const vector = v => [v.x, v.y, v.z].map(n => n.toFixed(4)).join(',');
+  let version = null;
+  async function reload() {
+    busy = true;
+    say(`${name} · updating…`);
+    const position = viewCamera.position.clone();
+    const target = viewTarget.clone();
+    const query = new URLSearchParams(params);
+    query.set('camera', vector(position));
+    query.set('lookAt', vector(target));
+    try {
+      resetScene();
+      configure(query.toString());
+      await main();
+      viewCamera.up.set(0, 1, 0);
+      viewCamera.position.copy(position);
+      viewTarget = target;
+      viewCamera.lookAt(viewTarget);
+      say(`${name} · live · updated ${new Date().toLocaleTimeString()}`);
+    } catch (error) {
+      say(`${name} · could not draw the new version: ${error}`, true);
+    }
+    busy = false;
+    moved();
+  }
+  async function poll() {
+    try {
+      const response = await nativeFetch('/__rhr_version__', {cache: 'no-store'});
+      const state = await response.json();
+      if (state.error) say(`${name} · ${state.error}`, true);
+      if (version === null) version = state.version;
+      else if (state.version !== version && !busy) {
+        version = state.version;
+        if (!state.error) await reload();
+      }
+    } catch (_) {
+      say(`${name} · rhr view has stopped: this page no longer updates`, true);
+      return;
+    }
+    setTimeout(poll, 600);
+  }
+  poll();
+}
+
 if (persistentPage) {
   // Called by the warm worker: draw one scene, resolve with {ok} or {error}.
   window.rhrRender = async ({query, base, width: w, height: h}) => {
@@ -5651,4 +5882,5 @@ if (persistentPage) {
     document.documentElement.dataset.rhrError = String(error);
     throw error;
   }
+  if (interactivePage && viewCamera) startViewer();
 }

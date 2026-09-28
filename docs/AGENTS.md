@@ -1,8 +1,8 @@
 # Using RHR from an agent
 
 RHR lets you check Roblox UI and 3D builds without driving Studio: point a command at a
-`.rbxm` / `.rbxmx` / `.rbxl` / `.rbxlx` file or a Rojo project and read back a PNG
-and JSON. This page is the working guide: which command answers which question,
+`.rbxm` / `.rbxmx` / `.rbxl` / `.rbxlx` file, a Rojo project, or a Roblox asset id or
+link, and read back a PNG and JSON. This page is the working guide: which command answers which question,
 the edit loop, and how to read the output without being misled.
 
 ## Which command
@@ -18,6 +18,14 @@ the edit loop, and how to read the output without being misled.
 | Where every part is, and what was approximated | `rhr scene-dump <file>` | `parts[]`, `bounds`, `fallbacks`, `unsupportedVisualClasses`, `experimental` |
 | World, in-world UI and screen UI together (use this when unsure) | `rhr preview <file> --view iso --out frame.png --json` | the PNG, and the same report |
 | Whether an edit changed geometry or only colours | `rhr compare before.png after.png` | `changedPct`, `silhouette.iou` |
+| Show a person the build to look around in (they fly the camera) | `rhr view <file> --no-open`, run in the background | the address it prints on stdout: give it to the person. The page redraws itself when you edit the file |
+| What a Creator Store model looks like, before inserting it | `rhr scene <id or link> --view iso --out model.png` | the PNG; stderr names the asset and its creator |
+
+`<file>` can also be an asset id (`2810302648`), `rbxassetid://...`, or a Creator
+Store, library, catalog or game link. RHR downloads it with the Studio login into its
+cache and uses it as a file (asked again after 10 minutes, downloaded again only if it
+changed); outputs are named after the id. Roblox gives others' places and private
+models only to people who can edit them; the error says so.
 
 Every JSON document has a `schema` field (`rhr.layout/1`, `rhr.check/1`, ...). Check
 it: a different version means the shape changed. Data commands print JSON on stdout;
