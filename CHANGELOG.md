@@ -4,6 +4,12 @@
 
 ### When upgrading
 
+- **`--view front` shows the front.** Standard views are Roblox's sides: `front`
+  looks at the Front face (-Z, a part's LookVector: a car's nose, a character's
+  face); before, it looked from +Z and showed the back. `back` swapped with it, and
+  `iso` now looks from the front right. With `--focus`, the view turns with the
+  model (its PrimaryPart, or the part itself), so a car parked sideways in a place is
+  still seen from its front.
 - **`rhr check` severities:** `duplicate-zindex`, `invisible-content`,
   `child-outside-clip` and `max-visible-graphemes` are now `info`, not printed by
   default (`--min-severity info`). `text-wider-than-box` no longer fires on TextScaled
