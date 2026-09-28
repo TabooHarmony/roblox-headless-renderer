@@ -50,6 +50,34 @@ print(json.dumps({"freed": freed, "left": sorted(p.name for p in cache.AREAS["im
         assert not images.exists() and (cache_dir / "bin" / "lune").is_file(), "clear all removed tools or kept images"
     print("cache: pruned least recently used to 80% of the limit, tools kept, --clear all")
 
+    # An edited file's earlier IR is dropped when the new one is written, so an edit loop
+    # on a big place does not pile up one IR per edit until the next prune.
+    with tempfile.TemporaryDirectory(prefix="rhr-cache-test-") as directory:
+        cache_dir = Path(directory)
+        env = dict(os.environ, RHR_CACHE_DIR=str(cache_dir), PYTHONPATH=str(ROOT / "src"))
+        work = cache_dir / "work"
+        work.mkdir()
+        code = f"""
+import json, shutil
+from pathlib import Path
+from rhr.ir import cached_ir
+fixtures = Path({str(ROOT / "tests" / "fixtures")!r})
+source = Path({str(work)!r}) / "model.rbxm"
+seen = []
+for name in ("highlight.rbxm", "vfx_played.rbxm", "highlight.rbxm"):
+    shutil.copy(fixtures / name, source)
+    seen.append(str(cached_ir(source, profile="world").parent))
+    other = cached_ir(fixtures / "highlight.rbxm", profile="world")  # another file: kept
+print(json.dumps({{"seen": seen, "exist": [Path(p).is_dir() for p in seen], "other": other.is_file()}}))
+"""
+        proc = subprocess.run([sys.executable, "-c", code], env=env, capture_output=True, text=True, timeout=120)
+        assert proc.returncode == 0, proc.stderr
+        result = json.loads(proc.stdout.strip().splitlines()[-1])
+        assert len(set(result["seen"])) == 2, result  # the first and third are the same bytes
+        assert result["exist"] == [True, False, True], result
+        assert result["other"], "another file's IR was dropped"
+    print("cache: an edited file's earlier IR is dropped when the new one is written")
+
 
 def test_main():
     from _harness import run_main

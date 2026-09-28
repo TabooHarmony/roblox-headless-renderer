@@ -65,6 +65,10 @@
   tweens end at their goal; controls take their defaults. A story that fails exits 2
   with the error pointed at the project's files and lines. A story runs the
   project's code: do not run untrusted ones outside a sandbox. About 0.9 s warm.
+- **The cache keeps to its limit.** Converting an edited file now drops that file's
+  earlier conversion (a place's is about 25 times the file, and every edit made a new
+  one: 10 GB in a day of work on big places, against a 2 GB limit). The limit is
+  checked every hour instead of once a day, and right after writing a big conversion.
 - **`rhr inspect <file>`**: what a file holds (classes, scripts with their lines, the
   asset ids it uses), and findings for script code worth a look before inserting a
   model: `require(<id>)` (the classic backdoor: code loaded from Roblox at run time),

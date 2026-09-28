@@ -1078,7 +1078,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.func is not _cache:
         from rhr.cache import maybe_prune
 
-        maybe_prune()  # at most once a day: keeps the cache under its limit
+        maybe_prune()  # at most once an hour: keeps the cache under its limit
     if getattr(args, "all_guis", False):
         from rhr import pipeline
 

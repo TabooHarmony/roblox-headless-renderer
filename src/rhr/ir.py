@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -316,7 +317,35 @@ def cached_ir(source_path, *, profile: str = "full") -> Path:
         print(f"ir     reused {target} (file unchanged)", file=sys.stderr)
         return target
     emit_ir(source_path, target, profile=profile, report_path=report)
+    _supersede(source_path, profile, folder)
     return target
+
+
+def _supersede(source_path: Path, profile: str, folder: Path) -> None:
+    """Keep one IR per file and profile. Every edit converts into a new folder, and a
+    place's IR is about 25 times the file (238 MB for a 9.4 MB place): the earlier
+    conversions of the same file are dropped here rather than left for the prune.
+    A big new IR is also a moment to check the cache's limit."""
+    import shutil
+
+    from rhr.paths import IR_DIR
+
+    pointer = IR_DIR / ".latest" / hashlib.sha1(f"{profile}|{source_path}".encode("utf-8")).hexdigest()[:20]
+    try:
+        previous = pointer.read_text(encoding="utf-8").strip() if pointer.is_file() else ""
+        pointer.parent.mkdir(parents=True, exist_ok=True)
+        pointer.write_text(folder.name, encoding="utf-8")
+        if previous and previous != folder.name and "/" not in previous and "\\" not in previous:
+            shutil.rmtree(IR_DIR / previous, ignore_errors=True)
+    except OSError:
+        pass
+    from rhr import cache
+
+    try:
+        if sum(entry.stat().st_size for entry in os.scandir(folder)) > cache.limit_bytes() // 10:
+            cache.prune()
+    except OSError:
+        pass
 
 
 def _own_reader(data: bytes) -> bool:
