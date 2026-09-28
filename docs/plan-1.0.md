@@ -408,3 +408,12 @@ README still to be rewritten from this.
 **Next:** decide the front/back question; productise the story runner (`rhr ui
 <x.story.luau>` in a Rojo repo: rojo build, sourcemap, run, draw) or leave it for
 after 1.0; GOAL.md and README rewritten around the scope; then step 7.
+
+**Story runner (2026-09-28, in progress, committed as work in progress):** `rhr ui|layout|check|hitmap
+<x.story.luau>` runs the story in its Rojo project (src/rhr/story.py, luau/story-runtime.luau) and
+draws what it built. Works on Fusion 0.3 and React-lua 17.2.1 stories
+(Desktop\Files\rhr-story-spike\project) and on the no-dependency fixture tests/fixtures/rojo_stories
+(Badge: tween ends at goal, sizes read at mount; Panel: controls; Broken: error points at
+`src\Broken.story.luau:5`). Left: tests/test_story.py over the fixture, a profile phase for the
+run, the check's `model` name, README/AGENTS/interface/CHANGELOG, then GOAL.md rewrite. Front/back
+`--view` question still open.

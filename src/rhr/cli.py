@@ -94,11 +94,15 @@ def ir_for(source: Path, *, profile: str = "full") -> Path:
     (made again when the file changed).
 
     `source` may also be a Rojo project (a *.project.json file or a directory with
-    default.project.json), which is built with `rojo build` first.
+    default.project.json), which is built with `rojo build` first, or a story file
+    (*.story.luau), which is run and the UI it builds read (rhr.story).
     """
     from rhr.ir import cached_ir, load_ir
-    from rhr import rojo
+    from rhr import rojo, story
 
+    if story.is_story(source):
+        # UI that code builds: the story is run in its Rojo project (rhr.story).
+        source = story.build(source, log=lambda message: print(message, file=sys.stderr))
     project = rojo.project_file(source)
     if project is not None:
         source = rojo.build(project, IR_DIR)
