@@ -62,7 +62,8 @@ def main() -> int:
         check(all(r.returncode == 0 and r.stdout == expected for r in results), "4 at once: same output")
     finally:
         stopped = run("server", "stop", server=True)
-        check(stopped.returncode == 0 and b"stopped" in stopped.stderr, "rhr server stop")
+        check(stopped.returncode == 0 and b"stopped" in stopped.stderr,
+              f"rhr server stop ({stopped.stderr.decode('utf-8', 'replace').strip()})")
     again = run("server", "stop", server=True)
     check(b"no server" in again.stderr, "a second stop finds none")
 
