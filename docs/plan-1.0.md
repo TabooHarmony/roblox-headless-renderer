@@ -446,3 +446,10 @@ as experimental; macOS is first class only after a real Mac run.
   map"), hit map and `button-blocked` follow them; on the way, font name lookups are
   remembered (check on Steal An Egg 13 s -> 1 s). Phase 1 is complete; next is Phase 2
   (output an agent can use), after the push and 0.9.0b1 when the maintainer agrees.
+- Phase 2 done (2026-09-28): F9 (scene-dump summary, --path, hitmap --at, trimmed
+  hitmap and inspect; every default output on Heartsmm2 under 50 KB), F11 (1920x1080
+  default; --device presets and touch-control positions measured in Studio's emulator;
+  check --devices), F10 (ui --crop/--fit/--annotate, --max-size), AGENTS.md rewritten,
+  `rhr skill`. Suite 95 passed / 1 skipped. Next: 1.0.0rc1 is due after Phase 2, once
+  0.9.0b1 is out (push, CI, PyPI: waiting on the maintainer); Phase 3 (speed) can start
+  locally.
