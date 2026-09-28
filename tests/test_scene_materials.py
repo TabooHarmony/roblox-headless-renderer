@@ -76,8 +76,9 @@ def main() -> None:
         tmp = Path(directory)
         ir = tmp / "materials.json"
         write_ir(ir, [
-            ("Plastic", -2.5, "Plastic", 0.0),
-            ("Neon", 2.5, "Neon", 0.0),
+            # Seen from the front (-Z), +X is on the left of the picture.
+            ("Plastic", 2.5, "Plastic", 0.0),
+            ("Neon", -2.5, "Neon", 0.0),
         ])
         first = tmp / "first.png"
         second = tmp / "second.png"

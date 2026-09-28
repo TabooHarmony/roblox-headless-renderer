@@ -1116,7 +1116,9 @@ def _camera_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--focus", metavar="PATH",
                         help="frame this part or model (a path as scene-dump prints it)")
     parser.add_argument("--view", choices=("iso", "front", "back", "left", "right", "top"),
-                        help="frame the --focus target, or the whole scene, from this side")
+                        help="frame the --focus target, or the whole scene, from this side: Roblox's sides "
+                             "(front looks at the Front face, -Z; iso from the front right, above); with "
+                             "--focus, the model's own sides (its PrimaryPart's)")
     parser.add_argument("--no-shadows", action="store_true",
                         help="no sun shadows (they are on by default, as in Studio)")
     parser.add_argument("--flat-materials", action="store_true",

@@ -91,7 +91,7 @@ def main() -> None:
         proc = run(
             "scene", str(ir),
             "--viewport", "320x240",
-            "--view", "back",
+            "--view", "front",
             "--texture-dir", str(ASSETS),
             "--out", str(out),
         )

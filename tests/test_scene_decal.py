@@ -83,7 +83,7 @@ def main() -> None:
         proc = run(
             "scene", str(good),
             "--viewport", "320x240",
-            "--view", "back",
+            "--view", "front",
             "--texture-dir", str(ASSETS),
             "--out", str(out),
         )
@@ -111,7 +111,7 @@ def main() -> None:
         proc = run(
             "scene", str(missing),
             "--viewport", "320x240",
-            "--view", "back",
+            "--view", "front",
             "--texture-dir", str(ASSETS),
             "--out", str(missing_out),
         )

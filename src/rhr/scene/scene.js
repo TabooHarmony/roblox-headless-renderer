@@ -3651,13 +3651,27 @@ function parseVectorParam(name) {
   return new THREE.Vector3(...values);
 }
 
+// Where the camera stands, from the thing it looks at. Roblox's Front face is -Z (a
+// part's LookVector; a car's nose, a character's face), so `front` stands at -Z and
+// sees it; `iso` stands at the front right, above.
 function focusDirection(view) {
-  if (view === 'front') return new THREE.Vector3(0, 0, 1);
-  if (view === 'back') return new THREE.Vector3(0, 0, -1);
+  if (view === 'front') return new THREE.Vector3(0, 0, -1);
+  if (view === 'back') return new THREE.Vector3(0, 0, 1);
   if (view === 'left') return new THREE.Vector3(-1, 0, 0);
   if (view === 'right') return new THREE.Vector3(1, 0, 0);
   if (view === 'top') return new THREE.Vector3(0, 1, 0);
-  return new THREE.Vector3(1, 0.75, 1).normalize();
+  return new THREE.Vector3(1, 0.75, -1).normalize();
+}
+
+// The orientation `--focus` names: a part's own, or a model's PrimaryPart's (what
+// Roblox pivots it by), so `--view front` shows a car's front however it is turned
+// in the place. Null (world axes) when neither is known.
+function focusOrientation(index, target) {
+  let part = target;
+  if (!target?.props?.CFrame) part = findNodeByReference(index, target, 'PrimaryPart');
+  const cf = part?.props?.CFrame;
+  if (!cf || cf.R00 === undefined) return null;
+  return new THREE.Quaternion().setFromRotationMatrix(cframeMatrix(cf));
 }
 
 // A standard view frames the build, not the floor: nearly every place has a
@@ -3743,9 +3757,11 @@ function particleBoundsWithin(allowed) {
 
 function frameScene(camera, index, focusPath, view = 'iso') {
   let allowed = null;
+  let orientation = null;
   if (focusPath) {
     const target = findNodeByPath(index, focusPath);
     if (!target) throw new Error(`focus path not found: ${focusPath}`);
+    orientation = focusOrientation(index, target);
     allowed = new Set();
     walk(target, node => allowed.add(node));
   }
@@ -3781,6 +3797,10 @@ function frameScene(camera, index, focusPath, view = 'iso') {
   const direction = focusDirection(view);
   if (view === 'top') camera.up.set(0, 0, -1);
   else camera.up.set(0, 1, 0);
+  if (orientation) {
+    direction.applyQuaternion(orientation);
+    if (view === 'top') camera.up.applyQuaternion(orientation);
+  }
   camera.position.copy(center).addScaledVector(direction, distance);
   camera.lookAt(center);
   camera.updateMatrixWorld(true);
