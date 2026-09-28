@@ -4,6 +4,11 @@
 
 ### When upgrading
 
+- **Nothing to draw is an error.** `ui`, `layout`, `check` and `hitmap` on a file
+  with no UI to draw exit 2 with the reason and what would draw something (a closed
+  screen to `--show`, templates stored outside StarterGui, a Rojo project that maps
+  only code: use the place file), instead of exiting 0 with a blank PNG or an empty
+  document.
 - **`rhr` runs commands in a resident server.** The first command starts it in the
   background; later ones hand it their command line and get the output back, with
   Python, RHR and the converted files already loaded. Output, exit codes and files
@@ -56,6 +61,11 @@
 
 ### Changes
 
+- **Screens code opens: `--show <path>` and `--only <path>`** on `ui`, `layout`,
+  `check`, `hitmap` and `preview`. A screen saved closed (`ScreenGui.Enabled` or
+  `Visible` false, as games save the screens their code opens) is drawn with
+  `--show` (repeatable), or alone with `--only`, every other screen closed. A path
+  into a place's storage (a template in ReplicatedStorage) works too.
 - **UI that code builds: stories (experimental).** `ui`, `layout`, `check` and
   `hitmap` take a story file (`*.story.luau`, in the UI Labs, Hoarcekat or
   Flipbook forms). RHR builds the story's Rojo project, runs the story in Lune with a

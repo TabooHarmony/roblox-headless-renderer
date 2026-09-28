@@ -293,7 +293,7 @@ class Server:
             os.chdir(saved_cwd)
             os.environ.clear()
             os.environ.update(saved_env)
-            pipeline.INCLUDE_STORED_GUIS = False
+            pipeline.reset_options()
             browsers.used = None
             out.flush()
             err.flush()

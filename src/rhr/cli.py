@@ -121,11 +121,10 @@ def ir_for(source: Path, *, profile: str = "full", viewport: tuple[int, int] = D
 def _stored_gui_note(ir_path) -> str | None:
     """Which ScreenGuis a place keeps outside StarterGui and so were not drawn (printed
     to stderr, and returned for the --json report)."""
-    from rhr.adapter import ir_to_raw_nodes
     from rhr.ir import load_ir
-    from rhr.pipeline import shown_ui_roots
+    from rhr.pipeline import ui_roots
 
-    _, hidden = shown_ui_roots(ir_to_raw_nodes(load_ir(ir_path)))
+    _, hidden = ui_roots(load_ir(ir_path))
     if not hidden:
         return None
     names = ", ".join(hidden[:4]) + (f", +{len(hidden) - 4} more" if len(hidden) > 4 else "")
@@ -212,7 +211,7 @@ def _ui(args) -> int:
     t_ir = time.perf_counter()
 
     try:
-        screens = load_screens(str(ir_path), width, height, args.topbar_height)
+        screens = load_screens(str(ir_path), width, height, args.topbar_height, required=True)
         png = render_screens(
             screens, out, width, height, bg_color=bg, rect_map=rect_map, source_ir=ir_path
         )
@@ -261,7 +260,7 @@ def _layout(args) -> int:
     width, height = args.viewport
     try:
         ir_path = ir_for(source, profile="ui", viewport=(width, height))
-        screens = load_screens(str(ir_path), width, height, args.topbar_height)
+        screens = load_screens(str(ir_path), width, height, args.topbar_height, required=True)
     except (ValueError, RuntimeError) as exc:
         return _die(str(exc))
 
@@ -878,6 +877,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_ui.add_argument("--all-guis", action="store_true",
                       help="in a place, also draw ScreenGuis stored outside StarterGui (templates scripts clone in)")
+    p_ui.add_argument("--show", action="append", default=[], metavar="PATH",
+                     help="draw a screen code opens: turns on Enabled/Visible for PATH and "
+                          "what holds it (repeatable)")
+    p_ui.add_argument("--only", metavar="PATH",
+                     help="draw PATH alone: shown, with every other screen and its siblings closed")
     p_ui.add_argument("--offline", action="store_true",
                       help="do not download missing images first (also: RHR_OFFLINE=1)")
     _picture_arguments(p_ui)
@@ -903,6 +907,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_layout.add_argument("--all-guis", action="store_true",
                           help="in a place, also draw ScreenGuis stored outside StarterGui (templates scripts clone in)")
+    p_layout.add_argument("--show", action="append", default=[], metavar="PATH",
+                         help="draw a screen code opens: turns on Enabled/Visible for PATH and "
+                              "what holds it (repeatable)")
+    p_layout.add_argument("--only", metavar="PATH",
+                         help="draw PATH alone: shown, with every other screen and its siblings closed")
     p_layout.set_defaults(func=_layout)
 
     p_check = sub.add_parser("check", help="model smells that should fail a build, as JSON findings "
@@ -920,6 +929,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_check.add_argument("--all-guis", action="store_true",
                          help="in a place, also draw ScreenGuis stored outside StarterGui (templates scripts clone in)")
+    p_check.add_argument("--show", action="append", default=[], metavar="PATH",
+                        help="draw a screen code opens: turns on Enabled/Visible for PATH and "
+                             "what holds it (repeatable)")
+    p_check.add_argument("--only", metavar="PATH",
+                        help="draw PATH alone: shown, with every other screen and its siblings closed")
     p_check.set_defaults(func=_check)
 
     p_browser = sub.add_parser("browser", help="start, stop or ask about the warm 3D browser worker "
@@ -952,6 +966,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_hitmap.add_argument("--all-guis", action="store_true",
                           help="in a place, also draw ScreenGuis stored outside StarterGui (templates scripts clone in)")
+    p_hitmap.add_argument("--show", action="append", default=[], metavar="PATH",
+                         help="draw a screen code opens: turns on Enabled/Visible for PATH and "
+                              "what holds it (repeatable)")
+    p_hitmap.add_argument("--only", metavar="PATH",
+                         help="draw PATH alone: shown, with every other screen and its siblings closed")
     p_hitmap.set_defaults(func=_hitmap)
 
     p_scene = sub.add_parser("scene", help="draw the 3D world to PNG")
@@ -1029,6 +1048,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_preview.add_argument("--all-guis", action="store_true",
                            help="in a place, also draw ScreenGuis stored outside StarterGui (templates scripts clone in)")
+    p_preview.add_argument("--show", action="append", default=[], metavar="PATH",
+                          help="draw a screen code opens: turns on Enabled/Visible for PATH and "
+                               "what holds it (repeatable)")
+    p_preview.add_argument("--only", metavar="PATH",
+                          help="draw PATH alone: shown, with every other screen and its siblings closed")
     p_preview.add_argument("--offline", action="store_true",
                            help="do not download missing assets first (also: RHR_OFFLINE=1)")
     _picture_arguments(p_preview)
@@ -1083,6 +1107,11 @@ def main(argv: list[str] | None = None) -> int:
         from rhr import pipeline
 
         pipeline.INCLUDE_STORED_GUIS = True
+    if getattr(args, "show", None) or getattr(args, "only", None):
+        from rhr import pipeline
+
+        pipeline.SHOW[:] = args.show
+        pipeline.ONLY = args.only
     if getattr(args, "offline", False):
         # One switch for every download: assets, tools, the browser, font names.
         os.environ["RHR_OFFLINE"] = "1"
@@ -1096,7 +1125,35 @@ def main(argv: list[str] | None = None) -> int:
                 args.file = str(remote.resolve(file, login=not getattr(args, "no_studio_login", False)))
             except remote.AssetError as exc:
                 return _die(str(exc))
-    return args.func(args)
+    from rhr.pipeline import NothingToDraw
+
+    try:
+        return args.func(args)
+    except NothingToDraw as exc:
+        return _die(f"{exc}{_input_hint(Path(args.file))}")
+
+
+def _input_hint(source: Path) -> str:
+    """What about the input explains an empty result (added to NothingToDraw's reasons)."""
+    from rhr import rojo, story
+
+    if story.is_story(source):
+        return "\nthe story built no UI: it must parent what it makes to its target (or return it)"
+    project = rojo.project_file(source)
+    if project is None:
+        return ""
+    try:
+        data = json.loads(project.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return ""
+    if '"$ignoreUnknownInstances": true' not in json.dumps(data.get("tree") or {}):
+        return f"\nthe Rojo project {project.name} maps no UI"
+    places = sorted(p.name for p in project.parent.iterdir() if p.suffix in (".rbxl", ".rbxlx"))
+    ids = [str(i) for i in data.get("servePlaceIds") or []]
+    where = " or ".join(filter(None, [f"the place file ({', '.join(places)})" if places else "",
+                                      f"its place id ({', '.join(ids)})" if ids else ""])) or "the place file or its id"
+    return (f"\nthe Rojo project {project.name} ignores unknown instances, so UI saved in Studio is not in "
+            f"it (only the code is). Pass {where} instead")
 
 
 if __name__ == "__main__":

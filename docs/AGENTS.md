@@ -40,7 +40,14 @@ Every JSON document has a `schema` field (`rhr.layout/1`, `rhr.check/1`, ...). C
 it: a different version means the shape changed. Data commands print JSON on stdout;
 `ui`, `scene` and `preview` print the PNG's path, or the `rhr.render/1` report with
 `--json`. Exit codes: 0 done, 1 only from `check` (an error finding), 2 the command
-failed (the reason is on stderr).
+failed or had nothing to work on (the reason, and what to try, on stderr).
+
+Screens a game opens by code are saved closed (`ScreenGui.Enabled = false`,
+`Frame.Visible = false`) and are not drawn by default. To look at one, pass its path:
+`--only StarterGui/Shop` draws it alone (best for checking one screen),
+`--show StarterGui/Shop` opens it on top of what is already open. If the UI lives in
+the place file rather than in your Rojo project (a project that maps only code), run
+the commands on the place file or its place id.
 
 ## The loop
 
@@ -107,7 +114,8 @@ What RHR tells you it did not do exactly:
   another moment, `--focus <path>` frames one effect in a pack of several.
 - Terrain is drawn smooth with Roblox's textures, blended where materials meet; grass blades (Decoration) are drawn still; no water waves.
 - In a place file, a ScreenGui outside StarterGui (a template in ReplicatedStorage)
-  is not drawn or checked; a `note` names it. Pass `--all-guis` to include it.
+  is not drawn or checked; a `note` names it. `--only <path>` draws it, `--all-guis`
+  includes them all.
 - Material textures are Roblox's own (look-alikes without Studio). When you only care
   about colours, `--flat-materials` draws plain colours.
 - `docs/known-approximations.md` lists every known difference.

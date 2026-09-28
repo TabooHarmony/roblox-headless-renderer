@@ -259,7 +259,7 @@ def build_dump(ir_path, width: int, height: int, png_path=None, topbar_height: f
     from rhr.pipeline import load_screens, render_screens
 
     rect_map: dict = {}
-    screens = load_screens(str(ir_path), width, height, topbar_height)
+    screens = load_screens(str(ir_path), width, height, topbar_height, required=True)
     render_screens(
         screens,
         Path(png_path) if png_path else None,

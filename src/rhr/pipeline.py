@@ -177,6 +177,128 @@ PLACE_SERVICES = {
 }
 # Set by the CLI's --all-guis.
 INCLUDE_STORED_GUIS = False
+# Set by the CLI's --show (repeatable) and --only: paths as RHR prints them. Screens a
+# game's code opens (ScreenGui.Enabled, Frame.Visible) are saved closed; these draw them.
+SHOW: list[str] = []
+ONLY: str | None = None
+
+
+def reset_options() -> None:
+    """The CLI's per-command switches back to their defaults (the resident server runs
+    one command after another in the same process)."""
+    global INCLUDE_STORED_GUIS, ONLY
+    INCLUDE_STORED_GUIS = False
+    SHOW.clear()
+    ONLY = None
+
+
+def reveals_storage() -> bool:
+    """Whether --show/--only name something a place keeps outside StarterGui (a
+    template in ReplicatedStorage): that service's UI must be read, not only named."""
+    return any(path.split("/", 1)[0] in PLACE_SERVICES - {"StarterGui"} for path in [*SHOW, *([ONLY] if ONLY else [])])
+
+
+class NothingToDraw(Exception):
+    """A UI command found no UI to draw: an error (exit 2), never an empty success.
+    Not a ValueError, so it reaches rhr.cli.main, which adds hints about the input."""
+
+
+def _why_no_ui(raw: list[dict], stored: list[str]) -> str:
+    """Why a tree drew nothing, and what would draw something."""
+    closed: list[str] = []
+
+    def walk(node: dict) -> None:
+        if node.get("className") == "ScreenGui":
+            if (node.get("children") or []) and _prop_is_false((node.get("properties") or {}).get("Enabled")):
+                closed.append(node.get("_path") or node.get("name", "ScreenGui"))
+            return
+        for child in node.get("children") or []:
+            walk(child)
+
+    for root in raw:
+        walk(root)
+    lines = ["no UI to draw"]
+    if closed:
+        names = ", ".join(closed[:5]) + (f", +{len(closed) - 5} more" if len(closed) > 5 else "")
+        lines.append(f"{len(closed)} ScreenGui(s) are saved with Enabled = false (code opens them): {names}. "
+                     f"--show <path> draws one (and --only <path> draws it alone)")
+    if stored:
+        names = ", ".join(stored[:5]) + (f", +{len(stored) - 5} more" if len(stored) > 5 else "")
+        lines.append(f"{len(stored)} ScreenGui(s) are stored outside StarterGui: {names}. "
+                     f"--show <path> draws one, --all-guis all of them")
+    if len(lines) == 1:
+        lines.append("the file holds no ScreenGui or GUI object (a 3D build draws with rhr scene)")
+    return "\n".join(lines)
+
+
+def ui_roots(ir: dict) -> tuple[list[dict], list[str]]:
+    """The raw UI roots a UI command draws (--show and --only applied), and the paths
+    of stored ScreenGuis left out. Every node on the way to a shown path is in
+    `shown_ids`, so a node outside it holds nothing to show."""
+    from rhr.adapter import ir_to_raw_nodes
+
+    raw = ir_to_raw_nodes(ir)
+    if not SHOW and not ONLY:
+        return shown_ui_roots(raw)
+    by_path: dict[str, list[dict]] = {}
+
+    def chain_to(node_path: str) -> list[dict]:
+        if not by_path:
+            def walk(node: dict, above: list[dict]) -> None:
+                here = [*above, node]
+                by_path[node.get("_path", "")] = here
+                for child in node.get("children") or []:
+                    walk(child, here)
+            for root in raw:
+                walk(root, [])
+        chain = by_path.get(node_path)
+        if chain is None:
+            raise ValueError(f"{node_path} holds no UI to show")
+        return chain
+
+    from rhr.ir import resolve_path
+
+    def resolve(wanted: str) -> list[dict]:
+        return chain_to(resolve_path(ir["roots"], wanted.strip().strip("/"))["path"])
+
+    shown_ids = {id(node) for wanted in SHOW for node in resolve(wanted)}
+    only_chain = resolve(ONLY) if ONLY else None
+    if only_chain:
+        shown_ids |= {id(node) for node in only_chain}
+    only_ids = {id(node) for node in only_chain} if only_chain else None
+    target = id(only_chain[-1]) if only_chain else None
+
+    def reveal(nodes: list[dict], inside: bool) -> list[dict]:
+        out = []
+        for node in nodes:
+            cls = node.get("className", "")
+            gui = cls in _SCREEN_GUI_CLASSES or cls in _RENDERABLE_CLASSES  # (not a Folder or service)
+            key = "Enabled" if cls in _SCREEN_GUI_CLASSES else "Visible"
+            value = None
+            if id(node) in shown_ids and gui:
+                value = True
+            elif only_ids is not None and not inside and gui and id(node) not in shown_ids:
+                value = False  # --only: everything beside the chain to it is closed
+            if value is None and id(node) not in shown_ids and (only_ids is None or inside):
+                out.append(node)  # nothing to change at or below it (shared, not copied)
+                continue
+            copy = dict(node)
+            if value is not None:
+                copy["properties"] = {**(node.get("properties") or {}), key: value}
+            if value is not False:
+                copy["children"] = reveal(node.get("children") or [], inside or id(node) == target)
+            out.append(copy)
+        return out
+
+    revealed = reveal(raw, False)
+    if INCLUDE_STORED_GUIS or not any(n.get("className") in PLACE_SERVICES for n in revealed):
+        return revealed, []
+    # A place: StarterGui as usual, plus a stored service only for what was asked for.
+    asked = {id(root) for root in raw if id(root) in shown_ids}
+    kept = [new for root, new in zip(raw, revealed)
+            if new.get("className") == "StarterGui" or new.get("className") not in PLACE_SERVICES
+            or id(root) in asked]
+    return kept, []
 
 
 def shown_ui_roots(raw: list[dict]) -> tuple[list[dict], list[str]]:
@@ -244,8 +366,10 @@ def load_screens(
     postprocess: bool = True,
     *,
     screen_gui_only: bool = False,
+    required: bool = False,
 ) -> list[tuple[dict, object, "rhr.insets.Inset", str]]:
     """IR on disk -> one (object, root rect, inset, name) per ScreenGui, bottom first.
+    `required`: no UI at all is a NothingToDraw error (the UI commands), not [].
 
     Each ScreenGui gets its own content area from its own `ScreenInsets` (Task 1.9),
     which is why this is per screen rather than one rect for the file. A tree with no
@@ -260,7 +384,7 @@ def load_screens(
     topbar = insets.REFERENCE_TOPBAR_HEIGHT if topbar_height is None else topbar_height
     ir = load_ir(ir_path)
     ir_by_path = ui_index(ir)
-    raw, _ = shown_ui_roots(ir_to_raw_nodes(ir))
+    raw, stored = ui_roots(ir)
     screens = _screen_nodes(raw, classes={"ScreenGui"} if screen_gui_only else None)
     if not screens:
         if screen_gui_only:
@@ -268,13 +392,15 @@ def load_screens(
         # Only disabled or empty ScreenGuis (if any): they draw nothing, so they must
         # not reach the layout, hitmap or checks either. What is left outside them is
         # the whole-viewport case; if nothing is left, there is no UI at all.
-        raw = _strip_screens(raw)
-        pane = find_renderable(raw)
+        outside = _strip_screens(raw)
+        pane = find_renderable(outside)
         if pane is None:
+            if required:
+                raise NothingToDraw(_why_no_ui(raw, stored))
             return []
-        inset = insets.for_nodes(raw, topbar_height=topbar)
+        inset = insets.for_nodes(outside, topbar_height=topbar)
         x, y, w, h = inset.rect(width, height)
-        obj = to_pinevex_object(raw, postprocess)
+        obj = to_pinevex_object(outside, postprocess)
         _attach_layout(obj, pane, ir_by_path, (x, y, w, h))
         return [(obj, Rect(x, y, w, h), inset, Path(ir_path).stem)]
 

@@ -150,21 +150,21 @@ def _raw_pane_metadata(raw_pane: dict) -> dict[str, list[dict]]:
 
 def build_hitmap(ir_path, width: int, height: int, topbar_height: float | None = None) -> dict:
     """Build a deterministic hit-region dump from an IR JSON file."""
-    from rhr.adapter import ir_to_raw_nodes
     from rhr.insets import REFERENCE_TOPBAR_HEIGHT, for_nodes
     from rhr.ir import load_ir
     from rhr.pipeline import load_screens
 
     ir = load_ir(ir_path)
-    from rhr.pipeline import shown_ui_roots
+    from rhr.pipeline import ui_roots
 
-    raw_nodes, _ = shown_ui_roots(ir_to_raw_nodes(ir))
+    raw_nodes, _ = ui_roots(ir)
     raw_panes = _pane_raw_nodes(raw_nodes)
     screens = load_screens(
         str(ir_path),
         width,
         height,
         REFERENCE_TOPBAR_HEIGHT if topbar_height is None else topbar_height,
+        required=True,
     )
     if len(raw_panes) != len(screens):
         raise ValueError(

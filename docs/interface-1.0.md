@@ -24,7 +24,8 @@ test fixtures).
 3. **Exit codes:** 0 success; 1 only from `check`, meaning error-class findings; 2 the
    command failed (bad arguments, unreadable file, render error). Today three internal
    error paths in the UI commands return 1, which an agent would read as "check found
-   errors"; they become 2.
+   errors"; they become 2. **Decided 2026-09-28:** a UI command with no UI to draw
+   exits 2 with the reason and a hint (never 0 with an empty document).
 4. **JSON style:** camelCase keys everywhere, every document stamped
    `"schema": "rhr.<kind>/<n>"`, adding a field never changes `<n>`, renaming or
    removing one does. Today `compare` uses snake_case (`changed_pct`, `diff_bbox`):

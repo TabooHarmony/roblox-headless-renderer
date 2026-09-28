@@ -111,7 +111,8 @@ Every JSON output carries a `schema` name (`rhr.layout/1`, `rhr.check/1`, ...), 
 change in shape is never silent. `ui`, `scene` and `preview` print the PNG's path, or
 with `--json` a report (`rhr.render/1`): the path, the camera, and what was
 approximated or missing. Exit codes: 0 done, 1 only from `check` (error findings), 2
-the command failed. The full interface is in
+the command failed, or had nothing to work on (a UI command on a file with no UI to
+draw; stderr says why and what would draw something). The full interface is in
 [`docs/interface-1.0.md`](https://github.com/TabooHarmony/roblox-headless-renderer/blob/main/docs/interface-1.0.md). A Rojo project works anywhere a file does: pass the
 folder with `default.project.json`, or the `*.project.json` file.
 
@@ -192,9 +193,16 @@ Python itself adds 0.1-3 s per command depending on the machine. `rhr cache` sho
   the screen size (`--viewport`) is right, other sizes (`AbsoluteSize` of anything
   but the target, `TextBounds`) are estimates, tweens end at their goal, controls
   take their defaults and nothing is clicked. Needs `rojo` (`rhr setup`).
+- **Screens code opens.** UI is drawn as saved: a ScreenGui saved with `Enabled =
+  false` or a frame with `Visible = false` (a shop the game opens by code) is not
+  drawn. `--show <path>` opens one (repeatable), and `--only <path>` draws it alone,
+  with every other screen closed: `rhr ui game.rbxl --only StarterGui/Shop`.
 - **Place files.** In a `.rbxl`, only StarterGui's ScreenGuis are drawn; templates
-  stored in ReplicatedStorage and elsewhere are named on stderr (`--all-guis` draws
-  them).
+  stored in ReplicatedStorage and elsewhere are named on stderr (`--show <path>`
+  draws one, `--all-guis` all of them).
+- **A Rojo project that maps only code** (`$ignoreUnknownInstances`, UI and maps
+  saved in Studio) holds no UI: pass the place file or its place id instead; the
+  error says so.
 - **Material textures** are Roblox's own, downloaded by the asset ids Roblox
   publishes in its documentation, tinted by the part's colour the way Roblox does it
   (Brick's mortar keeps its own colour), with their relief, roughness and metalness.

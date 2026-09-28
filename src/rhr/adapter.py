@@ -257,7 +257,7 @@ def ir_to_raw_nodes(ir: dict) -> list[dict]:
     # A place draws StarterGui's UI (and what is outside its services); of the other
     # services it only names the ScreenGuis (rhr.pipeline.shown_ui_roots), unless
     # --all-guis. Their UI (a game's templates: 18k nodes on a real one) is not converted.
-    place = not pipeline.INCLUDE_STORED_GUIS and any(
+    place = not (pipeline.INCLUDE_STORED_GUIS or pipeline.reveals_storage()) and any(
         root.get("className") in pipeline.PLACE_SERVICES for root in ir["roots"])
     nodes = [_screen_gui_skeleton(root, _screen_gui_branches(ir))
              if place and root.get("className") in pipeline.PLACE_SERVICES and root.get("className") != "StarterGui"

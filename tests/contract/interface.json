@@ -30,9 +30,19 @@
      "default": false,
      "takesValue": false
     },
+    "--only": {
+     "choices": [],
+     "default": null,
+     "takesValue": true
+    },
     "--out": {
      "choices": [],
      "default": null,
+     "takesValue": true
+    },
+    "--show": {
+     "choices": [],
+     "default": [],
      "takesValue": true
     },
     "--topbar-height": {
@@ -121,9 +131,19 @@
      "default": false,
      "takesValue": false
     },
+    "--only": {
+     "choices": [],
+     "default": null,
+     "takesValue": true
+    },
     "--out": {
      "choices": [],
      "default": null,
+     "takesValue": true
+    },
+    "--show": {
+     "choices": [],
+     "default": [],
      "takesValue": true
     },
     "--topbar-height": {
@@ -246,6 +266,11 @@
      "default": false,
      "takesValue": false
     },
+    "--only": {
+     "choices": [],
+     "default": null,
+     "takesValue": true
+    },
     "--out": {
      "choices": [],
      "default": null,
@@ -255,6 +280,11 @@
      "choices": [],
      "default": false,
      "takesValue": false
+    },
+    "--show": {
+     "choices": [],
+     "default": [],
+     "takesValue": true
     },
     "--topbar-height": {
      "choices": [],
@@ -334,6 +364,11 @@
      "default": false,
      "takesValue": false
     },
+    "--only": {
+     "choices": [],
+     "default": null,
+     "takesValue": true
+    },
     "--out": {
      "choices": [],
      "default": null,
@@ -342,6 +377,11 @@
     "--seed": {
      "choices": [],
      "default": 0,
+     "takesValue": true
+    },
+    "--show": {
+     "choices": [],
+     "default": [],
      "takesValue": true
     },
     "--topbar-height": {
@@ -529,9 +569,19 @@
      "default": false,
      "takesValue": false
     },
+    "--only": {
+     "choices": [],
+     "default": null,
+     "takesValue": true
+    },
     "--out": {
      "choices": [],
      "default": null,
+     "takesValue": true
+    },
+    "--show": {
+     "choices": [],
+     "default": [],
      "takesValue": true
     },
     "--topbar-height": {
