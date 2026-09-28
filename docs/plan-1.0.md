@@ -16,7 +16,8 @@ commits on `main`, and pushing or running CI waits until we agree to release.
 | 4. pinevex becomes our own code | **Done.** `src/rhr/ui_engine/`, docs/ui-engine.md. |
 | 5. PyPI, `uvx`, fresh-machine CI | **Done locally**; the CI jobs and the first PyPI upload wait for the release. Below. |
 | 6. Basic large-place check | **Done.** Results below. |
-| 7. Candidate period, tag 1.0 | **Next.** |
+| 6b. Performance pass | **Done (2026-09-27).** Resident server, work in proportion to what a command needs, profiles "ui" and "world", post-processing compiled once. docs/performance.md (design, numbers, what is left). |
+| 7. Candidate period, tag 1.0 | **Next**, reshaped: see below. |
 
 The full suite was green after step 1b (77 passed, 1 skipped: the Studio-models test
 that needs `RHR_STUDIO_MODELS`), and after step 3 (79 passed, 1 skipped) with
@@ -284,6 +285,24 @@ times are pessimistic. Nothing crashed or timed out; what broke was the picture.
 A handful of the maintainer's real game files checked once against Studio, CI green on
 all three systems, no open issue that would mislead an agent. Then tag 1.0 and publish
 to PyPI.
+
+**Reshaped (2026-09-27, after the maintainer asked whether 1.0 was premature).** Steps
+1-6 all landed in one day and none has run anywhere but this Windows machine, and the
+interface freezes at 1.0. Proposed order:
+
+1. Push; CI green on Windows, macOS and Linux (the browser client, the fresh-install
+   job and now the resident server have never run there). Publish a pre-release
+   (`1.0.0rc1`) to PyPI, which exercises the install and download paths for real.
+2. Hardening: the binary reader over every real file in both profiles plus damaged
+   files; bad inputs (missing files, broken Rojo projects, no browser, no network);
+   browser and server lifetime on Linux and macOS.
+3. Use it from an agent on real projects for a while, the JSON still allowed to
+   change; fix what is awkward before it freezes.
+4. The Studio comparison on real games; tag 1.0 after a stretch with nothing new.
+
+Open decisions from the performance pass (docs/performance.md, "What is left"): a
+native `rhr` client, decal/part batching (pixels move), keeping the built scene for
+camera-only renders, `scene-dump`'s size on big places, a Python XML reader.
 
 ## Notes for whoever picks this up
 
