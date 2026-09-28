@@ -92,6 +92,7 @@ The shop has one deliberate mistake, and `rhr check` finds it:
 | `rhr view <file>` | Opens the 3D world in a local page you can fly around in (drag, wheel, WASD). It stays up to date: when the file or Rojo project changes, the page redraws with the camera where it was. For a person looking at an agent's work; Ctrl+C stops it |
 | `rhr icons <files or folders>` | Square icon PNGs (512 px by default) of models on a transparent background, cropped to each model with the same margin: shop and inventory icons for a folder of pets or items, in about a second each. Takes asset ids too |
 | `rhr inspect <file>` | JSON: what a file holds (classes, scripts with their lines, the asset ids it uses) and findings for script code worth a look before you insert it: `require(<id>)` backdoors, `getfenv`, `loadstring`, obfuscated code, webhooks, `LoadAsset`, purchase prompts. RHR reads the scripts; it never runs them |
+| `rhr ui src/Shop.story.luau` | UI that code builds (React-lua, Fusion, Roact, Vide or plain Luau): `ui`, `layout`, `check` and `hitmap` take a UI Labs, Hoarcekat or Flipbook story file. RHR builds its Rojo project, runs the story and draws what it made, in about a second. Experimental in 1.0 |
 | `rhr compare a.png b.png` | JSON: how much changed between two renders, to tell a geometry change from a colour change |
 | `rhr scene 2810302648` | Any command also takes a Roblox asset id or link (Creator Store, library, catalog) in place of a file: it downloads the model once, with your Studio login, and previews it |
 | `rhr ir <file>` | RHR's internal form of the file, for debugging (its shape may change in any release) |
@@ -177,6 +178,13 @@ Python itself adds 0.1-3 s per command depending on the machine. `rhr cache` sho
 - **Clouds** (Terrain.Clouds) are drawn as a still layer from Roblox's cloud tile.
   Water waves are not drawn.
 - **Unions** are drawn with the exact shape and per-part colours Studio saved for them.
+- **Stories run your code.** A story (`*.story.luau`) is run in Lune with the
+  project's modules, so it is the one input where RHR runs code: fine for your own
+  project, but do not run stories from untrusted pull requests in CI outside a
+  sandbox. What the story reads while it runs is close to Roblox but not the same:
+  the screen size (`--viewport`) is right, other sizes (`AbsoluteSize` of anything
+  but the target, `TextBounds`) are estimates, tweens end at their goal, controls
+  take their defaults and nothing is clicked. Needs `rojo` (`rhr setup`).
 - **Place files.** In a `.rbxl`, only StarterGui's ScreenGuis are drawn; templates
   stored in ReplicatedStorage and elsewhere are named on stderr (`--all-guis` draws
   them).

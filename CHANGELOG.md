@@ -56,6 +56,15 @@
 
 ### Changes
 
+- **UI that code builds: stories (experimental).** `ui`, `layout`, `check` and
+  `hitmap` take a story file (`*.story.luau`, in the UI Labs, Hoarcekat or
+  Flipbook forms). RHR builds the story's Rojo project, runs the story in Lune with a
+  copy of the Roblox side UI code touches (instances, events, services, `require` by
+  instance) and draws what it built, like a file: React-lua, Fusion and plain Luau
+  alike, nothing library-specific. Code that reads the screen size gets `--viewport`;
+  tweens end at their goal; controls take their defaults. A story that fails exits 2
+  with the error pointed at the project's files and lines. A story runs the
+  project's code: do not run untrusted ones outside a sandbox. About 0.9 s warm.
 - **`rhr inspect <file>`**: what a file holds (classes, scripts with their lines, the
   asset ids it uses), and findings for script code worth a look before inserting a
   model: `require(<id>)` (the classic backdoor: code loaded from Roblox at run time),

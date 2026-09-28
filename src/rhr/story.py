@@ -1,6 +1,6 @@
 """UI that code builds: run a story file and draw what it made.
 
-`rhr ui Shop.story.luau` (and `layout`, `check`, `hitmap`, `preview`): the story is a
+`rhr ui Shop.story.luau` (and `layout`, `check`, `hitmap`): the story is a
 ModuleScript in a Rojo project, in any of the usual forms: a function(target)
 (Hoarcekat, UI Labs), a UI Labs table (react + reactRoblox, roact, fusion, vide, or a
 generic render), a Flipbook table. RHR builds the project with Rojo, finds the story's
@@ -130,18 +130,25 @@ def build(story: Path, *, width: int = 1615, height: int = 1080, log=None) -> Pa
     from rhr.ir import lune_executable
     from rhr.procs import no_window
 
+    from rhr.profile import phase
+
     project = find_project(story)
-    built = rojo.build(project, IR_DIR)
-    names, files = module_path(project, story)
+    with phase("story: rojo build"):
+        built = rojo.build(project, IR_DIR)
+    with phase("story: rojo sourcemap"):
+        names, files = module_path(project, story)
     name = story_name(story)
     key = hashlib.sha1(str(story.resolve()).encode("utf-8")).hexdigest()[:12]
-    out = IR_DIR / "stories" / f"{name}-{key}.rbxm"
+    # One folder per story, the file named after it: documents name their source by
+    # this file's name ("model": "Shop.story.json").
+    out = IR_DIR / "stories" / key / f"{name}.story.rbxm"
     out.parent.mkdir(parents=True, exist_ok=True)
-    proc = subprocess.run(
-        [lune_executable(), "run", str(PACKAGE / "luau" / "story-runtime.luau"), str(built), json.dumps(names),
-         str(out), str(width), str(height), name],
-        capture_output=True, text=True, encoding="utf-8", errors="replace", stdin=subprocess.DEVNULL,
-        timeout=TIMEOUT_S, **no_window())
+    with phase("story: run (Lune)"):
+        proc = subprocess.run(
+            [lune_executable(), "run", str(PACKAGE / "luau" / "story-runtime.luau"), str(built), json.dumps(names),
+             str(out), str(width), str(height), name],
+            capture_output=True, text=True, encoding="utf-8", errors="replace", stdin=subprocess.DEVNULL,
+            timeout=TIMEOUT_S, **no_window())
     problems = _tidy(_point_at_files(proc.stderr.strip(), files, project.parent))
     if proc.returncode != 0 or not out.is_file():
         raise RuntimeError(f"the story {story.name} failed:\n{problems or proc.stdout.strip() or 'no output'}")

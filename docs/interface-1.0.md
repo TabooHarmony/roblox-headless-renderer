@@ -60,6 +60,7 @@ test fixtures).
 | new: `inspect` (2026-09-27) | JSON `rhr.inspect/1`: kind, instances, classCounts, roots, scripts (path, className, lines, bytes, disabled), assets (images, meshes, sounds, animations: ids), findings (check, severity, path, line, detail) | A data command: `--out`; exit 0 whatever it finds (findings are reasons to look, not verdicts). |
 | new: `icons` (2026-09-27) | square transparent PNGs of models, one per file, folder entry or asset id; paths on stdout | Flags: `--out-dir`, `--size`, `--view`, `--margin`, `--fov`, `--background`, `--no-shadows`, `--no-effects`, `--offline`. Exit 2 if any failed. |
 | new: `view` (2026-09-27) | the 3D world in a local page to move around in; prints the page's address on stdout, serves until stopped, redraws when the source changes | For people: "have a look" without Studio. Flags: `--focus`, `--view`, `--no-shadows`, `--flat-materials`, `--no-effects`, `--no-open`, `--port`, `--offline`. |
+| new input: stories (2026-09-28) | `ui`, `layout`, `check`, `hitmap` take a `*.story.luau` in a Rojo project; documents name it `<Name>.story.json` | Experimental in 1.0 (decided 2026-09-28): its limits may narrow, its outputs are the same documents as for a file. |
 | `ir` | keep, but **not contract**: its JSON may change in any release | It is RHR's internal format; agents should use `scene-dump`/`layout`. |
 | `particles` (contact sheet) | **Decided:** removed | A calibration tool; `--effect-time` covers "show another moment". Its checks in tests/test_particles.py now run through `rhr scene`. |
 

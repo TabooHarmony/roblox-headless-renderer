@@ -21,6 +21,7 @@ the edit loop, and how to read the output without being misled.
 | Show a person the build to look around in (they fly the camera) | `rhr view <file> --no-open`, run in the background | the address it prints on stdout: give it to the person. The page redraws itself when you edit the file |
 | Icons for a set of models (shop, inventory) | `rhr icons models/ --out-dir icons --size 512` | one `<stem>.png` per model, paths on stdout |
 | Whether a model's scripts are safe to insert (free models) | `rhr inspect <file or id>` | `findings[]` (`require-by-id` is an error: code loaded from Roblox at run time), `scripts[]`, `assets` |
+| What UI that code builds looks like (React-lua, Fusion, ...) | any UI command on its story: `rhr ui src/Shop.story.luau --out shop.png`, `rhr check src/Shop.story.luau` | the same outputs as for a file; `model` is `<Name>.story.json`. A story that fails exits 2 with the error and the lines of your files it went through |
 | What a Creator Store model looks like, before inserting it | `rhr scene <id or link> --view iso --out model.png` | the PNG; stderr names the asset and its creator |
 
 `<file>` can also be an asset id (`2810302648`), `rbxassetid://...`, or a Creator
@@ -28,6 +29,12 @@ Store, library, catalog or game link. RHR downloads it with the Studio login int
 cache and uses it as a file (asked again after 10 minutes, downloaded again only if it
 changed); outputs are named after the id. Roblox gives others' places and private
 models only to people who can edit them; the error says so.
+
+A story (`*.story.luau`: UI Labs, Hoarcekat or Flipbook, function or table form) is
+run in the Rojo project above it, so it needs `rojo` and runs the project's code
+(experimental in 1.0). Write one per screen you are building and check it after each
+edit, the same loop as a file. Code that reads the screen size gets `--viewport`;
+tweens end at their goal; controls take their defaults.
 
 Every JSON document has a `schema` field (`rhr.layout/1`, `rhr.check/1`, ...). Check
 it: a different version means the shape changed. Data commands print JSON on stdout;

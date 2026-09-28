@@ -89,20 +89,21 @@ def parse_background(text: str) -> tuple[int, int, int, int]:
     raise argparse.ArgumentTypeError(f"background must be RRGGBB or RRGGBBAA, got {text!r}")
 
 
-def ir_for(source: Path, *, profile: str = "full") -> Path:
+def ir_for(source: Path, *, profile: str = "full", viewport: tuple[int, int] = DEFAULT_VIEWPORT) -> Path:
     """IR JSON for `source`: the file itself if it is IR, else the cached conversion
     (made again when the file changed).
 
     `source` may also be a Rojo project (a *.project.json file or a directory with
     default.project.json), which is built with `rojo build` first, or a story file
-    (*.story.luau), which is run and the UI it builds read (rhr.story).
+    (*.story.luau), which is run at `viewport` and the UI it builds read (rhr.story).
     """
     from rhr.ir import cached_ir, load_ir
     from rhr import rojo, story
 
     if story.is_story(source):
         # UI that code builds: the story is run in its Rojo project (rhr.story).
-        source = story.build(source, log=lambda message: print(message, file=sys.stderr))
+        source = story.build(source, width=viewport[0], height=viewport[1],
+                             log=lambda message: print(message, file=sys.stderr))
     project = rojo.project_file(source)
     if project is not None:
         source = rojo.build(project, IR_DIR)
@@ -204,7 +205,7 @@ def _ui(args) -> int:
 
     t0 = time.perf_counter()
     try:
-        ir_path = ir_for(source, profile="ui")
+        ir_path = ir_for(source, profile="ui", viewport=(width, height))
     except (ValueError, RuntimeError) as exc:
         return _die(str(exc))
     _prepare_ui_images(ir_path, args.offline)
@@ -259,7 +260,7 @@ def _layout(args) -> int:
         return _die(f"no such file: {source}")
     width, height = args.viewport
     try:
-        ir_path = ir_for(source, profile="ui")
+        ir_path = ir_for(source, profile="ui", viewport=(width, height))
         screens = load_screens(str(ir_path), width, height, args.topbar_height)
     except (ValueError, RuntimeError) as exc:
         return _die(str(exc))
@@ -404,7 +405,8 @@ def _check(args) -> int:
     width, height = args.viewport
     t0 = time.perf_counter()
     try:
-        result = check_model(ir_for(source, profile="ui"), width, height, topbar_height=args.topbar_height)
+        ir_path = ir_for(source, profile="ui", viewport=(width, height))
+        result = check_model(ir_path, width, height, topbar_height=args.topbar_height)
     except (ValueError, RuntimeError, OSError) as exc:
         return _die(str(exc))
     elapsed = int((time.perf_counter() - t0) * 1000)
@@ -469,7 +471,7 @@ def _hitmap(args) -> int:
     width, height = args.viewport
     t0 = time.perf_counter()
     try:
-        ir_path = ir_for(source, profile="ui")
+        ir_path = ir_for(source, profile="ui", viewport=(width, height))
         hitmap = build_hitmap(ir_path, width, height, topbar_height=args.topbar_height)
     except (ValueError, RuntimeError) as exc:
         return _die(str(exc))
@@ -653,7 +655,8 @@ def _preview(args) -> int:
     t0 = time.perf_counter()
     try:
         # A stored model (--focus) or stored ScreenGuis (--all-guis) need the storage read too.
-        ir_path = ir_for(source, profile="static" if args.focus or args.all_guis else "world")
+        ir_path = ir_for(source, profile="static" if args.focus or args.all_guis else "world",
+                          viewport=(width, height))
         from rhr.ir import world_ir
 
         world_path = world_ir(ir_path, args.focus)
@@ -855,7 +858,8 @@ def build_parser() -> argparse.ArgumentParser:
     p_ir.set_defaults(func=_ir)
 
     p_ui = sub.add_parser("ui", help="draw the ScreenGuis (2D UI) to PNG")
-    p_ui.add_argument("file", help="Roblox model/place, Rojo project, IR .json, or a Roblox asset id or link")
+    p_ui.add_argument("file", help="Roblox model/place, Rojo project, IR .json, a Roblox asset id or link, "
+                  "or a UI story (*.story.luau, run in its Rojo project)")
     p_ui.add_argument("--out", help="PNG path (default: <input stem>-ui.png)")
     p_ui.add_argument("--viewport", type=parse_viewport, default=DEFAULT_VIEWPORT,
                       help="WxH (default: 1615x1080)")
@@ -880,7 +884,8 @@ def build_parser() -> argparse.ArgumentParser:
     p_ui.set_defaults(func=_ui)
 
     p_layout = sub.add_parser("layout", help="resolved rect per node, as JSON")
-    p_layout.add_argument("file", help="Roblox model/place, Rojo project, IR .json, or a Roblox asset id or link")
+    p_layout.add_argument("file", help="Roblox model/place, Rojo project, IR .json, a Roblox asset id or link, "
+                      "or a UI story (*.story.luau, run in its Rojo project)")
     p_layout.add_argument("--viewport", type=parse_viewport, default=DEFAULT_VIEWPORT,
                           help="WxH (default: 1615x1080)")
     p_layout.add_argument("--out", help="write JSON here instead of stdout")
@@ -902,7 +907,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_check = sub.add_parser("check", help="model smells that should fail a build, as JSON findings "
                                           "(exit 1 when any is an error)")
-    p_check.add_argument("file", help="Roblox model/place, Rojo project, IR .json, or a Roblox asset id or link")
+    p_check.add_argument("file", help="Roblox model/place, Rojo project, IR .json, a Roblox asset id or link, "
+                     "or a UI story (*.story.luau, run in its Rojo project)")
     p_check.add_argument("--viewport", type=parse_viewport, default=DEFAULT_VIEWPORT,
                          help="WxH (default: 1615x1080)")
     p_check.add_argument("--out", help="write JSON here instead of stdout")
@@ -933,7 +939,8 @@ def build_parser() -> argparse.ArgumentParser:
     p_compare.set_defaults(func=_compare)
 
     p_hitmap = sub.add_parser("hitmap", help="interactive GUI hit regions, as JSON")
-    p_hitmap.add_argument("file", help="Roblox model/place, Rojo project, IR .json, or a Roblox asset id or link")
+    p_hitmap.add_argument("file", help="Roblox model/place, Rojo project, IR .json, a Roblox asset id or link, "
+                      "or a UI story (*.story.luau, run in its Rojo project)")
     p_hitmap.add_argument("--viewport", type=parse_viewport, default=DEFAULT_VIEWPORT,
                           help="WxH (default: 1615x1080)")
     p_hitmap.add_argument("--out", help="write JSON here instead of stdout")
