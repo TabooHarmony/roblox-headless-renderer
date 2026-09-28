@@ -429,3 +429,19 @@ to draw exits 2 with a hint; default viewport 1920x1080 plus `--device`; `--show
 `--only` for screens code opens; hit map semantics follow a Studio measurement; the
 native client is built in Phase 3 and ships in 1.0 if CI is green; stories ship in 1.0
 as experimental; macOS is first class only after a real Mac run.
+
+**Progress (2026-09-28, same session):**
+- Phase 0, local part done: stories finished (tests, --viewport, `model` name, docs),
+  cache F16, server memory F17, hardening 4.8 (the random path token skipped: the
+  Host and Origin checks already stop web pages), GOAL.md and README rewritten.
+  Waiting on the maintainer: push, CI on three systems, PyPI pending publisher, then
+  tag v0.9.0b1.
+- Phase 1 done except F8: F1/F19 (nothing to draw exits 2 with hints; scene/preview
+  too), F2 (`--show`, `--only`), F3 (`missingAssets`, `image-missing`), F5/F6/F7
+  (checks read the engine's layout; info severity; `--min-severity`, `--ignore`,
+  `--baseline`, `RhrIgnore`; text-taller-than-box, off-screen, partly-off-screen,
+  small-target, low-contrast), F18 (`--view front` = Roblox Front). Probe 6/6; on
+  Steal An Egg, GAG, Heartsmm2 and CRATES GUI 4 warnings left, all judged right.
+- F8 (hit map rules) and the blocked-button check wait for a Studio measurement
+  (Studio MCP input simulation): a hidden Active frame over a button,
+  Interactable = false, Modal, a disabled ScreenGui.
