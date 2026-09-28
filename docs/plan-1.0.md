@@ -417,3 +417,15 @@ draws what it built. Works on Fusion 0.3 and React-lua 17.2.1 stories
 `src\Broken.story.luau:5`). Left: tests/test_story.py over the fixture, a profile phase for the
 run, the check's `model` name, README/AGENTS/interface/CHANGELOG, then GOAL.md rewrite. Front/back
 `--view` question still open.
+
+## Decided (2026-09-28, third session)
+
+The review in docs/road-to-1.0.md is agreed; all of its section 8 recommendations
+were accepted. It replaces the "Next" lists above: work now follows its phases 0-4.
+In short: 0.9.0b1 first, 1.0.0rc1 after Phase 2; `--view front` means Roblox's Front
+(-Z), model-relative with `--focus`; `scene-dump` defaults to a summary (`--parts` for
+all); severities gain `info` (`duplicate-zindex`, `invisible-content` demoted); nothing
+to draw exits 2 with a hint; default viewport 1920x1080 plus `--device`; `--show` and
+`--only` for screens code opens; hit map semantics follow a Studio measurement; the
+native client is built in Phase 3 and ships in 1.0 if CI is green; stories ship in 1.0
+as experimental; macOS is first class only after a real Mac run.
