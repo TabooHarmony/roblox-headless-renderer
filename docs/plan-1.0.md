@@ -349,3 +349,44 @@ check before 1.0, it decides how much of RHR is unique.
    real agent use, freeze, tag 1.0.
 
 Suggested order: 1, 2, 4 (first two items), 5.
+
+## Scope decided (2026-09-27, second session)
+
+Supersedes "Pending for the next session" above where they differ; GOAL.md and the
+README still to be rewritten from this.
+
+- **What RHR is:** see any Roblox file in about a second, with no Studio, account or
+  GPU: a picture plus the numbers behind it. Not unique, convenient and light: speed
+  and size are the product. Built for agents, just as useful for people. It looks; it
+  never edits files (not in 1.0).
+- **Users:** anyone making Roblox things with an agent, in Rojo repos and with loose
+  files (Creator Store models, commissions, old places); also people who want a quick
+  look without Studio's 20-30 s start.
+- **Platforms:** Windows and macOS first class; Linux tested in CI and supported for
+  cloud agents (where Studio cannot run at all).
+- **Assets, in order:** the Studio login (most users); an Open Cloud API key (user
+  key, `legacy-asset:manage`; tested 2026-09-27: reaches models the user does not
+  own, login-only meshes and unions, 1000 requests/min, no batch endpoint); what
+  Roblox serves without a login (some meshes, images, material textures; never
+  unions or models; 420 px thumbnails and Creator Store search are public); honest
+  stand-ins.
+- **In, to build:** asset ids and Creator Store URLs as inputs; `rhr view` (a local
+  page to fly around a build; local only, no QR code, no public hosting);
+  `rhr icons` (many models to transparent icons); `rhr inspect` (what a file holds:
+  scripts, `require(<id>)`, `getfenv`: free-model safety, still only looking); the
+  API key path.
+- **UI built by code:** only if one runner covers every library. Proposed: run UI
+  Labs / Hoarcekat / Flipbook stories (`function(target) ... return cleanup end`) in
+  a Roblox emulation (instances, signals, `AbsoluteSize` from our layout,
+  sourcemap `require`); a 2-day spike on one React-lua and one Fusion story decides.
+
+**Done since:** batch asset downloads (commit 342ea89): 256 ids per request, files in
+parallel; 204 assets 50.8 s -> 3.4 s, byte-identical files.
+
+**Found, not fixed:** a 2016 Creator Store tree (580221169) whose MeshParts carry no
+mesh reference in the file draws as boxes (Studio shows the tree); the iso view crops
+a car model (2810302648); the cache prunes once a day, so a day of big places left
+10.8 GB against the 2 GB limit.
+
+**Next, in order:** asset ids/URLs as inputs; `rhr view`; `rhr icons`; API key path;
+story-runner spike; `rhr inspect`; then GOAL.md/README, and step 7.
