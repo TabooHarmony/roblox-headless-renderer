@@ -17,11 +17,16 @@ What is fetched, and where it goes (<rhr cache>/cache/...):
     materials/<id>.png   Roblox's own texture maps for the built-in materials, by the
                          asset ids Roblox publishes (scene/roblox_materials.json)
 
-The signed-in download runs a Lune script (luau/fetch-signed-in.luau) that reads
-Studio's saved login and sends it only to Roblox's asset delivery, the same request
-Studio makes to show the asset; RHR never sees, prints or stores the login. Without
-a login, images fall back to thumbnails and the rest are reported missing: meshes
-draw as boxes, unions as their bounding boxes, materials as look-alike textures.
+Downloads take two steps: Roblox's asset delivery batch endpoint says where each file
+is (a short-lived signed link on its CDN, up to 256 assets per request), then the
+files come from the CDN in parallel. The signed-in step runs a Lune script
+(luau/fetch-locations.luau) that reads Studio's saved login and sends it only to
+Roblox's asset delivery, the same service Studio asks; RHR never sees, prints or
+stores the login, only the links. Without a login RHR asks the same endpoint without
+signing in: Roblox serves some meshes, images and material textures that way, never
+unions or models. Images it still cannot get fall back to thumbnails and the rest are
+reported missing: meshes draw as boxes, unions as their bounding boxes, materials as
+look-alike textures.
 
 `RHR_OFFLINE=1` (or `--offline`) never touches the network; tests set it.
 `rhr fetch --no-studio-login` fetches only what Roblox serves without signing in.
@@ -39,7 +44,7 @@ import sys
 import time
 import urllib.error
 import urllib.request
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from rhr.paths import CACHE, ICON_CACHE, ICONS_DIR, MATERIAL_CACHE, MESH_CACHE, PACKAGE, UNION_CACHE
@@ -55,8 +60,6 @@ FAILURES = CACHE / "cache" / "fetch_failures.json"
 ORIGINALS = CACHE / "cache" / "icons_original.json"
 RETRY_AFTER = 24 * 3600
 NO_LOGIN_RECHECK = 10 * 60
-SIGNED_IN_BATCH = 40
-SIGNED_IN_WORKERS = 4
 
 __all__ = ["asset_id", "collect_refs", "collect_scene_refs", "ensure", "run", "ICONS_DIR"]
 
@@ -339,71 +342,114 @@ def _store_mesh(payload: bytes, destination: Path) -> str:
 
 
 # -- downloads -------------------------------------------------------------------
+#
+# Two steps. Roblox's asset delivery batch endpoint turns up to 256 asset ids into
+# short-lived signed links on its CDN in one request (as the Studio user, or without
+# a sign-in for what Roblox serves to anyone); the files then come from the CDN in
+# parallel. One asset at a time cost about 0.7 s each (83 assets: 55 s; now 1.6 s).
 
-def _public(asset: str, *, timeout: float = 20.0) -> bytes | str:
-    url = f"https://assetdelivery.roblox.com/v1/asset/?id={asset}"
-    request = urllib.request.Request(url, headers={"User-Agent": "roblox-headless-renderer"})
-    try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
-            return response.read()
-    except urllib.error.HTTPError as exc:
-        if exc.code in (401, 403):
-            return f"missing (Roblox serves this asset only to a signed-in account: HTTP {exc.code})"
-        return f"missing (HTTP {exc.code})"
-    except (urllib.error.URLError, TimeoutError, OSError) as exc:
-        return f"missing ({exc})"
-
-
+BATCH_URL = "https://assetdelivery.roblox.com/v2/assets/batch"
+BATCH_SIZE = 256  # the endpoint refuses more assets per request
+DOWNLOAD_WORKERS = 16
 _NO_LOGIN = "missing (no Roblox Studio login found on this machine)"
+_USER_AGENT = "roblox-headless-renderer"
 
 
-def signed_in(ids: list[str]) -> dict[str, bytes | str]:
-    """Download assets as the Roblox Studio user on this machine: id -> bytes or 'missing (...)'."""
+def _refused(code: int, message: str, *, signed_in: bool) -> str:
+    if signed_in:
+        return f"missing (signed in: HTTP {code}: {message})" if code else f"missing (signed in: {message})"
+    if code in (401, 403):
+        return f"missing (Roblox serves this asset only to a signed-in account: HTTP {code})"
+    return f"missing (HTTP {code}: {message})" if code else f"missing ({message})"
+
+
+def _locations(answers: dict, ids: list[str], *, signed_in: bool) -> dict[str, str]:
+    """id -> CDN link ('https://...') or 'missing (why)', from the batch answers."""
+    out = {}
+    for asset in ids:
+        answer = answers.get(asset) or {}
+        location = answer.get("location")
+        if isinstance(location, str) and location.startswith("https://"):
+            out[asset] = location
+        else:
+            out[asset] = _refused(int(answer.get("code") or 0), str(answer.get("message") or "no answer"),
+                                  signed_in=signed_in)
+    return out
+
+
+def locate_public(ids: list[str], *, timeout: float = 30.0) -> dict[str, str]:
+    """Where to download each asset without a sign-in: id -> link or 'missing (why)'."""
+    def ask(chunk: list[str]) -> dict:
+        body = json.dumps([{"assetId": int(i), "requestId": i} for i in chunk]).encode()
+        request = urllib.request.Request(BATCH_URL, data=body, headers={
+            "User-Agent": _USER_AGENT, "Content-Type": "application/json"})
+        try:
+            with urllib.request.urlopen(request, timeout=timeout) as response:
+                items = json.loads(response.read())
+        except urllib.error.HTTPError as exc:
+            return {i: {"code": exc.code, "message": "batch refused"} for i in chunk}
+        except (urllib.error.URLError, TimeoutError, OSError, ValueError) as exc:
+            return {i: {"code": 0, "message": str(exc)} for i in chunk}
+        answers = {}
+        for item in items if isinstance(items, list) else []:
+            found = [entry.get("location") for entry in item.get("locations") or [] if entry.get("location")]
+            error = (item.get("errors") or [{}])[0]
+            answers[str(item.get("requestId"))] = ({"location": found[0]} if found else
+                                                   {"code": error.get("code"), "message": error.get("message")})
+        return answers
+
+    answers: dict = {}
+    chunks = [ids[start:start + BATCH_SIZE] for start in range(0, len(ids), BATCH_SIZE)]
+    with ThreadPoolExecutor(max_workers=4) as executor:
+        for result in executor.map(ask, chunks):
+            answers.update(result)
+    return _locations(answers, ids, signed_in=False)
+
+
+def locate_signed_in(ids: list[str]) -> dict[str, str]:
+    """Where to download each asset as the Roblox Studio user on this machine:
+    id -> link or 'missing (why)'; every id is _NO_LOGIN when there is no login."""
     import subprocess
-    import tempfile
 
     from rhr.ir import lune_executable
     from rhr.procs import no_window
 
     if not ids:
         return {}
-    script = PACKAGE / "luau" / "fetch-signed-in.luau"
-    results: dict[str, bytes | str] = {}
     try:
         lune = lune_executable()
     except (RuntimeError, OSError) as exc:
         return {i: f"missing (signed-in download needs Lune: {exc})" for i in ids}
+    script = PACKAGE / "luau" / "fetch-locations.luau"
+    try:
+        proc = subprocess.run([lune, "run", str(script)], input=json.dumps(ids), capture_output=True,
+                              text=True, encoding="utf-8", timeout=300, **no_window())
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return {i: f"missing (signed in: {exc})" for i in ids}
+    out = proc.stdout.strip()
+    if out == "nologin":
+        return {i: _NO_LOGIN for i in ids}
+    try:
+        answers = json.loads(out)
+    except ValueError:
+        reason = (proc.stderr.strip().splitlines() or ["no answer"])[-1]
+        return {i: f"missing (signed in: {reason})" for i in ids}
+    return _locations(answers if isinstance(answers, dict) else {}, ids, signed_in=True)
 
-    with tempfile.TemporaryDirectory(prefix="rhr-signed-in-") as directory:
-        def batch(chunk: list[str]) -> dict[str, bytes | str]:
-            out: dict[str, bytes | str] = {}
-            try:
-                proc = subprocess.run([lune, "run", str(script), directory, *chunk], capture_output=True,
-                                      text=True, timeout=600, stdin=subprocess.DEVNULL, **no_window())
-            except (OSError, subprocess.TimeoutExpired) as exc:
-                return {i: f"missing (signed in: {exc})" for i in chunk}
-            if proc.stdout.strip() == "nologin":
-                return {i: _NO_LOGIN for i in chunk}
-            for line in proc.stdout.splitlines():
-                asset, _, status = line.partition(" ")
-                if status == "ok":
-                    path = Path(directory) / f"{asset}.bin"
-                    out[asset] = path.read_bytes()
-                    path.unlink(missing_ok=True)
-                elif asset:
-                    out[asset] = f"missing (signed in: {status})"
-            return out
 
-        chunks = [ids[start:start + SIGNED_IN_BATCH] for start in range(0, len(ids), SIGNED_IN_BATCH)]
-        # The first batch alone: without a login the rest need not start.
-        first = batch(chunks[0])
-        results.update(first)
-        if any(value == _NO_LOGIN for value in first.values()):
-            return {i: _NO_LOGIN for i in ids}
-        with ThreadPoolExecutor(max_workers=SIGNED_IN_WORKERS) as executor:
-            for result in executor.map(batch, chunks[1:]):
-                results.update(result)
-    return {i: results.get(i, "missing (signed in: no answer)") for i in ids}
+def _download(location: str, *, timeout: float = 60.0) -> bytes | str:
+    """One file from Roblox's CDN: its bytes, or 'missing (why)'."""
+    request = urllib.request.Request(location, headers={"User-Agent": _USER_AGENT})
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            payload = response.read()
+            if response.headers.get("Content-Encoding", "").lower() == "gzip":
+                payload = gzip.decompress(payload)
+            return payload
+    except urllib.error.HTTPError as exc:
+        return f"missing (download: HTTP {exc.code})"
+    except (urllib.error.URLError, TimeoutError, OSError, EOFError, gzip.BadGzipFile) as exc:
+        return f"missing (download: {exc})"
 
 
 def _thumbnails(ids: set[str], log) -> dict[str, str]:
@@ -435,6 +481,7 @@ def ensure(refs: dict[str, set[str]], *, login: bool = True, log=None) -> dict[s
     failures = _load_json(FAILURES)
     originals = _load_json(ORIGINALS)
     now = time.time()
+    login_off = not login  # turned off by the caller (--no-studio-login)
     if login and now - failures.get("login", {}).get("time", 0) < NO_LOGIN_RECHECK:
         login = False  # no Studio login a few minutes ago: do not start Lune for every render
     results: dict[str, dict[str, str]] = {kind: {} for kind in refs}
@@ -462,40 +509,34 @@ def ensure(refs: dict[str, set[str]], *, login: bool = True, log=None) -> dict[s
     log(f"fetch  {total} assets not in the cache yet ("
         + ", ".join(f"{len(ids)} {kind}" for kind, ids in wanted.items()) + ")")
 
-    # Meshes: Roblox serves some without a sign-in; try those first, in parallel.
-    need_login: dict[str, list[str]] = {kind: list(ids) for kind, ids in wanted.items()}
-    if wanted.get("meshes"):
-        with ThreadPoolExecutor(max_workers=8) as executor:
-            futures = {executor.submit(_public, asset): asset for asset in wanted["meshes"]}
-            still = []
-            for future in as_completed(futures):
-                asset = futures[future]
-                payload = future.result()
-                status = _store("meshes", asset, payload) if isinstance(payload, bytes) else payload
-                if status == "fetched":
-                    results["meshes"][asset] = status
-                else:
-                    still.append(asset)
-            need_login["meshes"] = still
+    # Where each file is: as the Studio user, then without a sign-in for whatever that
+    # could not answer (no login found, Lune missing, or the login turned off).
+    order = [(kind, asset) for kind, ids in wanted.items() for asset in ids]
+    ids = sorted({asset for _, asset in order}, key=lambda value: (len(value), value))
+    no_login = ("missing (needs a signed-in account; rhr fetch without --no-studio-login uses the "
+                "Roblox Studio login)") if login_off else _NO_LOGIN
+    located = locate_signed_in(ids) if login else {i: no_login for i in ids}
+    unanswered = [i for i in ids if not located[i].startswith(("https://", "missing (signed in: HTTP"))]
+    if unanswered:
+        for asset, where in locate_public(unanswered).items():
+            if where.startswith("https://") or "signed-in account: HTTP" not in where:
+                located[asset] = where  # (else keep why there was no signed-in answer)
 
-    if login:
-        order = [(kind, asset) for kind, ids in need_login.items() for asset in ids]
-        downloads = signed_in(sorted({asset for _, asset in order}))
-        for kind, asset in order:
-            payload = downloads.get(asset, "missing (signed in: no answer)")
-            status = _store(kind, asset, payload) if isinstance(payload, bytes) else payload
+    def download(item: tuple[str, str]) -> tuple[str, str, str]:
+        kind, asset = item
+        where = located[asset]
+        payload = _download(where) if where.startswith("https://") else where
+        return kind, asset, _store(kind, asset, payload) if isinstance(payload, bytes) else payload
+
+    with ThreadPoolExecutor(max_workers=DOWNLOAD_WORKERS) as executor:
+        for kind, asset, status in executor.map(download, order):
             if kind == "images" and status == "fetched":
                 originals[asset] = True
             if kind == "images" and status != "fetched" and _cached(kind, asset):
-                if status != _NO_LOGIN:
+                if status not in (_NO_LOGIN, no_login):
                     failures[f"original:{asset}"] = {"status": status, "time": now}
                 status = "cached"  # the earlier thumbnail stays
             results[kind][asset] = status
-    else:
-        for kind, ids in need_login.items():
-            for asset in ids:
-                results[kind][asset] = ("missing (needs a signed-in account; "
-                                        "rhr fetch without --no-studio-login uses the Roblox Studio login)")
 
     # Images nothing else could get: thumbnails, which need no sign-in.
     thumbs = {a for a, s in results.get("images", {}).items() if s.startswith("missing")}
@@ -506,7 +547,9 @@ def ensure(refs: dict[str, set[str]], *, login: bool = True, log=None) -> dict[s
     for kind, statuses in results.items():
         for asset, status in statuses.items():
             key = f"{kind}:{asset}"
-            if status.startswith("missing") and "no Roblox Studio login" not in status and "Lune" not in status:
+            # (Not what a login would get: signing in must not wait a day to count.)
+            if (status.startswith("missing") and "Lune" not in status
+                    and status not in (_NO_LOGIN, no_login)):
                 failures[key] = {"status": status, "time": now}
             else:
                 failures.pop(key, None)

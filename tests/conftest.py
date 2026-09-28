@@ -60,6 +60,11 @@ if not os.environ.get("RHR_TEST_KEEP_CACHE"):
     if _shell is not None and _shell.is_file() and not os.environ.get("RHR_BROWSER"):
         os.environ["RHR_BROWSER"] = str(_shell)
     os.environ["RHR_CACHE_DIR"] = str(_test_cache)
+    # rhr.paths fixed its cache folder when imported above (the real one): import rhr
+    # afresh so tests that run in this process use the suite's cache too, not only
+    # the subprocesses.
+    for _name in [name for name in sys.modules if name == "rhr" or name.startswith("rhr.")]:
+        del sys.modules[_name]
 
     def _cleanup_test_cache() -> None:
         subprocess.run([sys.executable, "-m", "rhr", "browser", "stop"], capture_output=True, timeout=60)

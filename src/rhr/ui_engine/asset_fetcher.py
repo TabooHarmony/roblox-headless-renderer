@@ -202,7 +202,9 @@ def resolve_thumbnail_urls(asset_ids, session, show_tqdm: bool = False):
                             state = item.get("state", "")
                             if img_url and state == "Completed":
                                 url_map[aid] = img_url
-                            elif state in ("Pending", "InReview", "Blocked"):
+                            elif state == "Pending":
+                                # (Blocked and InReview do not change within a render:
+                                # polling them only cost seconds on every render.)
                                 still_pending.add(aid)
                     still_pending.update(str(aid) for aid in batch if str(aid) not in seen and str(aid) not in url_map)
                     break

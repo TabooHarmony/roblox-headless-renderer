@@ -56,6 +56,15 @@
 
 ### Changes
 
+- **Assets download about 15x faster.** RHR asks Roblox where up to 256 assets are in
+  one request, then downloads the files in parallel, instead of one asset at a time
+  (204 assets from three Creator Store models: 50.8 s -> 3.4 s; the first render of a
+  new car model: 55 s of downloads -> 2.2 s). The files are the same, byte for byte.
+  Without a Studio login RHR now asks for everything Roblox serves without one (some
+  meshes, images and material textures), not only meshes. Moderated images no longer
+  cost seconds of polling on every render, and an asset refused for lack of a login
+  is asked again as soon as there is one (it used to wait a day after
+  `rhr fetch --no-studio-login`).
 - **Much faster in an agent's loop** (numbers in docs/performance.md, measured one
   process per command as an agent runs them). The main changes:
   - the resident server (above): no Python start-up, imports or re-reading of the
