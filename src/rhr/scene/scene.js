@@ -4963,6 +4963,62 @@ const fullscreenQuad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2));
 const fullscreenScene = new THREE.Scene();
 fullscreenScene.add(fullscreenQuad);
 
+// Post-processing materials, kept for the page's life by their shaders; each use sets
+// its own uniforms. Made and disposed per pass, as they were, every frame compiled
+// every post-processing program again.
+const postMaterials = new Map();
+function postMaterial(parameters) {
+  const key = `${parameters.vertexShader}
+${parameters.fragmentShader}`;
+  let material = postMaterials.get(key);
+  if (!material) {
+    material = new THREE.ShaderMaterial(parameters);
+    postMaterials.set(key, material);
+  } else {
+    for (const [name, uniform] of Object.entries(parameters.uniforms || {})) material.uniforms[name] = uniform;
+  }
+  return material;
+}
+// Kept for the same reason: while one lives, the plain-colour program the Neon pass
+// draws with stays compiled.
+const blackMaterial = new THREE.MeshBasicMaterial({color: 0x000000});
+const depthOnlyMaterial = new THREE.MeshBasicMaterial({colorWrite: false});
+
+// Render targets, reused between passes and frames by size (they are cleared by every
+// pass that draws into them): allocating full-size multisampled targets every frame
+// was a cost of its own.
+const targetPool = [];
+function makeTarget(w, h, samples = 0) {
+  w = Math.max(1, w);
+  h = Math.max(1, h);
+  const index = targetPool.findIndex(t => t.width === w && t.height === h && t.samples === samples);
+  if (index >= 0) {
+    // As a new target starts: all zero (a pass that is off is still sampled, times 0).
+    const target = targetPool.splice(index, 1)[0];
+    const previous = renderer.getRenderTarget();
+    const clearColor = renderer.getClearColor(new THREE.Color());
+    const clearAlpha = renderer.getClearAlpha();
+    renderer.setRenderTarget(target);
+    renderer.setClearColor(0x000000, 0);
+    renderer.clear(true, true, true);
+    renderer.setClearColor(clearColor, clearAlpha);
+    renderer.setRenderTarget(previous);
+    return target;
+  }
+  const target = new THREE.WebGLRenderTarget(w, h, {
+    type: THREE.HalfFloatType,
+    colorSpace: THREE.LinearSRGBColorSpace,
+    depthBuffer: true,
+    stencilBuffer: true,  // Highlights mark their shape in it
+    samples,
+  });
+  return target;
+}
+function releaseTarget(target) {
+  targetPool.push(target);
+  while (targetPool.length > 16) targetPool.shift().dispose();
+}
+
 function drawFullscreen(material, target) {
   fullscreenQuad.material = material;
   renderer.setRenderTarget(target);
@@ -4974,7 +5030,7 @@ varying vec2 vUv;
 void main() { vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }`;
 
 function blurMaterial() {
-  return new THREE.ShaderMaterial({
+  return postMaterial({
     uniforms: {source: {value: null}, direction: {value: new THREE.Vector2()}, sigma: {value: 4}},
     vertexShader: FULLSCREEN_VERTEX,
     fragmentShader: `
@@ -4996,15 +5052,6 @@ void main() {
   });
 }
 
-function makeTarget(w, h) {
-  return new THREE.WebGLRenderTarget(Math.max(1, w), Math.max(1, h), {
-    type: THREE.HalfFloatType,
-    colorSpace: THREE.LinearSRGBColorSpace,
-    depthBuffer: true,
-    stencilBuffer: true,  // Highlights mark their shape in it
-  });
-}
-
 // Blur `source` into `out` (same size) with a Gaussian of `sigma` texels.
 function gaussian(source, scratch, out, sigma) {
   const material = blurMaterial();
@@ -5015,12 +5062,11 @@ function gaussian(source, scratch, out, sigma) {
   material.uniforms.source.value = scratch.texture;
   material.uniforms.direction.value.set(0, 1 / source.height);
   drawFullscreen(material, out);
-  material.dispose();
 }
 
 // Draw Neon parts only, in their colour; everything else black so it hides glow behind it.
 function renderNeonBuffer(camera, target) {
-  const black = new THREE.MeshBasicMaterial({color: 0x000000});
+  const black = blackMaterial;
   const swapped = [];
   const background = scene.background;
   const fog = scene.fog;
@@ -5057,7 +5103,6 @@ function renderNeonBuffer(camera, target) {
     object.material = material;
     object.visible = visible;
   }
-  black.dispose();
   scene.background = background;
   scene.fog = fog;
 }
@@ -5081,16 +5126,14 @@ function renderSunRays(camera, rays, size, out) {
   const background = scene.background, fog = scene.fog;
   scene.background = new THREE.Color(1, 1, 1);
   scene.fog = null;
-  const black = new THREE.MeshBasicMaterial({color: 0x000000});
-  scene.overrideMaterial = black;
+  scene.overrideMaterial = blackMaterial;
   renderer.setRenderTarget(mask);
   renderer.render(scene, camera);
   scene.overrideMaterial = null;
-  black.dispose();
   scene.background = background;
   scene.fog = fog;
   for (const object of hidden) object.visible = true;
-  const material = new THREE.ShaderMaterial({
+  const material = postMaterial({
     uniforms: {
       mask: {value: mask.texture}, sunUv: {value: sunUv}, sunView: {value: view.normalize()},
       tans: {value: new THREE.Vector2(tanX, tanY)},
@@ -5135,8 +5178,7 @@ void main() {
     depthWrite: false,
   });
   drawFullscreen(material, out);
-  material.dispose();
-  mask.dispose();
+  releaseTarget(mask);
   return true;
 }
 
@@ -5161,7 +5203,7 @@ function compositeMaterial(effects) {
     ccSaturation: {value: corrections.reduce((product, c) => product * (1 + c.saturation), 1)},
     ccTint: {value: corrections.reduce((tint, c) => tint.multiply(c.tint), new THREE.Color(1, 1, 1))},
   };
-  return new THREE.ShaderMaterial({
+  return postMaterial({
     uniforms,
     vertexShader: FULLSCREEN_VERTEX,
     fragmentShader: `
@@ -5243,8 +5285,7 @@ function compositeParticles(sceneTarget, camera) {
       object.visible = false;
     }
   });
-  const depthOnly = new THREE.MeshBasicMaterial({colorWrite: false});
-  scene.overrideMaterial = depthOnly;
+  scene.overrideMaterial = depthOnlyMaterial;
   scene.background = null;
   camera.layers.set(0);
   renderer.setRenderTarget(hdr);
@@ -5254,7 +5295,7 @@ function compositeParticles(sceneTarget, camera) {
   scene.overrideMaterial = null;
   for (const object of hidden) object.visible = true;
   renderer.autoClear = false;
-  const untone = new THREE.ShaderMaterial({
+  const untone = postMaterial({
     uniforms: {source: {value: sceneTarget.texture}},
     vertexShader: FULLSCREEN_VERTEX,
     fragmentShader: `uniform sampler2D source; varying vec2 vUv; ${TONE_GLSL}
@@ -5273,7 +5314,7 @@ void main() { gl_FragColor = vec4(rbxUntone(texture2D(source, vUv).rgb), 1.0); }
   renderer.autoClear = autoClear;
   renderer.setClearColor(clearColor, clearAlpha);
   const out = makeTarget(size.x, size.y);
-  const combine = new THREE.ShaderMaterial({
+  const combine = postMaterial({
     uniforms: {source: {value: sceneTarget.texture}, hdr: {value: hdr.texture}},
     vertexShader: FULLSCREEN_VERTEX,
     fragmentShader: `uniform sampler2D source; uniform sampler2D hdr; varying vec2 vUv; ${TONE_GLSL}
@@ -5286,8 +5327,7 @@ void main() {
     depthWrite: false,
   });
   drawFullscreen(combine, out);
-  for (const material of [depthOnly, untone, combine]) material.dispose();
-  hdr.dispose();
+  releaseTarget(hdr);
   return out;
 }
 
@@ -5302,14 +5342,13 @@ function renderFrame(camera) {
     return;
   }
   const size = renderer.getSize(new THREE.Vector2());
-  let main = makeTarget(size.x, size.y);
-  main.samples = 4;
+  let main = makeTarget(size.x, size.y, 4);
   renderer.setRenderTarget(main);
   if (separateParticles) camera.layers.disable(PARTICLE_LAYER);
   renderer.render(scene, camera);
   if (separateParticles) {
     const withParticles = compositeParticles(main, camera);
-    main.dispose();
+    releaseTarget(main);
     main = withParticles;
   }
 
@@ -5325,7 +5364,7 @@ function renderFrame(camera) {
   const bloomBlur = makeTarget(...quarter);
   if (effects.bloom) {
     // Bright pass at quarter resolution: what is brighter than the threshold.
-    const bright = new THREE.ShaderMaterial({
+    const bright = postMaterial({
       uniforms: {source: {value: main.texture}, threshold: {value: effects.bloom.threshold * 0.5}},
       vertexShader: FULLSCREEN_VERTEX,
       fragmentShader: `
@@ -5339,10 +5378,9 @@ void main() {
       depthWrite: false,
     });
     drawFullscreen(bright, neonScratch);
-    bright.dispose();
     const scratch = makeTarget(...quarter);
     gaussian(neonScratch, scratch, bloomBlur, (effects.bloom.size * scale) / 8);
-    scratch.dispose();
+    releaseTarget(scratch);
   }
   const raysOut = makeTarget(...quarter);
   const raysOn = effects.sunRays ? renderSunRays(camera, effects.sunRays, quarter, raysOut) : false;
@@ -5353,8 +5391,7 @@ void main() {
   composite.uniforms.neon.value = neonBlur.texture;
   composite.uniforms.bloom.value = bloomBlur.texture;
   drawFullscreen(composite, null);
-  composite.dispose();
-  for (const target of [main, neonRaw, neonScratch, neonBlur, bloomBlur, raysOut]) target.dispose();
+  for (const target of [main, neonRaw, neonScratch, neonBlur, bloomBlur, raysOut]) releaseTarget(target);
 }
 
 // Where a place keeps models out of the world until a script clones them in (a game's

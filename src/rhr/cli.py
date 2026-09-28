@@ -527,10 +527,10 @@ def _scene(args) -> int:
                 effect_time=args.effect_time,
                 seed=args.seed,
             )
-        from rhr.scene_dump import build_scene_dump, notes_line
+        from rhr.scene_dump import cached_scene_dump, notes_line
 
         with phase("notes (scene dump)"):
-            scene_dump = build_scene_dump(ir_path, texture_dir=texture_dir, mesh_dir=mesh_dir,
+            scene_dump, _ = cached_scene_dump(ir_path, texture_dir=texture_dir, mesh_dir=mesh_dir,
                                           world=True, focus=args.focus, parts=False)
             if scene_dump.get("_storedNote"):
                 page_notes.append(scene_dump["_storedNote"])
@@ -625,10 +625,10 @@ def _preview(args) -> int:
     elapsed = int((time.perf_counter() - t0) * 1000)
     print(f"ir      {ir_path}", file=sys.stderr)
     print(f"preview {out}  {width}x{height}  {elapsed}ms", file=sys.stderr)
-    from rhr.scene_dump import build_scene_dump, notes_line
+    from rhr.scene_dump import cached_scene_dump, notes_line
 
     try:
-        scene_dump = build_scene_dump(world_path, texture_dir=texture_dir, mesh_dir=mesh_dir,
+        scene_dump, _ = cached_scene_dump(world_path, texture_dir=texture_dir, mesh_dir=mesh_dir,
                                       world=True, focus=args.focus, parts=False)
         if scene_dump.get("_storedNote"):
             page_notes.append(scene_dump["_storedNote"])

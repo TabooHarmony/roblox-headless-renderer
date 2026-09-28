@@ -19,8 +19,8 @@ def listing(root: Path) -> dict[str, dict[str, tuple[Path, int, int]]]:
     few thousand assets.
     """
     try:
-        root = root.resolve()
-        stamp = root.stat().st_mtime_ns
+        root = Path(os.path.abspath(root))  # (resolve() is a system call per use on Windows)
+        stamp = os.stat(root).st_mtime_ns
     except OSError:
         return {}
     cached = _LISTINGS.get(str(root))
