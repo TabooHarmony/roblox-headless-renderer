@@ -497,7 +497,8 @@ def _scene(args) -> int:
         from rhr.profile import phase
 
         with phase("file conversion (IR)"):
-            ir_path = ir_for(source, profile="static")
+            # A stored model (--focus ServerStorage/...) needs the storage read too.
+            ir_path = ir_for(source, profile="static" if args.focus else "world")
         with phase("downloads check"):
             from rhr.ir import world_ir
 
@@ -566,7 +567,8 @@ def _preview(args) -> int:
     mesh_dir = Path(args.mesh_dir) if args.mesh_dir else None
     t0 = time.perf_counter()
     try:
-        ir_path = ir_for(source, profile="static")
+        # A stored model (--focus) or stored ScreenGuis (--all-guis) need the storage read too.
+        ir_path = ir_for(source, profile="static" if args.focus or args.all_guis else "world")
         from rhr.ir import world_ir
 
         world_path = world_ir(ir_path, args.focus)
@@ -649,7 +651,7 @@ def _preview(args) -> int:
 
 
 def _scene_dump(args) -> int:
-    from rhr.scene_dump import build_scene_dump, dump_json
+    from rhr.scene_dump import cached_scene_dump
 
     source = Path(args.file)
     if not source.exists():
@@ -657,14 +659,13 @@ def _scene_dump(args) -> int:
     t0 = time.perf_counter()
     try:
         ir_path = ir_for(source)
-        scene_dump = build_scene_dump(
+        scene_dump, text = cached_scene_dump(
             ir_path,
             texture_dir=Path(args.texture_dir) if args.texture_dir else None,
             mesh_dir=Path(args.mesh_dir) if args.mesh_dir else None,
         )
     except (ValueError, RuntimeError, OSError) as exc:
         return _die(str(exc))
-    text = dump_json(scene_dump)
     if args.out:
         Path(args.out).parent.mkdir(parents=True, exist_ok=True)
         Path(args.out).write_text(text, encoding="utf-8")

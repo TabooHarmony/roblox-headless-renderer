@@ -80,6 +80,9 @@ class Emitter:
         self._plans: dict[str, list] = {}
         self._canonical_names: dict[tuple, str | None] = {}
         self.inside_ui: set[int] = set()  # "ui": instances in a GUI subtree (emitted whole)
+        self.skeleton: set[int] = set()   # "world": stored nodes kept for their paths only
+        self.gui_stubs: set[int] = set()  # "world": stored ScreenGuis, children as stubs
+        self.stored_roots: list[Instance] = []
         self.unreadable_nodes = 0
         self.unreadable_names: dict[str, int] = {}
         self.unmapped_nodes = 0
@@ -123,6 +126,55 @@ class Emitter:
             return keep
         for root in self.doc.roots:
             rec(root)
+
+    def mark_world(self) -> None:
+        """The "world" profile: what a 3D view of a place draws. The world as "static"
+        keeps it; of the storage services (maps in ServerStorage, templates) only their
+        ScreenGuis, with stub children, for the note naming stored ScreenGuis. What the
+        storage holds is summed up in the document's storedNote instead."""
+        from rhr.ir import PLACE_ROOTS, STORED_SERVICES
+
+        place = any(root.class_name in PLACE_ROOTS for root in self.doc.roots)
+
+        def visual(inst: Instance) -> bool:
+            keep = inst.class_name in VISUAL_CLASSES
+            for child in inst.children:
+                keep = visual(child) or keep
+            self.keep[inst.index] = keep
+            return keep
+
+        def stored(inst: Instance) -> bool:
+            if inst.class_name == "ScreenGui":
+                self.keep[inst.index] = True
+                self.gui_stubs.add(inst.index)
+                return True
+            keep = False
+            for child in inst.children:
+                keep = stored(child) or keep
+            self.keep[inst.index] = keep
+            self.skeleton.add(inst.index)
+            return keep
+
+        for root in self.doc.roots:
+            if place and root.class_name in STORED_SERVICES:
+                self.stored_roots.append(root)
+                stored(root)
+            else:
+                visual(root)
+
+    def stored_note(self) -> str | None:
+        """rhr.ir.stored_note for the storage services the "world" profile left out."""
+        from rhr.ir import stored_note
+
+        # The same tree a "static" IR holds there (visual classes and what holds them),
+        # so the note counts what it always counted.
+        def light(inst: Instance) -> dict | None:
+            children = [node for node in (light(child) for child in inst.children) if node is not None]
+            if not children and inst.class_name not in VISUAL_CLASSES:
+                return None
+            return {"className": inst.class_name, "path": self.paths[inst.index], "children": children}
+
+        return stored_note([node for node in (light(root) for root in self.stored_roots) if node is not None])
 
     def mark_ui(self) -> None:
         """Keep GUI nodes with everything below them, the nodes above them, and roots."""
@@ -500,7 +552,7 @@ class Emitter:
         node = {"id": self.ids[inst.index], "path": self.paths[inst.index],
                 "className": inst.class_name, "name": inst.name}
         if (not self.full and inst.class_name not in VISUAL_CLASSES) or (
-                self.profile == "ui" and inst.index not in self.inside_ui):
+                self.profile == "ui" and inst.index not in self.inside_ui) or inst.index in self.skeleton:
             # (a "ui" IR keeps what holds the UI for its paths only: a SurfaceGui's Part
             # would otherwise read every Part column of a 100k-part place)
             node["props"] = {}
@@ -564,6 +616,11 @@ class Emitter:
             node["unmapped"] = unmapped
         if not_a_property:
             node["not_a_property"] = not_a_property
+        if inst.index in self.gui_stubs:
+            node["children"] = [{"id": self.ids[child.index], "path": self.paths[child.index],
+                                 "className": child.class_name, "name": child.name, "props": {}, "children": []}
+                                for child in inst.children]
+            return node
         for child in inst.children:
             child_node = self.walk(child)
             if child_node is not None:
@@ -735,13 +792,18 @@ def emit(doc: Document, *, profile: str = "full", source_path: str = "", db: Ref
         emitter.assign_identity()
         if profile == "ui":
             emitter.mark_ui()
+        elif profile == "world":
+            emitter.mark_world()
         elif profile != "full":
             emitter.mark()
         nodes = [n for n in (emitter.walk(root) for root in doc.roots) if n is not None]
+        document = {"schema": "rhr.ir/1", "sourcePath": source_path, "roots": nodes}
+        if profile == "world":
+            document["storedNote"] = emitter.stored_note()
     finally:
         sys.setrecursionlimit(limit)
     report = _report(nodes, emitter, len(emitter.ids))
-    return {"schema": "rhr.ir/1", "sourcePath": source_path, "roots": nodes}, report
+    return document, report
 
 
 def _report(nodes: list[dict], emitter: Emitter, instance_count: int) -> list[str]:

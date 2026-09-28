@@ -31,10 +31,16 @@ def lune_executable() -> str:
         return require("lune", "to read Roblox files")
 
 
-# The last IR read in this process, by (path, size, mtime). A render reads the same
-# IR in several places (downloads, unions, content, notes, in-world UI); a big place's
-# IR is tens of MB, about a second to parse each time. Callers only read it.
-_LOADED: dict[tuple, dict] = {}
+# The IRs read in this process, most recent last: resolved path -> (path, size, mtime),
+# the document, its size on disk. A render reads the same IR in several places
+# (downloads, unions, content, notes, in-world UI), and the resident server answers
+# command after command about the same few files (the "ui" IR for layout and check,
+# the "world" IR for scene): a big place's IR is seconds to parse. Callers only read it.
+# Kept: up to _KEEP files and _KEEP_BYTES of JSON (in memory about 4.5x that), the
+# newest always.
+_LOADED: dict[str, tuple[tuple, dict, int]] = {}
+_KEEP = 4
+_KEEP_BYTES = 450_000_000
 
 
 def _ir_key(path) -> tuple:
@@ -47,27 +53,41 @@ def load_ir(path) -> dict:
     """Read an IR JSON file (written by rhr.rbx or src/rhr/luau/rhr-ir.luau), once
     per process while the file is unchanged. The result is shared: do not modify it."""
     key = _ir_key(path)
-    cached = _LOADED.get(key)
-    if cached is not None:
-        return cached
+    cached = _LOADED.get(key[0])
+    if cached is not None and cached[0] == key:
+        _LOADED[key[0]] = _LOADED.pop(key[0])  # most recent last
+        return cached[1]
     data = json.loads(Path(path).read_text(encoding="utf-8"))
     if "roots" not in data:
         raise ValueError(f"{path} is not an IR file: no 'roots' key")
     ensure_paths(data["roots"])
-    _LOADED.clear()
-    _DERIVED.clear()
-    _LOADED[key] = data
-    _DERIVED[(id(data), "paths")] = (data, None)
+    _keep(key, data)
     return data
 
 
 def _remember_ir(path, document: dict) -> None:
     """Keep an IR this process just wrote, so reading it back costs nothing."""
     ensure_paths(document["roots"])
-    _LOADED.clear()
-    _DERIVED.clear()
-    _LOADED[_ir_key(path)] = document
+    _keep(_ir_key(path), document)
+
+
+def _keep(key: tuple, document: dict) -> None:
+    old = _LOADED.pop(key[0], None)
+    if old is not None:
+        _forget(old[1])
+    _LOADED[key[0]] = (key, document, key[1])
     _DERIVED[(id(document), "paths")] = (document, None)
+    while len(_LOADED) > 1 and (len(_LOADED) > _KEEP or sum(entry[2] for entry in _LOADED.values()) > _KEEP_BYTES):
+        _forget(_LOADED.pop(next(iter(_LOADED)))[1])
+
+
+def _forget(document: dict) -> None:
+    for key in [key for key, (ir, _) in _DERIVED.items() if ir is document]:
+        del _DERIVED[key]
+
+
+def _loaded(ir: dict) -> bool:
+    return any(entry[1] is ir for entry in _LOADED.values())
 
 
 # What commands work out from a loaded IR (which branches hold UI, a path index...),
@@ -83,7 +103,7 @@ def derived(ir: dict, name: str, compute):
     if hit is not None and hit[0] is ir:
         return hit[1]
     value = compute(ir)
-    if any(loaded is ir for loaded in _LOADED.values()):
+    if _loaded(ir):
         _DERIVED[key] = (ir, value)
     return value
 
@@ -125,7 +145,7 @@ def resolve_path(roots: list[dict], wanted: str) -> dict:
     A bare name that matches several indexed siblings (`Card` when the file has
     `Card[1]` and `Card[2]`) is an error listing them, never a silent pick.
     """
-    if not any(document.get("roots") is roots for document in _LOADED.values()):
+    if not any(entry[1].get("roots") is roots for entry in _LOADED.values()):
         ensure_paths(roots)  # load_ir did it for a loaded IR
     found = _find_path(roots, wanted)
     if found is not None:
@@ -155,7 +175,7 @@ STORED_SERVICES = frozenset({
     "ServerStorage", "ReplicatedStorage", "ReplicatedFirst", "ServerScriptService",
     "StarterPack", "StarterPlayer",
 })
-_PLACE_ROOTS = STORED_SERVICES | {"Workspace", "Lighting", "StarterGui"}
+PLACE_ROOTS = STORED_SERVICES | {"Workspace", "Lighting", "StarterGui"}
 _PART_CLASSES = frozenset({
     "Part", "MeshPart", "UnionOperation", "WedgePart", "CornerWedgePart", "TrussPart",
     "SpawnLocation", "Seat", "VehicleSeat",
@@ -179,7 +199,7 @@ def world_roots(roots: list[dict], focus: str | None = None) -> tuple[list[dict]
     it is stored (`--focus ServerStorage/Maps/Farmhouse` shows that map). A model file
     has no services and draws everything.
     """
-    if not any(root.get("className") in _PLACE_ROOTS for root in roots):
+    if not any(root.get("className") in PLACE_ROOTS for root in roots):
         return roots, []
     shown = [root for root in roots if root.get("className") not in STORED_SERVICES]
     stored = [root for root in roots if root.get("className") in STORED_SERVICES]
@@ -241,7 +261,9 @@ def world_ir(ir_path, focus: str | None = None) -> Path:
     if not stored:
         marker.write_text("", encoding="utf-8")
         return ir_path
-    world = {**document, "roots": shown, "storedNote": stored_note(stored, focus)}
+    # A "world" IR summed up its storage when it was read (it keeps none of its parts).
+    note = document["storedNote"] if "storedNote" in document and not focus else stored_note(stored, focus)
+    world = {**document, "roots": shown, "storedNote": note}
     partial = target.with_name(f"{target.name}.{os.getpid()}.part")
     partial.write_text(json.dumps(world, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
     os.replace(partial, target)
@@ -265,8 +287,9 @@ def cached_ir(source_path, *, profile: str = "full") -> Path:
     if not source_path.is_file():
         raise FileNotFoundError(f"no such file: {source_path}")
     data = source_path.read_bytes()
-    if profile == "ui" and not _own_reader(data):
-        profile = "full"  # Lune's script has no "ui" profile; the full IR holds the UI too
+    if not _own_reader(data):
+        # Lune's script has no "ui" or "world" profile; these IRs hold what they would.
+        profile = {"ui": "full", "world": "static"}.get(profile, profile)
     digest = hashlib.sha256()
     digest.update(data)
     digest.update(LUAU_IR_SCRIPT.read_bytes())
@@ -344,6 +367,11 @@ def _emit_own(source_path: Path, data: bytes, out_path: Path, profile: str, repo
     return True
 
 
+# Set by the resident server (rhr.server): XML files go to one Lune process that stays
+# running (rhr.lune_worker) instead of a new one per conversion.
+USE_LUNE_WORKER = False
+
+
 def emit_ir(source_path, out_path, *, profile: str = "full", report_path=None) -> Path:
     """Convert a .rbxm/.rbxmx/.rbxl file to IR JSON.
 
@@ -351,7 +379,7 @@ def emit_ir(source_path, out_path, *, profile: str = "full", report_path=None) -
     measured identical on 63 real files, 10-60x faster); XML files by the Lune script
     (rbx-dom detects binary versus XML by content, so both go through it).
     """
-    if profile not in {"full", "visual", "static", "ui"}:
+    if profile not in {"full", "visual", "static", "ui", "world"}:
         raise ValueError(f"unknown IR profile: {profile}")
     source_path, out_path = Path(source_path).resolve(), Path(out_path)
     if not source_path.is_file():
@@ -360,20 +388,30 @@ def emit_ir(source_path, out_path, *, profile: str = "full", report_path=None) -
     data = source_path.read_bytes()
     if _own_reader(data) and _emit_own(source_path, data, out_path, profile, report_path):
         return out_path
-    if profile == "ui":
-        profile = "full"  # the Lune script has no "ui" profile: the full IR holds the UI too
-    command = [lune_executable(), "run", str(LUAU_IR_SCRIPT), str(source_path), str(out_path)]
-    if profile != "full":
-        command.append(profile)
-    proc = subprocess.run(
-        command,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        stdin=subprocess.DEVNULL,
-        **no_window(),
-    )
+    # The Lune script has no "ui" or "world" profile: these IRs hold what they would.
+    profile = {"ui": "full", "world": "static"}.get(profile, profile)
+    lune = lune_executable()
+    proc = None
+    if USE_LUNE_WORKER:
+        from rhr import lune_worker
+
+        try:
+            proc = subprocess.CompletedProcess([], *lune_worker.convert(lune, source_path, out_path, profile))
+        except (OSError, ValueError):
+            proc = None  # the worker could not run: once more on its own, for its message
+    if proc is None:
+        command = [lune, "run", str(LUAU_IR_SCRIPT), str(source_path), str(out_path)]
+        if profile != "full":
+            command.append(profile)
+        proc = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            stdin=subprocess.DEVNULL,
+            **no_window(),
+        )
     if proc.returncode != 0 and "Failed to find tool 'lune'" in proc.stderr:
         # Rokit's shim only resolves tools listed in a rokit.toml above the cwd.
         raise RuntimeError(
