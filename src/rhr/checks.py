@@ -27,6 +27,8 @@ The checks, by id (the ids are part of the interface):
                                   a panel: games park panels there to slide in)
   partly-off-screen      warning  a button, part of which is outside the screen
   small-target           warning  a button under 24 px on a side
+  image-missing          warning  an image Roblox refused the last time RHR asked for
+                                  it (`rhr check` never downloads; `rhr ui` does)
   zero-size-grid-cell    error    a UIGridLayout cell that resolves to nothing
   child-outside-clip     info     content entirely outside a clipping parent
   invisible-content      info     a visible element that paints nothing
@@ -276,6 +278,19 @@ def check_small_target(nodes: list[dict], ctx: dict) -> list[dict]:
     return findings
 
 
+def check_image_missing(nodes: list[dict], ctx: dict) -> list[dict]:
+    missing = ctx.get("missing_images") or {}
+    findings = []
+    for entry in nodes:
+        known = missing.get(entry["path"])
+        if known is None or not entry.get("visible"):
+            continue
+        uri, why = known
+        findings.append(_finding("image-missing", "warning", entry,
+                                 f"{uri} could not be downloaded ({why}): it draws as nothing"))
+    return findings
+
+
 def check_zero_size_grid_cell(nodes: list[dict], _ctx: dict) -> list[dict]:
     """A UIGridLayout cell resolved to <= 0 px collapses its items to nothing. (A
     UIPadding on the holder shrinks the engine's reference, which the dump's rect does
@@ -406,6 +421,7 @@ CHECKS = [
     check_low_contrast,
     check_off_screen,
     check_small_target,
+    check_image_missing,
     check_zero_size_grid_cell,
     check_child_outside_clip,
     check_invisible_content,
@@ -414,7 +430,7 @@ CHECKS = [
 ]
 CHECK_IDS = (
     "text-wider-than-box", "text-taller-than-box", "text-truncated", "text-size-below-2px", "low-contrast",
-    "off-screen", "partly-off-screen", "small-target", "zero-size-grid-cell", "child-outside-clip",
+    "off-screen", "partly-off-screen", "small-target", "image-missing", "zero-size-grid-cell", "child-outside-clip",
     "invisible-content", "duplicate-zindex", "max-visible-graphemes",
 )
 
@@ -423,13 +439,16 @@ def _sort(findings: list[dict]) -> list[dict]:
     return sorted(findings, key=lambda f: (_RANK[f["severity"]], f["paths"][0], f["check"], f["detail"]))
 
 
-def run_checks(dump: dict, image_paths: set[str] | None = None) -> list[dict]:
-    """Every finding in the dump, sorted by (severity, path, check)."""
+def run_checks(dump: dict, image_paths: set[str] | None = None,
+               missing_images: dict[str, tuple[str, str]] | None = None) -> list[dict]:
+    """Every finding in the dump, sorted by (severity, path, check). `missing_images`:
+    path -> (uri, why) for images known to be unavailable."""
     nodes = dump.get("nodes") or []
     ctx = {
         "viewport": tuple(dump.get("viewport") or (0, 0)),
         "by_path": {entry["path"]: entry for entry in nodes},
         "image_paths": image_paths or set(),
+        "missing_images": missing_images or {},
     }
     findings: list[dict] = []
     for check in CHECKS:
@@ -452,7 +471,7 @@ def check_model(ir_path, width: int, height: int, topbar_height: float | None = 
         ir_path = cached_ir(ir_path)
     dump = build_dump(ir_path, width, height, topbar_height=topbar_height)
     ir = load_ir(ir_path)
-    findings = run_checks(dump, _image_paths(ir))
+    findings = run_checks(dump, _image_paths(ir), _missing_images(ir))
 
     left_out = {"severity": 0, "ignored": 0, "attribute": 0, "baseline": 0}
     suppressed = _suppressed(ir)
@@ -501,6 +520,16 @@ def _is_suppressed(finding: dict, suppressed: dict[str, set[str]]) -> bool:
                 return True
             here = here.rpartition("/")[0]
     return False
+
+
+def _missing_images(ir: dict) -> dict[str, tuple[str, str]]:
+    """Path -> (uri, why) for the UI's images Roblox refused when RHR last asked."""
+    from rhr import fetch
+    from rhr.adapter import ui_nodes
+
+    uses = fetch.image_uses(ui_nodes(ir))
+    refused = fetch.refused_recently("images", uses) if uses else {}
+    return {use["path"]: (use["uri"], why) for asset, why in refused.items() for use in uses[asset]}
 
 
 def _image_paths(ir: dict) -> set[str]:

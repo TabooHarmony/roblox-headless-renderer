@@ -127,6 +127,34 @@ def collect_refs(ir: dict, nodes=None) -> tuple[set[str], set[str]]:
     return images, meshes
 
 
+def image_uses(nodes) -> dict[str, list[dict]]:
+    """Image id -> the nodes that show it: {path, class, uri} (the shape of the 3D
+    reports' missingAssets)."""
+    uses: dict[str, list[dict]] = {}
+    for node in nodes:
+        props = node.get("props") or {}
+        for key in ("Image", "HoverImage", "PressedImage"):
+            value = props.get(key)
+            ref = asset_id(str(value)) if isinstance(value, (str, int)) and not isinstance(value, bool) else None
+            if ref and node.get("path"):
+                uses.setdefault(ref, []).append({"path": node["path"], "class": node.get("className"),
+                                                 "uri": str(value)})
+    return uses
+
+
+def refused_recently(kind: str, ids) -> dict[str, str]:
+    """id -> why, for the assets Roblox refused the last time RHR asked (in the last
+    day) and that are not cached: known to be unavailable, without asking again."""
+    failures = _load_json(FAILURES)
+    now = time.time()
+    out = {}
+    for asset in ids:
+        record = failures.get(f"{kind}:{asset}")
+        if record and now - record.get("time", 0) < RETRY_AFTER and not _cached(kind, asset):
+            out[asset] = str(record.get("status", "missing")).removeprefix("missing").strip(" ()") or "unavailable"
+    return out
+
+
 def uses_2022_materials(ir: dict) -> bool:
     """Whether parts and terrain use Roblox's current material textures.
 
@@ -229,7 +257,9 @@ def _destination(kind: str, asset: str) -> Path:
 # Roblox's thumbnail service answers an image it will not show (deleted, private,
 # moderated) with a grey "image unavailable" icon on white, marked Completed like any
 # other. Drawn as a texture it becomes a white square; Studio draws nothing there.
-UNAVAILABLE_THUMBNAILS = {"e5bef3179d5ce82a42fdc8ddc83a2ba9"}
+# Two variants seen: the older grey icon, and a question mark on two cards (an id
+# that is no asset, 2026-09-28).
+UNAVAILABLE_THUMBNAILS = {"e5bef3179d5ce82a42fdc8ddc83a2ba9", "b566251226e913461da0d9d16687e93f"}
 
 
 def _is_unavailable(path: Path) -> bool:
@@ -263,7 +293,7 @@ def _sweep_placeholders(folder: Path) -> None:
     if str(folder) in _SWEPT:
         return
     _SWEPT.add(str(folder))
-    marker = folder / ".placeholders-swept"
+    marker = folder / ".placeholders-swept-2"
     if marker.exists() or not folder.is_dir():
         return
     for path in folder.glob("*.png"):

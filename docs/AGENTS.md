@@ -9,7 +9,7 @@ the edit loop, and how to read the output without being misled.
 
 | You want to know | Run | Read |
 | --- | --- | --- |
-| What the UI looks like | `rhr ui <file> --out ui.png` | the PNG |
+| What the UI looks like | `rhr ui <file> --out ui.png --json` | the PNG; the report's `missingAssets` (images that could not be had and draw as nothing, with why) |
 | Where every UI element is | `rhr layout <file>` | `rects[path]` = `{x, y, w, h}` in pixels |
 | What each element is made of, and how its text laid out | `rhr layout <file> --rich` | `nodes[]`: class, rect, zIndex, colours, `text.drawnSize`, `text.lines`, `text.bounds` |
 | Whether the UI has obvious mistakes | `rhr check <file>` | `findings[]` (`check`, `severity`, `paths`, `detail`); exit code 1 if any is an error |

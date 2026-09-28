@@ -78,6 +78,11 @@
   tween grows open), is not judged. On four real games: 101 warnings on one became 1;
   the review's probe UI went from 0 of 6 mistakes found (and 2 fine labels flagged)
   to 5 of 6, with the sixth (a missing image) next.
+- **Missing images are reported.** `rhr ui --json` lists the images it could not get
+  in `missingAssets` (path, class, uri, and why: refused, unavailable, offline), and
+  says so on stderr; `rhr check` reports `image-missing` for images Roblox refused the
+  last time RHR asked. A second kind of Roblox "image unavailable" placeholder (a
+  question mark on two cards) was drawn as if it were the image; it is recognised now.
 - **Screens code opens: `--show <path>` and `--only <path>`** on `ui`, `layout`,
   `check`, `hitmap` and `preview`. A screen saved closed (`ScreenGui.Enabled` or
   `Visible` false, as games save the screens their code opens) is drawn with

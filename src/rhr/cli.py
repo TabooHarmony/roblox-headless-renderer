@@ -219,7 +219,7 @@ def _ui(args) -> int:
         ir_path = ir_for(source, profile="ui", viewport=(width, height))
     except (ValueError, RuntimeError) as exc:
         return _die(str(exc))
-    _prepare_ui_images(ir_path, args.offline)
+    missing_images = _prepare_ui_images(ir_path, args.offline)
     t_ir = time.perf_counter()
 
     try:
@@ -259,6 +259,7 @@ def _ui(args) -> int:
         "out": str(png),
         "size": [width, height],
         "screens": [{"name": name, "inset": _inset_json(inset)} for _, _, inset, name in screens],
+        "missingAssets": missing_images,
         "notes": [stored] if stored else [],
     })
 
@@ -348,22 +349,35 @@ def _prepare_scene_assets(ir_path: Path, offline: bool, focus: str | None = None
         say(f"note   fetching assets failed ({type(exc).__name__}: {exc}); drawing with what is cached")
 
 
-def _prepare_ui_images(ir_path: Path, offline: bool) -> None:
-    """Before a UI render: download the images it uses that are not cached (rhr.fetch)."""
+def _prepare_ui_images(ir_path: Path, offline: bool) -> list[dict]:
+    """Before a UI render: download the images it uses that are not cached (rhr.fetch).
+    Returns what is still missing, for the report: {path, class, uri, reason}."""
     from rhr import fetch
+    from rhr.adapter import ui_nodes
+    from rhr.ir import load_ir
 
-    if offline or fetch.offline():
-        return
-    try:
-        from rhr.adapter import ui_nodes
-        from rhr.ir import load_ir
-
-        ir = load_ir(ir_path)
-        images, _ = fetch.collect_refs(ir, ui_nodes(ir))  # the UI's images, not the 3D world's
-        fetch.ensure({"images": images}, log=lambda message: print(message, file=sys.stderr))
-    except Exception as exc:  # noqa: BLE001 - a failed download must not fail the render
-        print(f"note   fetching images failed ({type(exc).__name__}: {exc}); drawing with what is cached",
-              file=sys.stderr)
+    ir = load_ir(ir_path)
+    uses = fetch.image_uses(ui_nodes(ir))  # the UI's images, not the 3D world's
+    if not uses:
+        return []
+    statuses: dict[str, str] = {}
+    if not (offline or fetch.offline()):
+        try:
+            statuses = fetch.ensure({"images": set(uses)}, log=lambda message: print(message, file=sys.stderr))["images"]
+        except Exception as exc:  # noqa: BLE001 - a failed download must not fail the render
+            print(f"note   fetching images failed ({type(exc).__name__}: {exc}); drawing with what is cached",
+                  file=sys.stderr)
+    missing = []
+    for asset in sorted(uses, key=lambda value: (len(value), value)):
+        status = statuses.get(asset) or ("cached" if fetch._cached("images", asset) else "missing (offline)")
+        if status.startswith("missing"):
+            reason = status.removeprefix("missing").strip(" ()") or "unavailable"
+            missing += [{**use, "reason": reason} for use in uses[asset]]
+    if missing:
+        shown = ", ".join(sorted({item["path"] for item in missing})[:4])
+        print(f"note   {len(missing)} image(s) could not be had and draw as nothing: {shown}"
+              + (" ..." if len(missing) > 4 else ""), file=sys.stderr)
+    return missing
 
 
 def _fetch(args) -> int:

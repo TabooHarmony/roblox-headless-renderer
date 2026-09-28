@@ -132,6 +132,25 @@ def main() -> int:
     check(not {"ScaledBig", "WideFont"} & flagged,
           f"probe: the TextScaled label and the wide font that fits are not flagged ({sorted(flagged)})")
 
+    # The sixth: an image Roblox refused when RHR last asked (check never downloads;
+    # the record is what `rhr ui` or `rhr fetch` left in the cache).
+    import time
+
+    from rhr import fetch
+
+    fetch._save_json(fetch.FAILURES, {**fetch._load_json(fetch.FAILURES), "images:900000999": {
+        "status": "missing (Roblox shows it as unavailable)", "time": time.time()}})
+    f = findings_for("check_probe", viewport=(1615, 1080))
+    missing = [f0 for f0 in f if f0["check"] == "image-missing"]
+    check(len(missing) == 1 and missing[0]["paths"] == ["Probe/MissingIcon"] and "unavailable" in missing[0]["detail"],
+          f"probe: image-missing at MissingIcon, with why ({missing})")
+    proc = subprocess.run([*RHR, "ui", str(FIXTURES / "check_probe.rbxmx"), "--json", "--out", str(OUT / "probe.png")],
+                          capture_output=True, text=True, cwd=str(REPO), timeout=300)
+    report = json.loads(proc.stdout) if proc.returncode == 0 else {}
+    check([(m["path"], m["uri"]) for m in report.get("missingAssets", [])]
+          == [("Probe/MissingIcon", "rbxassetid://900000999")],
+          f"ui --json: missingAssets names the image and where it is ({report.get('missingAssets')})")
+
     print("checks: leaving findings out")
 
     def cli(*args: str) -> tuple[int, dict, str]:
