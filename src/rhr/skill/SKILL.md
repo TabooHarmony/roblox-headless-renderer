@@ -27,9 +27,11 @@ docs/AGENTS.md.
    --out shot.png` (`--annotate --json` numbers the buttons).
 5. Before done: `rhr check <target> --devices all` (phones, tablets, consoles).
 
-3D: `rhr scene <target> --view iso --max-size 800 --out build.png --json`;
+3D: `rhr scene <target> --view iso --max-size 800 --out build.png --json` (`--views
+iso,front,top` for several sides on one build);
 `rhr scene-dump <target>` summarises a place (`--path <model>` to drill in).
 Clicks: `rhr hitmap <target> --at X,Y`. Free models: `rhr inspect <id>`.
+Several commands in one call: `rhr batch check <target> + layout <target>` (one JSON).
 
 ## Rules
 

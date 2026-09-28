@@ -457,6 +457,13 @@ right.
 - Several views on one built scene (F14); stories in one build (F15).
 - Exit, on an idle machine: warm `check` of a small UI at most 0.45 s wall; four views of
   a model in at most 1.5 times one view.
+- Done 2026-09-28 (under load: a game running, CPU 55-65%): F14 `scene --views`, each
+  view pixel-identical to a render of its own; four views 1.18-1.36x one view on the
+  fixtures, 1.79x on the 40k-part place (45 s against 91 s for four commands; each
+  more view there is its effects and two frames). F13 wait up to 5 s; client-side
+  `--version`, help from the server; F15 as a story and project-build cache (not one
+  Lune process for many stories: that is `rhr stories`, 1.1); `rhr batch`. Left: the
+  idle-machine wall times for the exit.
 - Then: CI green on Windows, macOS and Linux, a fresh `uvx` install from PyPI, and
   **1.0.0rc1** (release candidate, feedback asked for). Phase 4 below becomes what the
   rc's users do; 1.0.0 follows if no feedback breaks the interface in about two weeks.

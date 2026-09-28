@@ -287,13 +287,15 @@ def render(
     height: int,
     transparent: bool,
     reuse: dict | None = None,
-) -> bool:
-    """Render via the shared worker. Returns whether the worker was newly started.
+) -> int:
+    """Render via the shared worker. Returns how many of reuse's extra `views` it drew.
 
     With `reuse` ({query, base}), a 3D scene is drawn on the worker's kept page;
-    otherwise (or if that fails) `url` is loaded in a page of its own.
+    otherwise (or if that fails) `url` is loaded in a page of its own. reuse's `views`
+    ([{query, out}]) are more views of the same built scene, in order; the ones not
+    drawn (the kept page failed) are left to the caller.
     """
-    state, started = ensure()
+    state, _ = ensure()
     code, payload = _request(
         int(state["port"]),
         str(state["token"]),
@@ -318,7 +320,7 @@ def render(
     browsers.used = payload.get("browser") or None
     for name, seconds in (payload.get("timings") or {}).items():
         add(f"  worker: {name}", seconds)
-    return started
+    return int(payload.get("views") or 0)
 
 
 def stop() -> bool:

@@ -4,7 +4,9 @@ Kept small on purpose: it imports nothing of RHR's, so a command costs a Python 
 and a local round trip, and the server does the work with everything already loaded.
 Commands run in this process instead (rhr.cli) when the server is off
 (RHR_SERVER=0), busy with another command, or cannot start, and for the commands
-that manage RHR itself (setup, doctor, cache, browser).
+that manage RHR itself (setup, doctor, cache, browser). `--version` is answered
+here from the install's metadata, and help from the server (argparse's help needs
+the whole CLI imported).
 """
 
 from __future__ import annotations
@@ -16,7 +18,8 @@ import time
 import zlib
 
 # The commands the server runs; everything else runs here.
-SERVED = {"ui", "layout", "check", "hitmap", "scene", "preview", "scene-dump", "compare", "ir", "fetch", "inspect"}
+SERVED = {"ui", "layout", "check", "hitmap", "scene", "preview", "scene-dump", "compare", "ir", "fetch", "inspect",
+          "batch"}
 # Settings a request carries (rhr.server.REQUEST_ENV): read while the command runs, and
 # the colour switches Python's own help output follows. Other RHR_* settings pick the server.
 REQUEST_ENV = ("RHR_PROFILE", "RHR_OFFLINE", "NO_COLOR", "FORCE_COLOR", "PYTHON_COLORS", "TERM")
@@ -211,12 +214,40 @@ def encode_request(token: str, argv: list[str], cwd: str, tty: list[bool], env: 
     return len(payload).to_bytes(4, "big") + payload
 
 
+def _version() -> str | None:
+    """This install's version from its dist-info, without importlib.metadata (70 ms);
+    None when it cannot be found this way."""
+    for folder in sys.path:
+        try:
+            names = os.listdir(folder or ".")
+        except OSError:
+            continue
+        for name in names:
+            if name.startswith("roblox_headless_renderer-") and name.endswith(".dist-info"):
+                try:
+                    with open(os.path.join(folder, name, "METADATA"), encoding="utf-8") as handle:
+                        for line in handle:
+                            if line.startswith("Version:"):
+                                return line.split(":", 1)[1].strip()
+                            if not line.strip():
+                                break
+                except OSError:
+                    pass
+    return None
+
+
 def main() -> int:
     argv = sys.argv[1:]
     command = next((arg for arg in argv if not arg.startswith("-")), None)
     if argv == ["server", "stop"]:
         return _stop()
-    if command in SERVED and not _off():
+    if argv == ["--version"]:
+        version = _version()
+        if version is not None:
+            print(f"rhr {version}")
+            return 0
+    wants_help = not argv or "-h" in argv or "--help" in argv
+    if (command in SERVED or wants_help) and not _off():
         try:
             return _remote(argv, session_dir())
         except _Unavailable:

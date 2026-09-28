@@ -66,6 +66,7 @@ picture; a cropped picture before a full one).
 | World, in-world UI and screen UI together | `rhr preview <file> --view iso --out frame.png --json` | the PNG and the same report |
 | Whether an edit changed geometry or only colours | `rhr compare before.png after.png` | `changedPct`, `silhouette.iou` |
 | Whether a model's scripts are safe to insert | `rhr inspect <file or id>` | `findings[]` (`require-by-id` is an error), the flagged `scripts[]`, `assetCounts` (`--all` for everything) |
+| A 3D build from several sides | `rhr scene <file> --views iso,front,top,right --max-size 800 --out build.png --json` | one PNG per view (`build-iso.png`, ...), in `views[]` with each camera; one build, so far cheaper than a command per view |
 | What a Creator Store model looks like | `rhr scene <id or link> --view iso --out model.png` | the PNG; stderr names the asset and its creator |
 | Icons for a set of models | `rhr icons models/ --out-dir icons --size 512` | one `<stem>.png` per model |
 | Show a person the build to fly around | `rhr view <file> --no-open`, in the background | the address it prints: give it to the person |
@@ -84,6 +85,9 @@ nose); with `--focus <path>` the model's own front.
   (`rhr.render/1`).
 - Exit codes: 0 done; 1 only from `check` (an error finding); 2 the command failed or
   had nothing to work on, with the reason and what to try on stderr.
+- Several commands at once: `rhr batch check <file> + layout <file> + ui <file>` prints
+  one `rhr.batch/1` document, `results[]` with each command's `exitCode`, `stdout`
+  (the parsed document) and `stderr`; one start instead of three.
 - A path is the names from the root joined with `/`: `StarterGui/Shop/Main/Buy`.
   Same-named siblings are numbered in child order, `Card[1]`, `Card[2]`; a bare `Card`
   where there are several is an error, not a guess. Pass paths back exactly as RHR

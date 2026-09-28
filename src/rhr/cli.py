@@ -8,6 +8,7 @@
     rhr inspect <file>   JSON: classes, scripts, assets, and risky script code
     rhr layout | check | hitmap | scene-dump <file>   JSON
     rhr compare <before.png> <after.png>              JSON
+    rhr batch <command> + <command> ...               several commands in one call, JSON
     rhr ir <file> --out ir.json                       RHR's internal format (not stable)
 
 Input is a Roblox model or place (.rbxm/.rbxmx/.rbxl/.rbxlx), a Rojo project, an
@@ -82,6 +83,17 @@ def parse_vector3(text: str) -> tuple[float, float, float]:
     if len(values) != 3 or any(not math.isfinite(value) for value in values):
         raise argparse.ArgumentTypeError(f"vector must be three finite numbers X,Y,Z, got {text!r}")
     return values
+
+
+VIEWS = ("iso", "front", "back", "left", "right", "top")
+
+
+def parse_views(text: str) -> list[str]:
+    names = [name.strip().lower() for name in text.split(",") if name.strip()]
+    unknown = [name for name in names if name not in VIEWS]
+    if unknown or not names:
+        raise argparse.ArgumentTypeError(f"views are {', '.join(VIEWS)} (comma-separated), not {text!r}")
+    return list(dict.fromkeys(names))
 
 
 def parse_fov(text: str) -> float:
@@ -169,6 +181,8 @@ def _finish_picture(args, report: dict) -> int:
     if getattr(args, "max_size", None) and "scale" not in report:
         from rhr import picture
 
+        for view in report.get("views", [])[1:]:
+            picture.finish(Path(view["out"]), max_size=args.max_size)
         shaped = picture.finish(Path(report["out"]), max_size=args.max_size)
         report.update(size=shaped["size"], scale=shaped["scale"])
 
@@ -177,7 +191,8 @@ def _finish_picture(args, report: dict) -> int:
     if args.json:
         print(dumps(stamp("render", report)))
     else:
-        print(report["out"])
+        for view in report.get("views") or [report]:
+            print(view["out"])
     return 0
 
 
@@ -673,6 +688,13 @@ def _scene(args) -> int:
         return _die(f"no such file: {source}")
     width, height = args.viewport
     out = Path(args.out) if args.out else Path(f"{source.stem}-scene.png")
+    views = args.views or []
+    if views:
+        if args.view or args.camera or args.look_at:
+            return _die("--views draws standard views; leave out --view, --camera and --look-at")
+        # One PNG per view, the view's name added to the file name: tower-scene-iso.png.
+        outs = [out.with_name(f"{out.stem}-{name}{out.suffix or '.png'}") for name in views]
+        out = outs[0]
     t0 = time.perf_counter()
     texture_dir = Path(args.texture_dir) if args.texture_dir else None
     mesh_dir = Path(args.mesh_dir) if args.mesh_dir else None
@@ -689,6 +711,7 @@ def _scene(args) -> int:
             _prepare_scene_assets(ir_path, args.offline, args.focus)
         page_notes: list[str] = []
         camera_state: dict = {}
+        cameras: list[dict] = []
         with phase("browser render (total)"):
             actual = render_scene(
                 ir_path,
@@ -699,7 +722,9 @@ def _scene(args) -> int:
                 look_at=args.look_at,
                 fov=args.fov,
                 focus=args.focus,
-                view=args.view,
+                view=views[0] if views else args.view,
+                more_views=list(zip(views[1:], outs[1:])) if views else [],
+                camera_log=cameras,
                 shadows=not args.no_shadows,
                 flat_materials=args.flat_materials,
                 texture_dir=texture_dir,
@@ -720,12 +745,14 @@ def _scene(args) -> int:
     except (ValueError, RuntimeError, OSError) as exc:
         return _die(_no_world_hint(str(exc), args))
     elapsed = int((time.perf_counter() - t0) * 1000)
+    page_notes = list(dict.fromkeys(page_notes))  # each view reports the scene's notes
     print(f"ir     {ir_path}", file=sys.stderr)
-    print(f"scene  {out}  {actual[0]}x{actual[1]}  {elapsed}ms", file=sys.stderr)
+    for picture in (outs if views else [out]):
+        print(f"scene  {picture}  {actual[0]}x{actual[1]}  {elapsed}ms", file=sys.stderr)
     print(notes_line(scene_dump), file=sys.stderr)
     for note in page_notes:
         print(f"note   {note}", file=sys.stderr)
-    return _finish_picture(args, {
+    report = {
         "command": "scene",
         "source": str(source),
         "out": str(out),
@@ -733,7 +760,12 @@ def _scene(args) -> int:
         "camera": _camera_json(camera_state),
         **_world_report(scene_dump),
         "notes": page_notes,
-    })
+    }
+    if views:
+        report["camera"] = _camera_json(cameras[0]) if cameras else None
+        report["views"] = [{"view": name, "out": str(picture), "camera": _camera_json(state)}
+                           for name, picture, state in zip(views, outs, cameras + [{}] * len(views))]
+    return _finish_picture(args, report)
 
 
 def _inspect(args) -> int:
@@ -1001,6 +1033,64 @@ def _test_hooks(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--mesh-dir", help=argparse.SUPPRESS)
 
 
+# What `rhr batch` runs: the commands that read files and write pictures or JSON, not
+# the ones that manage RHR itself.
+BATCHABLE = {"ui", "layout", "check", "hitmap", "scene", "preview", "scene-dump", "compare", "inspect", "fetch", "ir"}
+
+
+def _batch(args) -> int:
+    """Several commands in one call, one after another in this process: one start
+    instead of one per command (the usual trio is check, layout and ui of one file).
+    Prints one rhr.batch/1 document: per command its argv, exit code, stdout (the
+    parsed document when it is JSON) and stderr. Exits with the worst exit code."""
+    import contextlib
+    import io
+    import traceback
+
+    from rhr import browsers, pipeline
+
+    commands: list[list[str]] = [[]]
+    for token in args.commands:
+        if token == "+":
+            commands.append([])
+        else:
+            commands[-1].append(token)
+    commands = [command for command in commands if command]
+    if not commands:
+        return _die("batch: no commands (rhr batch check shop.rbxm + ui shop.rbxm)")
+    for command in commands:
+        if command[0] not in BATCHABLE:
+            return _die(f"batch runs {', '.join(sorted(BATCHABLE))}; not {command[0]!r}")
+    results = []
+    for command in commands:
+        out, err = io.StringIO(), io.StringIO()
+        saved_env = dict(os.environ)
+        try:
+            with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+                try:
+                    code = main(command)
+                except SystemExit as exc:  # argparse: a bad option, --help
+                    code = exc.code if isinstance(exc.code, int) else (0 if exc.code is None else 2)
+                    if not isinstance(exc.code, (int, type(None))):
+                        print(exc.code, file=sys.stderr)
+                except Exception:  # noqa: BLE001 - one command's failure is its result, not the batch's
+                    traceback.print_exc()
+                    code = 2
+        finally:
+            os.environ.clear()
+            os.environ.update(saved_env)
+            pipeline.reset_options()
+            browsers.used = None
+        text = out.getvalue()
+        try:
+            stdout = json.loads(text) if text.lstrip().startswith(("{", "[")) else text.strip()
+        except ValueError:
+            stdout = text
+        results.append({"command": command, "exitCode": code or 0, "stdout": stdout, "stderr": err.getvalue()})
+    print(dumps(stamp("batch", {"results": results})))
+    return max(result["exitCode"] for result in results)
+
+
 def _cache(args) -> int:
     from rhr import cache
 
@@ -1180,6 +1270,12 @@ def build_parser() -> argparse.ArgumentParser:
     p_browser.add_argument("action", choices=("start", "status", "stop"))
     p_browser.set_defaults(func=_browser)
 
+    p_batch = sub.add_parser("batch", help="several commands in one call, separated by + "
+                                           "(rhr batch check shop.rbxm + ui shop.rbxm): one JSON "
+                                           "document with each one's exit code, stdout and stderr")
+    p_batch.add_argument("commands", nargs=argparse.REMAINDER, help="commands separated by a lone +")
+    p_batch.set_defaults(func=_batch)
+
     p_compare = sub.add_parser("compare", help="pixel and silhouette changes between two PNGs, as JSON")
     p_compare.add_argument("before", help="reference/before PNG")
     p_compare.add_argument("after", help="after PNG")
@@ -1226,6 +1322,10 @@ def build_parser() -> argparse.ArgumentParser:
     p_scene.add_argument("--viewport", type=parse_viewport, default=DEFAULT_VIEWPORT,
                          help="WxH (default: 1920x1080; --device sets it too)")
     _camera_arguments(p_scene)
+    p_scene.add_argument("--views", type=parse_views, metavar="VIEW,...",
+                         help="several standard views (iso, front, back, left, right, top) drawn on one "
+                              "build of the scene, one PNG each (--out's name plus -<view>); much faster "
+                              "than one command per view")
     p_scene.add_argument("--offline", action="store_true",
                          help="do not download missing assets first (also: RHR_OFFLINE=1)")
     _effect_arguments(p_scene)

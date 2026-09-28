@@ -74,6 +74,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             if width <= 0 or height <= 0:
                 raise ValueError("render dimensions must be positive")
             timings = None
+            views_drawn = 0
             reuse = request.get("reuse")
             if reuse:
                 # The kept page first; any failure there (including a scene it cannot
@@ -83,6 +84,17 @@ class Handler(http.server.BaseHTTPRequestHandler):
                         query=str(reuse["query"]), base=str(reuse["base"]),
                         out=Path(request["out"]), width=width, height=height,
                     )
+                    # More views of the same built scene (rhr scene --views). One that
+                    # fails leaves the rest to the caller, drawn one by one.
+                    for view in reuse.get("views") or []:
+                        try:
+                            view_timings = self.server.kept.view(query=str(view["query"]), out=Path(view["out"]))
+                        except Exception as exc:  # noqa: BLE001
+                            print(f"rhr worker: another view failed ({str(exc)[:300]})", flush=True)
+                            break
+                        for name, seconds in view_timings.items():
+                            timings[f"view {views_drawn + 2}: {name}"] = seconds
+                        views_drawn += 1
                 except Exception as exc:  # noqa: BLE001
                     self.server.kept.close()
                     fallback_reason = str(exc)[:300]
@@ -99,7 +111,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 if reuse:
                     timings = {"kept page failed, fresh page used": 0.0, **timings}
                     print(f"rhr worker: kept page failed ({fallback_reason}); used a fresh page", flush=True)
-            self._json(200, {"ok": True, "timings": timings, "browser": self.server.browser_info})
+            self._json(200, {"ok": True, "timings": timings, "browser": self.server.browser_info,
+                             "views": views_drawn})
         except Exception as exc:
             # A crashed browser would fail every later render too: start a new one.
             if not self.server.browser.is_connected():

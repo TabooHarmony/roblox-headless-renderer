@@ -2927,6 +2927,7 @@ function beamRibbonGeometry(points, tangents, widths, camera, faceCamera, normal
 }
 
 async function addBeams(index, camera) {
+  let updated = false;
   for (const node of nodesOfClass(index, 'Beam')) {
     if (node.props?.Enabled === false) continue;
     const a0 = findNodeByReference(index, node, 'Attachment0');
@@ -2934,7 +2935,8 @@ async function addBeams(index, camera) {
     const anchor0 = anchorByNode.get(a0);
     const anchor1 = anchorByNode.get(a1);
     if (!anchor0 || !anchor1) continue;
-    scene.updateMatrixWorld(true);
+    // Once: the anchors do not move, and a full update walks every part (40k in a big place).
+    if (!updated) { scene.updateMatrixWorld(true); updated = true; }
     const p0 = anchor0.getWorldPosition(new THREE.Vector3());
     const p3 = anchor1.getWorldPosition(new THREE.Vector3());
     const x0 = new THREE.Vector3(1, 0, 0).applyQuaternion(anchor0.getWorldQuaternion(new THREE.Quaternion())).normalize();
@@ -3068,6 +3070,7 @@ function trailRibbonGeometry(positions0, positions1, ages, widthScale, colorSequ
 }
 
 async function addTrails(index, camera) {
+  let updated = false;
   for (const node of nodesOfClass(index, 'Trail')) {
     if (node.props?.Enabled === false) continue;
     const a0 = findNodeByReference(index, node, 'Attachment0');
@@ -3075,7 +3078,8 @@ async function addTrails(index, camera) {
     const anchor0 = anchorByNode.get(a0);
     const anchor1 = anchorByNode.get(a1);
     if (!anchor0 || !anchor1) continue;
-    scene.updateMatrixWorld(true);
+    // Once: the anchors do not move, and a full update walks every part (40k in a big place).
+    if (!updated) { scene.updateMatrixWorld(true); updated = true; }
     const current0 = anchor0.getWorldPosition(new THREE.Vector3());
     const current1 = anchor1.getWorldPosition(new THREE.Vector3());
     const velocity0 = assemblyVelocity(index, a0);
@@ -3545,6 +3549,7 @@ function addHighlights(index) {
         copy.renderOrder = order;
         copy.castShadow = false;
         copy.userData.rhrEffect = true;
+        copy.userData.rhrSharedGeometry = true;
         scene.add(copy);
       }
     }
@@ -3617,9 +3622,14 @@ function pruneLocalLights(camera) {
     return Math.max(0, distance - range) / Math.max(0.1, Math.sqrt(brightness));
   };
   lights.sort((a, b) => score(a) - score(b));
+  const take = object => {
+    if (!object.parent) return;
+    prunedObjects.push({object, parent: object.parent, at: object.parent.children.indexOf(object)});
+    object.removeFromParent();
+  };
   for (const light of lights.slice(MAX_LOCAL_LIGHTS)) {
-    if (light.target) light.target.removeFromParent();
-    light.removeFromParent();
+    if (light.target) take(light.target);
+    take(light);
     localLightsDropped += 1;
   }
 }
@@ -4316,13 +4326,14 @@ function buildSkyVisibility(camera) {
   texture.magFilter = THREE.LinearFilter;
   texture.unpackAlignment = 1;
   texture.needsUpdate = true;
-  skyVisibility = {
-    texture: {value: texture},
-    min: {value: min.clone()},
-    size: {value: new THREE.Vector3(nx * V, ny * V, nz * V)},
-    offset: {value: V * 0.6},
-    strength: {value: TUNE.aoK},
-  };
+  const values = {texture, min: min.clone(), size: new THREE.Vector3(nx * V, ny * V, nz * V), offset: V * 0.6, strength: TUNE.aoK};
+  if (skyVisibility) {
+    // Another view of the same scene: compiled shaders hold these uniform objects.
+    skyVisibility.texture.value.dispose();
+    for (const [name, value] of Object.entries(values)) skyVisibility[name].value = value;
+  } else {
+    skyVisibility = Object.fromEntries(Object.entries(values).map(([name, value]) => [name, {value}]));
+  }
   // Every lit material reads the grid (see withSkyVisibility).
   scene.traverse(object => {
     if (!object.isMesh) return;
@@ -5533,66 +5544,24 @@ async function main() {
     }
     configureSceneLights(index);
     mark('sky, atmosphere and lights');
-    camera = new THREE.PerspectiveCamera();
-    camera.layers.enable(PARTICLE_LAYER);
-    configureCamera(camera, cameraNode);
-
-    const focusPath = params.get('focus');
-    // A model with no Camera of its own (most .rbxm files) is framed as a whole rather
-    // than seen from a fixed spot near the origin it may be nowhere near.
-    const requestedView = params.get('view') || (!cameraNode && !parseVectorParam('camera') ? 'iso' : null);
-    let framedCenter = null;
-    if (focusPath || requestedView) {
-      framedCenter = frameScene(camera, index, focusPath, requestedView || 'iso');
-      // A framed view stands back as far as the build is big, which for a whole map
-      // is hundreds of studs of fog. It exists to show the layout, so cap the fog at
-      // about a quarter at the framed centre (exp(-(d*density)^2) = 0.75).
-      if (scene.fog?.isFogExp2) {
-        // At most a quarter fogged at the framed centre: (d / L)^p <= -ln(0.75).
-        const distance = camera.position.distanceTo(framedCenter);
-        const power = atmosphereState?.curve?.power || 1;
-        scene.fog.density = Math.min(scene.fog.density, 0.2877 ** (1 / power) / Math.max(distance, 1));
-      }
-    }
-    const cameraOverride = parseVectorParam('camera');
-    const lookAtOverride = parseVectorParam('lookAt');
-    if (cameraOverride) camera.position.copy(cameraOverride);
-    if (lookAtOverride) camera.lookAt(lookAtOverride);
-    else if (cameraOverride && framedCenter) camera.lookAt(framedCenter);
-    camera.updateMatrixWorld(true);
-    fitSunShadow(camera, lookAtOverride || framedCenter || null);
-    pruneLocalLights(camera);
-    viewCamera = camera;
-    viewTarget = (lookAtOverride || framedCenter
-      || camera.position.clone().add(camera.getWorldDirection(new THREE.Vector3()).multiplyScalar(50))).clone();
-    mark('camera and framing');
-    addTerrainGrass(camera);
-    mark('terrain grass');
-    if (modernLighting(index)) buildSkyVisibility(camera);
-    mark('sky visibility grid');
-    // --no-effects leaves out particles, Beams and Trails alike.
-    if (params.get('effects') !== '0') {
-      await addBeams(index, camera);
-      await addTrails(index, camera);
-    }
-    await addParticles(camera);
-    addHighlights(index);
-    mark('effects built');
-    await reportCamera(camera);
-    await reportNotes();
-    renderFrame(camera);
-    disposeRetired();
-    mark('first frame (shaders compiled)');
+    // What a view adds or changes is undone before another view of this scene (undoView).
+    viewState = {
+      index, cameraNode, children: new Set(scene.children), fogDensity: scene.fog?.density,
+      lightsDropped: localLightsDropped, particlesDrawn: particleState.drawn, highlight: {...highlightState},
+      framingIgnored: framingIgnored.length, framingStrays: framingStrays.length, grassBlades: terrainSummary?.grassBlades,
+    };
+    await drawView();
+    await finishPage();
+    return;
   }
   await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
   renderFrame(camera);
   await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
   mark('second frame');
-  if (!viewportMode) {
-    await addBillboards(index, camera);
-    await addSurfaceGuis(index, camera);
-    mark('in-world UI');
-  }
+  await finishPage();
+}
+
+async function finishPage() {
   if (profiling) {
     try {
       await fetch('/__rhr_timing__.json', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(pageMarks)});
@@ -5601,6 +5570,105 @@ async function main() {
     }
   }
   document.documentElement.dataset.rhrReady = 'true';
+}
+
+// The camera and everything drawn for it, on a built scene: particles and beams face
+// the camera, grass and the lights kept depend on where it stands, in-world GUIs are
+// placed for it. `rhr scene --views` draws several of these on one build.
+let viewState = null;
+const prunedObjects = [];
+
+async function drawView() {
+  const {index, cameraNode} = viewState;
+  const camera = new THREE.PerspectiveCamera();
+  camera.layers.enable(PARTICLE_LAYER);
+  configureCamera(camera, cameraNode);
+
+  const focusPath = params.get('focus');
+  // A model with no Camera of its own (most .rbxm files) is framed as a whole rather
+  // than seen from a fixed spot near the origin it may be nowhere near.
+  const requestedView = params.get('view') || (!cameraNode && !parseVectorParam('camera') ? 'iso' : null);
+  let framedCenter = null;
+  if (focusPath || requestedView) {
+    framedCenter = frameScene(camera, index, focusPath, requestedView || 'iso');
+    // A framed view stands back as far as the build is big, which for a whole map
+    // is hundreds of studs of fog. It exists to show the layout, so cap the fog at
+    // about a quarter at the framed centre (exp(-(d*density)^2) = 0.75).
+    if (scene.fog?.isFogExp2) {
+      // At most a quarter fogged at the framed centre: (d / L)^p <= -ln(0.75).
+      const distance = camera.position.distanceTo(framedCenter);
+      const power = atmosphereState?.curve?.power || 1;
+      scene.fog.density = Math.min(scene.fog.density, 0.2877 ** (1 / power) / Math.max(distance, 1));
+    }
+  }
+  const cameraOverride = parseVectorParam('camera');
+  const lookAtOverride = parseVectorParam('lookAt');
+  if (cameraOverride) camera.position.copy(cameraOverride);
+  if (lookAtOverride) camera.lookAt(lookAtOverride);
+  else if (cameraOverride && framedCenter) camera.lookAt(framedCenter);
+  camera.updateMatrixWorld(true);
+  fitSunShadow(camera, lookAtOverride || framedCenter || null);
+  pruneLocalLights(camera);
+  viewCamera = camera;
+  viewTarget = (lookAtOverride || framedCenter
+    || camera.position.clone().add(camera.getWorldDirection(new THREE.Vector3()).multiplyScalar(50))).clone();
+  mark('camera and framing');
+  addTerrainGrass(camera);
+  mark('terrain grass');
+  if (modernLighting(index)) buildSkyVisibility(camera);
+  mark('sky visibility grid');
+  // --no-effects leaves out particles, Beams and Trails alike.
+  if (params.get('effects') !== '0') {
+    await addBeams(index, camera);
+    await addTrails(index, camera);
+  }
+  await addParticles(camera);
+  addHighlights(index);
+  mark('effects built');
+  await reportCamera(camera);
+  await reportNotes();
+  renderFrame(camera);
+  disposeRetired();
+  mark('first frame (shaders compiled)');
+  await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+  renderFrame(camera);
+  await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+  mark('second frame');
+  await addBillboards(index, camera);
+  await addSurfaceGuis(index, camera);
+  mark('in-world UI');
+}
+
+// Back to the built scene as it was before drawView, for the next view.
+function undoView() {
+  for (const object of [...scene.children]) {
+    if (viewState.children.has(object)) continue;
+    object.removeFromParent();
+    object.traverse(child => {
+      if (child.geometry && !child.userData.rhrSharedGeometry) child.geometry.dispose();
+      const materials = Array.isArray(child.material) ? child.material : [child.material];
+      for (const material of materials) if (material?.dispose) retiredMaterials.push(material);
+    });
+  }
+  // Put what pruneLocalLights took out back where it was, in its order.
+  for (const {object, parent, at} of prunedObjects.splice(0).reverse()) {
+    parent.add(object);
+    parent.children.splice(parent.children.indexOf(object), 1);
+    parent.children.splice(at, 0, object);
+  }
+  if (scene.fog?.isFogExp2) scene.fog.density = viewState.fogDensity;
+  // No sky visibility until the next view builds its own (buildSkyVisibility).
+  if (skyVisibility) skyVisibility.strength.value = 0;
+  localLightsDropped = viewState.lightsDropped;
+  particleState.drawn = viewState.particlesDrawn;
+  Object.assign(highlightState, viewState.highlight);
+  framingIgnored.length = viewState.framingIgnored;
+  framingStrays.length = viewState.framingStrays;
+  if (terrainSummary) terrainSummary.grassBlades = viewState.grassBlades;
+  viewCamera = null;
+  document.querySelector('#rhr-overlay').replaceChildren();
+  delete document.documentElement.dataset.rhrReady;
+  delete document.documentElement.dataset.rhrError;
 }
 
 // The last scene's materials, disposed once the next scene has compiled its shaders.
@@ -5637,6 +5705,8 @@ function resetScene() {
   environmentMaterials.clear();
   framingIgnored.length = 0;
   framingStrays.length = 0;
+  viewState = null;
+  prunedObjects.length = 0;
   use2022Materials = true;
   environmentTexture = null;
   environmentSpecularScale = 1;
@@ -5902,6 +5972,24 @@ if (persistentPage) {
       renderer.setSize(width, height, false);
       configure(query);
       await main();
+      return {ok: true};
+    } catch (error) {
+      document.documentElement.dataset.rhrError = String(error);
+      return {error: String(error)};
+    }
+  };
+  // Another view of the scene the last rhrRender built: `query` is that render's with
+  // other camera settings (view, camera, lookAt, fov).
+  window.rhrView = async ({query}) => {
+    try {
+      if (!viewState) throw new Error('no built scene to draw another view of');
+      undoView();
+      params = new URLSearchParams(query);
+      profiling = params.get('profile') === '1';
+      pageMarks = [];
+      lastMark = performance.now();
+      await drawView();
+      await finishPage();
       return {ok: true};
     } catch (error) {
       document.documentElement.dataset.rhrError = String(error);

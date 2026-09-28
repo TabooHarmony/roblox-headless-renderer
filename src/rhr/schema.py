@@ -19,6 +19,7 @@ VERSIONS = {
     "browser": 1,       # rhr browser start|status|stop
     "render": 1,        # rhr ui|scene|preview --json: the picture's report
     "inspect": 1,       # rhr inspect: what a file holds, its scripts and findings
+    "batch": 1,         # rhr batch: each command's exit code, stdout and stderr
 }
 
 

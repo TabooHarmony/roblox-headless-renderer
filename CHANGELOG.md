@@ -82,6 +82,25 @@
 
 ### Changes
 
+- **Several views on one build:** `rhr scene --views iso,front,top,right` draws each
+  view on one build of the scene, one PNG each (`--out`'s name plus `-<view>`), every
+  one identical to a render of that view alone; `--json` lists them in `views[]` with
+  their cameras. Four views of a small model cost about 1.2 times one view (four
+  commands: 4 times); on a 40k-part place 45 s instead of 91 s. Beams and Trails no
+  longer update the whole scene once each (a single render of a big place is faster
+  too).
+- **`rhr batch`:** several commands in one call, separated by a lone `+` (`rhr batch
+  check shop.rbxm + layout shop.rbxm + ui shop.rbxm`), printing one `rhr.batch/1`
+  document with each command's exit code, stdout (parsed when it is JSON) and stderr.
+  Exits with the worst code.
+- **A busy server makes the next command wait** up to 5 seconds
+  (`RHR_SERVER_WAIT_S`) before it runs in a process of its own: parallel tool calls
+  and sub-agents stay warm. `rhr --version` no longer loads the CLI, and help is
+  printed by the server.
+- **Stories run only when something changed:** the UI a story built is reused while
+  the project's files, the viewport and RHR's runtime are unchanged (`check` then
+  `ui` of one story runs it once: 1.2 s to 0.04 s on the fixture). A Rojo project is
+  likewise built again only when a file it maps changed.
 - **An agent skill:** `rhr skill` prints SKILL.md (for Claude Code and Codex), and
   `rhr skill --install .claude/skills` puts it where the agent looks. docs/AGENTS.md
   is rewritten around the loops agents run: where the UI lives, check, layout, a

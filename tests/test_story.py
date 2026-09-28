@@ -13,6 +13,7 @@ reaches for Lune's own globals (Escape).
 from __future__ import annotations
 
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -82,6 +83,19 @@ def main() -> int:
         proc = run(["ui", str(STORIES / "Badge.story.luau"), "--viewport", "800x600", "--out", str(out)])
         check(proc.returncode == 0 and out.is_file() and out.stat().st_size > 1000,
               f"ui draws the story {proc.stderr[-300:] if proc.returncode else ''}")
+
+    print("story: run again only when something it runs on changed")
+    first = run(["layout", str(STORIES / "Badge.story.luau"), "--viewport", "800x600"])
+    again = run(["layout", str(STORIES / "Badge.story.luau"), "--viewport", "800x600"])
+    check(again.returncode == 0 and "unchanged since its last run" in again.stderr and again.stdout == first.stdout,
+          f"unchanged: the UI it built is reused {again.stderr[-300:]}")
+    other = run(["layout", str(STORIES / "Badge.story.luau"), "--viewport", "640x480"])
+    check("ran it in its Rojo project" in other.stderr, "another viewport runs it again")
+    helper = next(path for path in sorted(STORIES.rglob("*.luau")) if not path.name.endswith(".story.luau"))
+    os.utime(helper)
+    edited = run(["layout", str(STORIES / "Badge.story.luau"), "--viewport", "800x600"])
+    check("ran it in its Rojo project" in edited.stderr and edited.stdout == first.stdout,
+          f"a project file changed ({helper.name}): run again")
 
     print("story: errors point at the project's files")
     proc = run(["layout", str(STORIES / "Broken.story.luau")])

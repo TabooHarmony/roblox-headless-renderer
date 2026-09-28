@@ -6,8 +6,10 @@ start Python, import RHR (numpy, skia, the UI engine), read the converted file a
 server keeps all of that between commands: `rhr` (rhr.client) sends it the command
 line and working folder, and gets back stdout, stderr and the exit code.
 
-- One request at a time. A command that arrives while another runs is told the
-  server is busy and runs in its own process instead.
+- One request at a time. A command that arrives while another runs waits for it up
+  to RHR_SERVER_WAIT_S seconds (default 5): most commands take well under that, and
+  waiting beats starting cold (imports, the file read again). Past that it is told
+  the server is busy and runs in its own process instead.
 - The server belongs to one install and one configuration (rhr.client.session_dir):
   another Python, another copy of RHR or other RHR_* settings get their own.
 - When RHR's code changes (an upgrade, an edit), the next request is refused as
@@ -37,6 +39,10 @@ import traceback
 from pathlib import Path
 
 IDLE_S = float(os.environ.get("RHR_SERVER_IDLE_S", "1200") or 0)
+try:
+    WAIT_S = max(0.0, float(os.environ.get("RHR_SERVER_WAIT_S", "5") or 0))
+except ValueError:
+    WAIT_S = 5.0
 TRIM_AFTER_S = float(os.environ.get("RHR_SERVER_TRIM_S", "180") or 180)
 try:
     MEMORY_MB = float(os.environ.get("RHR_SERVER_MEMORY_MB", "512"))
@@ -237,7 +243,12 @@ class Server:
                     self.stop()
                     _send(connection, b"x", b"0")
                     return
-                if not self.busy.acquire(blocking=False):
+                acquired = self.busy.acquire(timeout=WAIT_S) if WAIT_S > 0 else self.busy.acquire(blocking=False)
+                if not acquired:
+                    _send(connection, b"b", b"")
+                    return
+                if self.stopping:  # stopped while this one waited
+                    self.busy.release()
                     _send(connection, b"b", b"")
                     return
                 try:

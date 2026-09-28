@@ -13,6 +13,10 @@ all end in Instance.new and property sets.
 What does not carry over: sizes read while the story runs (AbsoluteSize,
 AbsolutePosition) are zero, since RHR lays the UI out afterwards; tweens end at their
 goal; the story's controls take their defaults; nothing is clicked.
+
+A story is run again only when something it runs on changed (the project's files,
+the viewport, RHR's runtime): `check` then `ui` of the same story runs it once. A
+story that builds something different each run (random, the clock) keeps its first.
 """
 
 from __future__ import annotations
@@ -135,16 +139,33 @@ def build(story: Path, *, width: int = 1920, height: int = 1080, log=None) -> Pa
     from rhr.profile import phase
 
     project = find_project(story)
-    with phase("story: rojo build"):
-        built = rojo.build(project, IR_DIR)
-    with phase("story: rojo sourcemap"):
-        names, files = module_path(project, story)
     name = story_name(story)
     key = hashlib.sha1(str(story.resolve()).encode("utf-8")).hexdigest()[:12]
     # One folder per story, the file named after it: documents name their source by
     # this file's name ("model": "Shop.story.json").
     out = IR_DIR / "stories" / key / f"{name}.story.rbxm"
     out.parent.mkdir(parents=True, exist_ok=True)
+    stamp = out.with_name(out.name + ".inputs")
+    with phase("story: inputs check"):
+        runtime = (PACKAGE / "luau" / "story-runtime.luau").stat()
+        inputs = json.dumps([str(story.resolve()), rojo.inputs_digest(project), width, height,
+                             runtime.st_size, runtime.st_mtime_ns, str(lune_executable())])
+    try:
+        kept = json.loads(stamp.read_text(encoding="utf-8"))
+        if out.is_file() and kept.get("inputs") == inputs:
+            if log is not None:
+                log(f"story  {story.name}: unchanged since its last run, reused the UI it built "
+                    f"({kept.get('count', '?')} instances)")
+                for line in kept.get("problems", [])[:10]:
+                    log(f"story  {line}")
+            return out
+    except (OSError, ValueError, AttributeError):
+        pass
+    stamp.unlink(missing_ok=True)
+    with phase("story: rojo build"):
+        built = rojo.build(project, IR_DIR)
+    with phase("story: rojo sourcemap"):
+        names, files = module_path(project, story)
     with phase("story: run (Lune)"):
         proc = subprocess.run(
             [lune_executable(), "run", str(PACKAGE / "luau" / "story-runtime.luau"), str(built), json.dumps(names),
@@ -154,8 +175,10 @@ def build(story: Path, *, width: int = 1920, height: int = 1080, log=None) -> Pa
     problems = _tidy(_point_at_files(proc.stderr.strip(), files, project.parent))
     if proc.returncode != 0 or not out.is_file():
         raise RuntimeError(f"the story {story.name} failed:\n{problems or proc.stdout.strip() or 'no output'}")
+    count = proc.stdout.strip().rpartition(" ")[2]
+    stamp.write_text(json.dumps({"inputs": inputs, "count": count, "problems": problems.splitlines()}),
+                     encoding="utf-8")
     if log is not None:
-        count = proc.stdout.strip().rpartition(" ")[2]
         log(f"story  {story.name}: ran it in its Rojo project, {count} instances built")
         for line in problems.splitlines()[:10]:
             log(f"story  {line}")

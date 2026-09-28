@@ -223,6 +223,31 @@ class KeptScenePage:
         self.renders += 1
         return timings
 
+    def view(self, *, query: str, out: Path) -> dict:
+        """Another view of the scene the last render built (rhrView on the page): only
+        the camera and what is drawn for it change. Raise on any failure."""
+        import json
+
+        if self.page is None:
+            raise RuntimeError("no kept scene to draw another view of")
+        timings: dict[str, float] = {}
+        self.page.problems.clear()
+        step = time.perf_counter()
+        self.page.evaluate(f"void window.rhrView({json.dumps({'query': query})})")
+        try:
+            self.page.wait_for(READY, timeout=self.RENDER_TIMEOUT_S)
+        except TimeoutError as exc:
+            raise RuntimeError("kept page never got ready for another view: " + _problems(self.page)) from exc
+        error = self.page.evaluate("document.documentElement.dataset.rhrError || null")
+        if error:
+            raise RuntimeError(f"kept page error: {error}")
+        timings["another view until ready (kept page)"] = time.perf_counter() - step
+        step = time.perf_counter()
+        out.parent.mkdir(parents=True, exist_ok=True)
+        self.page.screenshot(out, transparent=self.transparent)
+        timings["screenshot"] = time.perf_counter() - step
+        return timings
+
 
 def render_once(*, url: str, out: Path, width: int, height: int, transparent: bool) -> None:
     """Launch a browser, capture one page, shut the browser down."""

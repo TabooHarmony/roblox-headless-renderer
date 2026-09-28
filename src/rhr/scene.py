@@ -21,6 +21,7 @@ _LOCAL_ORIGIN = re.compile(r"^http://(?:127\.0\.0\.1|localhost|\[::1\])(?::\d+)?
 class _SceneHandler(http.server.SimpleHTTPRequestHandler):
     ir_path: Path
     metadata_sink: dict | None = None
+    camera_log: list | None = None
     asset_manifest_payload: bytes = b"{}"
     mesh_manifest_payload: bytes = b"{}"
     asset_files: dict[str, Path] = {}
@@ -165,6 +166,8 @@ class _SceneHandler(http.server.SimpleHTTPRequestHandler):
                 payload = json.loads(self.rfile.read(length) or b"{}")
                 self.metadata_sink.clear()
                 self.metadata_sink.update(payload)
+                if self.camera_log is not None:
+                    self.camera_log.append(payload)
                 self.send_response(204)
                 self.end_headers()
             except (ValueError, json.JSONDecodeError):
@@ -386,7 +389,8 @@ def _png_size(path: Path) -> tuple[int, int]:
 
 
 def scene_handler(ir_path: Path, asset_files: dict | None = None, mesh_files: dict | None = None, *,
-                  metadata_sink: dict | None = None, notes_out: list[str] | None = None, base=None) -> type:
+                  metadata_sink: dict | None = None, notes_out: list[str] | None = None, base=None,
+                  camera_log: list | None = None) -> type:
     """The request handler that serves the scene page and one scene's data."""
     return type(
         "RHRSceneHandler",
@@ -394,6 +398,7 @@ def scene_handler(ir_path: Path, asset_files: dict | None = None, mesh_files: di
         {
             "ir_path": ir_path,
             "metadata_sink": metadata_sink,
+            "camera_log": camera_log,
             "page_notes": notes_out if notes_out is not None else [],
             "asset_manifest_payload": json.dumps({
                 asset_id: _versioned("/__rhr_asset__/", asset_id, path)
@@ -426,12 +431,24 @@ def _render_browser(
     asset_files: dict[str, Path] | None = None,
     mesh_files: dict[str, Path] | None = None,
     notes_out: list[str] | None = None,
+    more_views: list[tuple[str, Path]] = (),
+    camera_log: list | None = None,
 ) -> tuple[int, int]:
-    """Render one local browser page and return its verified PNG dimensions."""
+    """Render one local browser page and return its verified PNG dimensions.
+
+    `more_views` ([(query, out)]) are more pictures of the same 3D scene from other
+    cameras: drawn on the one built scene when the warm worker's kept page can, else
+    one by one.
+    """
     # Absolute: the warm worker writes the file, and its working folder is not ours.
     out = Path(out).resolve()
     out.parent.mkdir(parents=True, exist_ok=True)
-    handler = scene_handler(ir_path, asset_files, mesh_files, metadata_sink=metadata_sink, notes_out=notes_out)
+    more_views = [(view_query, Path(view_out).resolve()) for view_query, view_out in more_views]
+    for _, view_out in more_views:
+        view_out.parent.mkdir(parents=True, exist_ok=True)
+    drawn = 0
+    handler = scene_handler(ir_path, asset_files, mesh_files, metadata_sink=metadata_sink, notes_out=notes_out,
+                            camera_log=camera_log)
     server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
     thread = threading.Thread(
         target=lambda: server.serve_forever(poll_interval=0.01),
@@ -454,9 +471,11 @@ def _render_browser(
             # contact sheet always load a page of their own.
             reuse = None
             if page == "scene/index.html" and not transparent:
-                reuse = {"query": query, "base": f"http://127.0.0.1:{server.server_port}"}
+                reuse = {"query": query, "base": f"http://127.0.0.1:{server.server_port}",
+                         "views": [{"query": q, "out": str(o)} for q, o in more_views]}
             try:
-                render_persistent(url=url, out=out, width=width, height=height, transparent=transparent, reuse=reuse)
+                drawn = render_persistent(url=url, out=out, width=width, height=height, transparent=transparent,
+                                          reuse=reuse)
             except (RuntimeError, OSError) as exc:
                 # The worker failed (or crashed): draw this one in a browser of its own.
                 from rhr.browser_render import render_once
@@ -471,12 +490,17 @@ def _render_browser(
     finally:
         server.shutdown()
         thread.join(timeout=2)
-    if not out.is_file() or out.stat().st_size == 0:
-        raise RuntimeError(f"the browser did not write a screenshot: {out}")
-    actual = _png_size(out)
-    expected = (width, height)
-    if actual != expected:
-        raise RuntimeError(f"browser PNG is {actual[0]}x{actual[1]}, expected {expected[0]}x{expected[1]}")
+    if camera_log is not None:
+        del camera_log[1 + drawn:]  # a view that failed part way may have reported its camera
+    for view_query, view_out in more_views[drawn:]:
+        _render_browser(ir_path, view_out, width, height, page, view_query, asset_files=asset_files,
+                        mesh_files=mesh_files, notes_out=notes_out, camera_log=camera_log)
+    for picture in [out, *(view_out for _, view_out in more_views)]:
+        if not picture.is_file() or picture.stat().st_size == 0:
+            raise RuntimeError(f"the browser did not write a screenshot: {picture}")
+        actual = _png_size(picture)
+        if actual != (width, height):
+            raise RuntimeError(f"browser PNG is {actual[0]}x{actual[1]}, expected {width}x{height}")
     return actual
 
 
@@ -513,12 +537,16 @@ def render_scene(
     effects: bool = True,
     effect_time: float | None = None,
     seed: int = 0,
+    more_views: list[tuple[str, Path]] = (),
+    camera_log: list | None = None,
 ) -> tuple[int, int]:
     """Render the 3D scene to a PNG through headless Chromium.
 
     Particles are drawn frozen at one moment of the effect playing: `effect_time`
     seconds after it starts, or the fullest moment when None. `effects=False` leaves
-    out particles, Beams and Trails.
+    out particles, Beams and Trails. `more_views` ([(view, out)]) draws the scene
+    from other standard views too, on the same build when it can; `camera_log` gets
+    each picture's camera in order.
     """
     query_values: dict[str, str | float] = {}
     if not effects:
@@ -582,6 +610,8 @@ def render_scene(
         asset_files=_asset_files(asset_roots),
         mesh_files=cached_meshes,
         notes_out=notes_out,
+        more_views=[(urlencode({**query_values, "view": name}), view_out) for name, view_out in more_views],
+        camera_log=camera_log,
     )
 
 

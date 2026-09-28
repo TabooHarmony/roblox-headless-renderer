@@ -1,5 +1,14 @@
 {
  "commands": {
+  "batch": {
+   "flags": {},
+   "positionals": [
+    {
+     "choices": [],
+     "name": "commands"
+    }
+   ]
+  },
   "browser": {
    "flags": {},
    "positionals": [
@@ -609,6 +618,11 @@
       1920,
       1080
      ],
+     "takesValue": true
+    },
+    "--views": {
+     "choices": [],
+     "default": null,
      "takesValue": true
     }
    },

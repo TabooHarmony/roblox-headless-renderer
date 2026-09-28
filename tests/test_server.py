@@ -60,6 +60,12 @@ def main() -> int:
         with ThreadPoolExecutor(4) as pool:
             results = list(pool.map(lambda _: run("layout", str(UI), server=True), range(4)))
         check(all(r.returncode == 0 and r.stdout == expected for r in results), "4 at once: same output")
+
+        print("server: --version from the client, help from the server")
+        for args in (["--version"], ["--help"], ["ui", "--help"], ["setup", "--help"]):
+            here, served = run(*args, server=False), run(*args, server=True)
+            check(served.returncode == here.returncode == 0 and served.stdout == here.stdout,
+                  f"rhr {' '.join(args)}: same output")
     finally:
         stopped = run("server", "stop", server=True)
         check(stopped.returncode == 0 and b"stopped" in stopped.stderr,
