@@ -166,6 +166,12 @@ def _finish_picture(args, report: dict) -> int:
     """A picture command's stdout: the PNG's path, or with --json the whole report."""
     from rhr import browsers
 
+    if getattr(args, "max_size", None) and "scale" not in report:
+        from rhr import picture
+
+        shaped = picture.finish(Path(report["out"]), max_size=args.max_size)
+        report.update(size=shaped["size"], scale=shaped["scale"])
+
     # {name, version, path} of the browser that drew it; null when none was needed.
     report.setdefault("browser", browsers.used)
     if args.json:
@@ -269,7 +275,7 @@ def _ui(args) -> int:
         if not layout and screens:
             return _die("the layout dump is empty. That is a bug in the pipeline, not an "
                         "empty UI: nodes reach the renderer without a _path.")
-    return _finish_picture(args, {
+    report = {
         "command": "ui",
         "source": str(source),
         "out": str(png),
@@ -277,7 +283,49 @@ def _ui(args) -> int:
         "screens": [{"name": name, "inset": _inset_json(inset)} for _, _, inset, name in screens],
         "missingAssets": missing_images,
         "notes": [stored] if stored else [],
-    })
+    }
+    if args.crop or args.fit or args.annotate or args.max_size:
+        try:
+            report.update(_shape_ui_picture(args, Path(png), ir_path, width, height, bg))
+        except ValueError as exc:
+            return _die(str(exc))
+    return _finish_picture(args, report)
+
+
+def _shape_ui_picture(args, png: Path, ir_path, width: int, height: int, bg) -> dict:
+    """--crop, --fit, --annotate, --max-size on a UI picture (rhr.picture)."""
+    from rhr import picture
+
+    entries = []
+    if args.crop or args.annotate:
+        from rhr.layout_dump import build_dump
+
+        entries = build_dump(ir_path, width, height, topbar_height=args.topbar_height)["nodes"]
+    crop = None
+    if args.crop:
+        target = next((e for e in entries if e["path"] == args.crop.strip().strip("/")), None)
+        if target is None:
+            raise ValueError(f"--crop: no element at {args.crop} (rhr layout lists the paths)")
+        crop = picture.element_box(target["rect"], (width, height))
+        if crop is None:
+            raise ValueError(f"--crop: {args.crop} is outside the {width}x{height} screen")
+    elif args.fit:
+        crop = picture.drawn_box(png, bg)
+    boxes = []
+    if args.annotate:
+        from rhr.checks import BUTTON_CLASSES
+
+        inside = (lambda r: True) if crop is None else (
+            lambda r: r["x"] < crop[0] + crop[2] and r["x"] + r["w"] > crop[0]
+            and r["y"] < crop[1] + crop[3] and r["y"] + r["h"] > crop[1])
+        boxes = [{"path": e["path"], "class": e["class"], "rect": e["rect"]} for e in entries
+                 if e.get("class") in BUTTON_CLASSES and e.get("visible") and min(e["rect"]["w"], e["rect"]["h"]) >= 2
+                 and inside(e["rect"])]
+        boxes = sorted(boxes, key=lambda b: (round(b["rect"]["y"]), b["rect"]["x"], b["path"]))[:99]
+    shaped = picture.finish(png, crop=crop, max_size=args.max_size, boxes=boxes)
+    for item in shaped["annotations"]:
+        print(f"box    {item['n']}: {item['path']}", file=sys.stderr)
+    return shaped
 
 
 def _layout(args) -> int:
@@ -923,6 +971,8 @@ def _effect_arguments(parser: argparse.ArgumentParser) -> None:
 
 
 def _picture_arguments(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--max-size", type=int, metavar="PX",
+                        help="shrink the PNG so its longer side is at most PX (the layout does not change)")
     parser.add_argument("--json", action="store_true",
                         help="print a JSON report (rhr.render/1: the PNG's path and size, the camera, "
                              "what was approximated or missing, notes) instead of the path")
@@ -1019,6 +1069,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="top bar inset in px for a CoreUISafeInsets ScreenGui (default: 58, "
              "see docs/known-approximations.md)",
     )
+    p_ui.add_argument("--crop", metavar="PATH", help="cut the PNG to this element, with a margin")
+    p_ui.add_argument("--fit", action="store_true", help="cut the PNG to what was drawn, with a margin")
+    p_ui.add_argument("--annotate", action="store_true",
+                      help="number the buttons on the picture; --json maps each number to its path")
     p_ui.add_argument("--all-guis", action="store_true",
                       help="in a place, also draw ScreenGuis stored outside StarterGui (templates scripts clone in)")
     p_ui.add_argument("--show", action="append", default=[], metavar="PATH",

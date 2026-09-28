@@ -82,6 +82,11 @@
 
 ### Changes
 
+- **Pictures cut to what matters.** `rhr ui --crop <path>` (one element and a
+  margin), `--fit` (what was drawn), `--annotate` (numbered boxes on the buttons;
+  `--json` maps each number to its path, so an agent can refer to "3"), and on `ui`,
+  `scene` and `preview` `--max-size N` (the longer side at most N px; the layout does
+  not change). A row of cards went from a 1920x1080 canvas to 752x186.
 - **`--device desktop|laptop|phone|android|tablet|console`** on `ui`, `layout`,
   `check`, `hitmap` and `preview`: a player's screen, measured in Studio's device
   emulator (iPhone 16, Galaxy A16, iPad, Xbox, ...): its viewport, the notch and home

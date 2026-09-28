@@ -451,6 +451,11 @@
      "default": null,
      "takesValue": true
     },
+    "--max-size": {
+     "choices": [],
+     "default": null,
+     "takesValue": true
+    },
     "--no-effects": {
      "choices": [],
      "default": false,
@@ -552,6 +557,11 @@
      "takesValue": false
     },
     "--look-at": {
+     "choices": [],
+     "default": null,
+     "takesValue": true
+    },
+    "--max-size": {
      "choices": [],
      "default": null,
      "takesValue": true
@@ -666,6 +676,11 @@
      "default": false,
      "takesValue": false
     },
+    "--annotate": {
+     "choices": [],
+     "default": false,
+     "takesValue": false
+    },
     "--background": {
      "choices": [],
      "default": [
@@ -674,6 +689,11 @@
       255,
       255
      ],
+     "takesValue": true
+    },
+    "--crop": {
+     "choices": [],
+     "default": null,
      "takesValue": true
     },
     "--device": {
@@ -693,10 +713,20 @@
      "default": null,
      "takesValue": true
     },
+    "--fit": {
+     "choices": [],
+     "default": false,
+     "takesValue": false
+    },
     "--json": {
      "choices": [],
      "default": false,
      "takesValue": false
+    },
+    "--max-size": {
+     "choices": [],
+     "default": null,
+     "takesValue": true
     },
     "--offline": {
      "choices": [],
