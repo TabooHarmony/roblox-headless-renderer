@@ -669,6 +669,16 @@
    },
    "positionals": []
   },
+  "skill": {
+   "flags": {
+    "--install": {
+     "choices": [],
+     "default": null,
+     "takesValue": true
+    }
+   },
+   "positionals": []
+  },
   "ui": {
    "flags": {
     "--all-guis": {

@@ -576,6 +576,23 @@ def _check_devices(args, ir_path, baseline) -> dict:
     return document
 
 
+def _skill(args) -> int:
+    """`rhr skill`: the agent skill (SKILL.md) on stdout, or installed where an agent
+    looks for skills (`--install .claude/skills` in a project, `~/.claude/skills` for a
+    user; Codex reads the same format)."""
+    from rhr.paths import PACKAGE
+
+    text = (PACKAGE / "skill" / "SKILL.md").read_text(encoding="utf-8")
+    if not args.install:
+        print(text, end="")
+        return 0
+    target = Path(args.install).expanduser() / "rhr" / "SKILL.md"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(text, encoding="utf-8")
+    print(target)
+    return 0
+
+
 def _browser(args) -> int:
     from rhr.browser_session import ensure, status, stop
 
@@ -1151,6 +1168,12 @@ def build_parser() -> argparse.ArgumentParser:
     p_check.add_argument("--only", metavar="PATH",
                         help="draw PATH alone: shown, with every other screen and its siblings closed")
     p_check.set_defaults(func=_check)
+
+    p_skill = sub.add_parser("skill", help="the agent skill (SKILL.md for Claude Code and Codex): print it, "
+                                          "or --install it into a skills folder")
+    p_skill.add_argument("--install", metavar="DIR",
+                         help="write DIR/rhr/SKILL.md (e.g. .claude/skills, or ~/.claude/skills)")
+    p_skill.set_defaults(func=_skill)
 
     p_browser = sub.add_parser("browser", help="start, stop or ask about the warm 3D browser worker "
                                               "(it starts by itself on the first 3D render)")

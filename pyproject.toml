@@ -57,6 +57,7 @@ include-package-data = false
 [tool.setuptools.package-data]
 # Only what rendering needs from the vendored trees, plus their licences.
 rhr = [
+    "skill/SKILL.md",
     "luau/*.luau",
     "fonts/*",
     "scene/*",

@@ -82,6 +82,10 @@
 
 ### Changes
 
+- **An agent skill:** `rhr skill` prints SKILL.md (for Claude Code and Codex), and
+  `rhr skill --install .claude/skills` puts it where the agent looks. docs/AGENTS.md
+  is rewritten around the loops agents run: where the UI lives, check, layout, a
+  small picture, devices.
 - **Pictures cut to what matters.** `rhr ui --crop <path>` (one element and a
   margin), `--fit` (what was drawn), `--annotate` (numbered boxes on the buttons;
   `--json` maps each number to its path, so an agent can refer to "3"), and on `ui`,

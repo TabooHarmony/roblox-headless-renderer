@@ -136,6 +136,22 @@ an edit → check → preview loop, and how far to trust each output. RHR is a c
 tool only: an agent runs it from its shell, and it costs nothing in the agent's context
 until it is run.
 
+For Claude Code and Codex, RHR ships as a skill: `rhr skill --install .claude/skills`
+in a project (or `~/.claude/skills` for every project) writes `rhr/SKILL.md`, which
+tells the agent when to reach for RHR and the loop to follow. For another agent, paste
+this into the project's AGENTS.md:
+
+```markdown
+## Seeing the UI and builds
+Use `rhr` (roblox-headless-renderer) to check Roblox UI and 3D work without Studio:
+`rhr check <target>` after each edit (exit 1 = error findings; `--baseline before.json`
+for only what the edit added), `rhr layout <target> --path <screen>` for rects,
+`rhr ui <target> --only <screen> --fit --max-size 800 --out shot.png` to look, and
+`rhr check <target> --devices all` before done. The target is the project, a
+`*.story.luau`, or the place file when the UI is saved in Studio. `rhr skill` prints
+the full guide.
+```
+
 `rhr` hands each command to a resident RHR server, started by the first command, which
 keeps Python, RHR and the files it read loaded: a command on an unchanged file costs
 little more than the work itself. It replaces itself when RHR is upgraded, lets go
