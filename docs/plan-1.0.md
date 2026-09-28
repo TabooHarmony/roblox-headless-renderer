@@ -390,7 +390,7 @@ README still to be rewritten from this.
 - `rhr inspect` (9252fed): classes, scripts, assets, risky-code findings.
 - Story-runner spike: **one runner works for both libraries** (Fusion 0.3 and React-lua
   17.2.1 drawn by `rhr ui` with nothing library-specific). Code and findings outside
-  the repo in `Desktop\Fileshr-story-spike\` (README there). Gap: AbsoluteSize /
+  the repo in `Desktop\Files\rhr-story-spike\` (README there). Gap: AbsoluteSize /
   ViewportSize cannot be provided through Lune's implementProperty.
 
 **Found, not fixed:**
