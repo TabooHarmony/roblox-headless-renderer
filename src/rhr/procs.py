@@ -1,7 +1,7 @@
 """Options for the helper processes RHR starts (Lune, Rojo, workers).
 
 On Windows a console program started by a process with no console of its own (an
-agent, an MCP host, a GUI) gets a new console window, which takes the focus. These
+agent's host, a GUI) gets a new console window, which takes the focus. These
 helpers never need one, so they are started with a hidden console; their children
 share it and stay hidden too.
 """

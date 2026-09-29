@@ -76,8 +76,9 @@ def main() -> None:
         tmp = Path(directory)
         ir = tmp / "materials.json"
         write_ir(ir, [
-            ("Plastic", -2.5, "Plastic", 0.0),
-            ("Neon", 2.5, "Neon", 0.0),
+            # Seen from the front (-Z), +X is on the left of the picture.
+            ("Plastic", 2.5, "Plastic", 0.0),
+            ("Neon", -2.5, "Neon", 0.0),
         ])
         first = tmp / "first.png"
         second = tmp / "second.png"
@@ -94,11 +95,11 @@ def main() -> None:
         unknown_ir = tmp / "unknown.json"
         write_ir(unknown_ir, [("Future", 0, "FutureMaterial", 0.6)])
         unknown_png = tmp / "unknown.png"
-        proc = run("scene", str(unknown_ir), "--viewport", "240x180", "--view", "front", "--coverage", "--out", str(unknown_png))
+        proc = run("scene", str(unknown_ir), "--viewport", "240x180", "--view", "front", "--out", str(unknown_png))
         assert proc.returncode == 0, proc.stderr
         assert "material-fallbacks=1" in proc.stderr, proc.stderr
 
-        proc = run("scene-dump", str(unknown_ir))
+        proc = run("scene-dump", "--parts", str(unknown_ir))
         assert proc.returncode == 0, proc.stderr
         data = json.loads(proc.stdout)
         assert data["materialFallbacks"] == {"FutureMaterial": 1}

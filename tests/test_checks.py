@@ -41,7 +41,7 @@ def check(ok: bool, message: str) -> None:
 def findings_for(fixture: str, viewport=(400, 300)) -> list[dict]:
     from rhr.checks import check_model
 
-    result = check_model(FIXTURES / f"{fixture}.rbxmx", *viewport)
+    result = check_model(FIXTURES / f"{fixture}.rbxmx", *viewport, min_severity="info")
     return result["findings"]
 
 
@@ -114,12 +114,77 @@ def main() -> int:
     f = findings_for("max_visible_graphemes")
     g = [f0 for f0 in f if f0["check"] == "max-visible-graphemes"]
     check(
-        bool(g) and g[0]["severity"] == "warning" and "typewriter" in g[0]["detail"],
-        f"max_visible_graphemes trips as a typewriter warning, NOT an error ({g})",
+        bool(g) and g[0]["severity"] == "info" and "typewriter" in g[0]["detail"],
+        f"max_visible_graphemes trips as a typewriter note (info), NOT an error ({g})",
     )
 
     clean = findings_for("grid_offset") + findings_for("panel_styles")
     check(not clean, f"clean fixtures (grid_offset, panel_styles) report nothing ({clean})")
+
+    print("checks: the review's probe (six mistakes, two fine labels)")
+    f = findings_for("check_probe", viewport=(1615, 1080))
+    found = {(f0["check"], f0["paths"][0].rsplit("/", 1)[-1]) for f0 in f if f0["severity"] != "info"}
+    for expected in (("text-taller-than-box", "WrappedTooTall"), ("off-screen", "OffScreenButton"),
+                     ("partly-off-screen", "HalfOffButton"), ("small-target", "TinyClose"),
+                     ("low-contrast", "LowContrast")):
+        check(expected in found, f"probe: {expected[0]} at {expected[1]} ({sorted(found)})")
+    flagged = {p.rsplit("/", 1)[-1] for f0 in f for p in f0["paths"]}
+    check(not {"ScaledBig", "WideFont"} & flagged,
+          f"probe: the TextScaled label and the wide font that fits are not flagged ({sorted(flagged)})")
+
+    # The sixth: an image Roblox refused when RHR last asked (check never downloads;
+    # the record is what `rhr ui` or `rhr fetch` left in the cache).
+    import time
+
+    from rhr import fetch
+
+    fetch._save_json(fetch.FAILURES, {**fetch._load_json(fetch.FAILURES), "images:900000999": {
+        "status": "missing (Roblox shows it as unavailable)", "time": time.time()}})
+    f = findings_for("check_probe", viewport=(1615, 1080))
+    missing = [f0 for f0 in f if f0["check"] == "image-missing"]
+    check(len(missing) == 1 and missing[0]["paths"] == ["Probe/MissingIcon"] and "unavailable" in missing[0]["detail"],
+          f"probe: image-missing at MissingIcon, with why ({missing})")
+    proc = subprocess.run([*RHR, "ui", str(FIXTURES / "check_probe.rbxmx"), "--json", "--out", str(OUT / "probe.png")],
+                          capture_output=True, text=True, cwd=str(REPO), timeout=300)
+    report = json.loads(proc.stdout) if proc.returncode == 0 else {}
+    check([(m["path"], m["uri"]) for m in report.get("missingAssets", [])]
+          == [("Probe/MissingIcon", "rbxassetid://900000999")],
+          f"ui --json: missingAssets names the image and where it is ({report.get('missingAssets')})")
+
+    # A button a transparent Active Frame in a ScreenGui above swallows clicks from, as
+    # measured in Studio (tests/fixtures/hitmap_studio.rbxmx): the one blocked button.
+    f = findings_for("hitmap_studio", viewport=(1000, 300))
+    blocked = [f0 for f0 in f if f0["check"] == "button-blocked"]
+    check([b["paths"][0] for b in blocked] == ["Main/UnderOtherGuiActive"] and blocked[0]["severity"] == "error",
+          f"button-blocked: only the button under the other ScreenGui's Active Frame ({blocked})")
+
+    print("checks: leaving findings out")
+
+    def cli(*args: str) -> tuple[int, dict, str]:
+        proc = subprocess.run([*RHR, "check", *args], capture_output=True, text=True, cwd=str(REPO), timeout=300)
+        return proc.returncode, (json.loads(proc.stdout) if proc.stdout.strip() else {}), proc.stderr
+
+    probe = str(FIXTURES / "check_probe.rbxmx")
+    _, full, _ = cli(probe)
+    names = {f0["check"] for f0 in full.get("findings", [])}
+    _, less, err = cli(probe, "--ignore", "small-target", "--ignore", "low-contrast")
+    check({f0["check"] for f0 in less["findings"]} == names - {"small-target", "low-contrast"}
+          and "left out: --ignore" in err, "--ignore leaves those checks out, and says so")
+    code, _, err = cli(probe, "--ignore", "no-such-check")
+    check(code == 2 and "text-wider-than-box" in err, "an unknown --ignore is an error listing the checks")
+    _, dup, _ = cli(str(FIXTURES / "duplicate_zindex.rbxmx"), "--viewport", "400x300")
+    _, dup_all, _ = cli(str(FIXTURES / "duplicate_zindex.rbxmx"), "--viewport", "400x300", "--min-severity", "info")
+    check(not dup["findings"] and any(f0["check"] == "duplicate-zindex" for f0 in dup_all["findings"]),
+          "info findings only with --min-severity info")
+    _, ignored, err = cli(str(FIXTURES / "check_probe_ignored.rbxmx"))
+    check(not any(f0["check"] == "small-target" for f0 in ignored["findings"]) and "RhrIgnore" in err,
+          "an RhrIgnore attribute leaves its check out for that instance")
+    OUT.mkdir(parents=True, exist_ok=True)
+    baseline = OUT / "probe-baseline.json"
+    baseline.write_text(json.dumps(full), encoding="utf-8")
+    code, new, err = cli(probe, "--baseline", str(baseline))
+    check(code == 0 and new["findings"] == [] and "already in the baseline" in err,
+          "--baseline: an unchanged file reports nothing new")
 
     print("checks: the exit contract")
 
@@ -131,7 +196,7 @@ def main() -> int:
         return proc.returncode
 
     check(cli_exit("zero_grid_cell") == 1, "rhr check exits 1 on an error-class finding")
-    check(cli_exit("duplicate_zindex") == 0, "rhr check exits 0 when only warnings fire")
+    check(cli_exit("duplicate_zindex") == 0, "rhr check exits 0 when only warnings or info fire")
     check(cli_exit("grid_offset") == 0, "rhr check exits 0 on a clean model")
 
     print("checks: the truncation follow-up draws (pixels, not internals)")

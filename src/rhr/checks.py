@@ -1,130 +1,351 @@
-"""The checks that let a build fail: eight model smells, one dump, no opinions.
+"""The checks that let a build fail: UI mistakes found from one layout dump.
 
-Every check reads the Task 2.1 dump (build_dump) and nothing else — the same
-converted objects and rect map the paint pass used, never a re-derived
-geometry. Each exists because a real model had the problem; each reports the
-least severity that is honest:
+Every check reads the rich layout dump (rhr.layout_dump.build_dump) and nothing else:
+the same objects and rects the paint pass used, and for text what the engine laid out
+(`text.bounds` in `text.box`, the size it drew at). A check never measures again with
+other rules than the drawing did; that is how half of the old text warnings were
+wrong (a TextScaled label measured at its nominal size, another font's widths).
 
-  1. text-wider-than-box    warning — TextWrapped makes the overflow benign
-                            (the text breaks instead of spilling), so it can
-                            be a deliberate look. Width is estimated with the
-                            engine's own run splitter and font metrics
-                            (_split_font_runs / skia measureText via
-                            _measure_mixed on a bundled Montserrat), not a
-                            char-count guess.
-  2. zero-size-grid-cell    error   — a cell resolved to <= 0 px collapses to
-                            nothing; nothing a designer does with a 0x0 cell
-                            is intentional. Honest limit (documented in
-                            layout_dump._grid_cell_px): a UIPadding on the
-                            holder shrinks the engine's actual reference, which
-                            the dump's rect does not show, so only the model's
-                            own px is checked.
-  3. child-outside-clip     warning — content entirely outside the parent rect
-                            is very often intentional scroll or canvas
-                            content, and only flagged when the parent clips.
-  4. text-size-below-2px    error   — a font under 2 px is unreadable at any
-                            zoom; no deliberate render wants it.
-  5. invisible-content      warning — a visible node carrying text or an
-                            opaque-design background at full transparency is
-                            usually a leftover, but a template scaffold is a
-                            legitimate authoring choice.
-  6. duplicate-zindex       warning — overlapping siblings with equal ZIndex
-                            leave the paint order to tree luck; that ambiguity
-                            is legal, so it warns. Sibling identity is the
-                            dump's paintOrder, not the path (paths collide).
-  7. text-truncated         warning — TextTruncate is a deliberate authoring
-                            choice; flagged only when the text actually
-                            overflows the box (same width test as check 1).
-  8. max-visible-graphemes  warning, NOT an error — per Roblox docs the
-                            layout is computed as if every grapheme were
-                            visible (it is a typewriter window over the same
-                            layout), so nothing is broken; the check only
-                            surfaces an effect a reader of the dump might not
-                            know is on.
+Severities, least honest one wins:
 
-Output shape: {"model": ..., "findings": [{"check", "severity", "path(s)",
-"detail"}...]}, sorted by (severity, path, check) — severity error first — with
-no set or dict iteration anywhere, so two runs are byte-identical.
+  error    a real mistake nothing intends: fails the build (`rhr check` exits 1).
+  warning  very likely a mistake a player would see; worth a look.
+  info     a pattern that is often intended (layout holders, text a script fades in,
+           equal ZIndex siblings); not printed unless `--min-severity info`.
+
+The checks, by id (the ids are part of the interface):
+
+  text-wider-than-box    warning  unwrapped text wider than its box (it spills out)
+                                  (the text checks skip text in a font RHR lacks, and
+                                  anything collapsed to nothing, as a tween starts)
+  text-taller-than-box   warning  wrapped text with more lines than its box holds
+  text-truncated         warning  TextTruncate cut the text short
+  text-size-below-2px    error    a font under 2 px
+  low-contrast           warning  text hardly distinguishable from its background
+                                  (info between 1.5:1 and 3:1)
+  off-screen             warning  a button entirely outside the screen (info for
+                                  a panel: games park panels there to slide in)
+  partly-off-screen      warning  a button, part of which is outside the screen
+  small-target           warning  a button under 24 px on a side (44 px on a touch
+                                  --device)
+  under-touch-controls   warning  on a touch --device, a button under the jump button
+                                  or in the thumbstick's corner
+  under-notch            warning  on a --device with a notch or home bar, a button
+                                  reaching into it
+  button-blocked         error    a button whose clicks an Active element in a
+                                  ScreenGui above swallows (even a transparent one):
+                                  it cannot be clicked there (rules measured in Studio,
+                                  rhr.hitmap)
+  button-covered         info     a button under another button at its centre
+  image-missing          warning  an image Roblox refused the last time RHR asked for
+                                  it (`rhr check` never downloads; `rhr ui` does)
+  zero-size-grid-cell    error    a UIGridLayout cell that resolves to nothing
+  child-outside-clip     info     content entirely outside a clipping parent
+  invisible-content      info     a visible element that paints nothing
+  duplicate-zindex       info     overlapping siblings with equal ZIndex
+  max-visible-graphemes  info     a typewriter window over the text
+
+Leaving findings out: `--ignore <check>`; `--min-severity`; `--baseline old.json`
+(only findings not in an earlier `rhr check` output: "did my edit add a problem?");
+and in the file, a string attribute `RhrIgnore` on any instance, "all" or check ids
+separated by commas, for that instance and everything in it.
+
+Output shape: {"model": ..., "findings": [{"check", "severity", "paths",
+"detail"}...]}, sorted by (severity, path, check), with no set or dict iteration, so
+two runs are byte-identical.
 """
 
 from __future__ import annotations
 
-from rhr.schema import stamp
-
-import sys
+import json
 from pathlib import Path
 
+from rhr.schema import stamp
 
-
+SEVERITIES = ("error", "warning", "info")
+_RANK = {name: rank for rank, name in enumerate(SEVERITIES)}
 TRUNCATE_OVERFLOW_MODES = {"AtEnd", "SplitWord"}
-# _load_typeface's own ladder ends at Montserrat (bundled with the engine), so
-# a plain model without a Font property measures with exactly this face.
-_DEFAULT_FONT_FILE = "Montserrat-Regular.ttf"
+BUTTON_CLASSES = {"TextButton", "ImageButton", "TextBox"}
+# A comfortable pointer target; a finger needs more (Apple's and Google's guidance:
+# 44 pt, 48 dp; Roblox's own touch buttons are 70 px on a phone).
+MIN_TARGET_PX = 24
+MIN_TOUCH_PX = 44
+# The engine's grey for a background the model did not set.
+_DEFAULT_GREY = [163, 162, 165]
+# Rounding slack: a box the text fills to the pixel is not an overflow.
+_SLACK_PX = 1.0
 
 
-def _resolve_text(entry: dict) -> dict | None:
-    """The dump's text dict, or None (entry carries no text)."""
+def _text(entry: dict) -> dict | None:
     text = entry.get("text")
-    return text if isinstance(text, dict) else None
+    return text if isinstance(text, dict) and (text.get("content") or "").strip() else None
 
 
-def _measure_text_width(content: str, text: dict) -> float:
-    """Estimated width in px: the engine's run splitter, a bundled font.
-
-    Reuses the vendored engine's own mixed-run measurement (text_runs.py:
-    _split_font_runs picks the face per char, _measure_run_text sums skia's
-    advances) on the engine's default bundled face. Roblox renders with its own
-    licensed faces, so this is an estimate with a known face, not a char count.
-    """
-    import skia
-
-    from rhr.pipeline import FONTS_DIR
-
-    from ui_engine.text_fonts import _typeface_from_file
-
-    typeface = _typeface_from_file(str(FONTS_DIR / _DEFAULT_FONT_FILE))
-    if typeface is None:
-        typeface = skia.Typeface()  # skia's default face; better than guessing by chars
-    font = skia.Font(typeface, float(text.get("size", 14)))
-    from ui_engine.text_runs import _measure_mixed
-
-    return _measure_mixed(content, font, None, ())
+def _measured(entry: dict, ctx: dict) -> dict | None:
+    """The entry's text when its laid-out size can be trusted: drawn in the face the
+    model asks for (not an uploaded font RHR could not load, whose words may be one
+    icon glyph in Roblox) and not inside something collapsed to nothing."""
+    text = _text(entry)
+    if text is None or "bounds" not in text or text.get("fontSubstituted") or _collapsed(entry, ctx):
+        return None
+    return text
 
 
-def _overflows(entry: dict) -> bool:
-    """The same width test for checks 1 and 7: unwrapped text wider than the rect."""
-    text = _resolve_text(entry)
-    if text is None or text.get("wrapped"):
-        return False
-    content = text.get("content") or ""
-    if not content.strip():
-        return False
-    width = _measure_text_width(content, text)
-    return width > entry["rect"]["w"]
+def _collapsed(entry: dict, ctx: dict) -> bool:
+    """Under 2 px on a side, or inside something that is: sized to nothing on purpose
+    (a menu a tween grows open), not a UI to judge."""
+    memo = ctx.setdefault("collapsed", {})
+    path = entry["path"]
+    if path not in memo:
+        rect = entry["rect"]
+        parent = ctx["by_path"].get(path.rpartition("/")[0])
+        memo[path] = min(rect["w"], rect["h"]) < 2 or (parent is not None and _collapsed(parent, ctx))
+    return memo[path]
 
 
-def check_text_wider_than_box(nodes: list[dict]) -> list[dict]:
+def _finding(check: str, severity: str, entry: dict, detail: str) -> dict:
+    return {"check": check, "severity": severity, "paths": [entry["path"]], "detail": detail}
+
+
+def check_text_wider_than_box(nodes: list[dict], ctx: dict) -> list[dict]:
     findings = []
     for entry in nodes:
-        text = _resolve_text(entry)
-        if text is None:
+        text = _measured(entry, ctx)
+        if (text is None or text.get("wrapped") or text.get("scaled") or text.get("truncated")
+                or not entry.get("visible")):
             continue
-        if _overflows(entry):
-            findings.append(
-                {
-                    "check": "text-wider-than-box",
-                    "severity": "warning",
-                    "paths": [entry["path"]],
-                    "detail": (
-                        f"text estimated {_measure_text_width(text.get('content') or '', text):.0f}px wide "
-                        f"in a {entry['rect']['w']:.0f}px box with TextWrapped off"
-                    ),
-                }
-            )
+        width, box = text["bounds"][0], text["box"][0]
+        if width > box + _SLACK_PX:
+            findings.append(_finding(
+                "text-wider-than-box", "warning", entry,
+                f"text is {width:.0f}px wide in a {box:.0f}px box with TextWrapped off: it spills out"))
     return findings
 
 
-def check_zero_size_grid_cell(nodes: list[dict]) -> list[dict]:
+def check_text_taller_than_box(nodes: list[dict], ctx: dict) -> list[dict]:
+    findings = []
+    for entry in nodes:
+        text = _measured(entry, ctx)
+        if text is None or not (text.get("wrapped") or text.get("scaled")):
+            continue
+        if not entry.get("visible"):
+            continue
+        height, box = text["bounds"][1], text["box"][1]
+        if height > box + _SLACK_PX:
+            lines = text.get("lines", 1)
+            findings.append(_finding(
+                "text-taller-than-box", "warning", entry,
+                f"text wraps to {lines} line(s), {height:.0f}px tall, in a {box:.0f}px box: lines spill out "
+                f"(at TextSize {text.get('drawnSize', text.get('size'))})"))
+    return findings
+
+
+def check_text_truncated(nodes: list[dict], ctx: dict) -> list[dict]:
+    findings = []
+    for entry in nodes:
+        text = _text(entry)
+        if text is None or not text.get("truncated") or _collapsed(entry, ctx):
+            continue
+        findings.append(_finding(
+            "text-truncated", "warning", entry,
+            f"TextTruncate {text.get('truncate')} cuts the text short in the {text['box'][0]:.0f}px box"))
+    return findings
+
+
+def check_text_size_below_2px(nodes: list[dict], ctx: dict) -> list[dict]:
+    """A font under 2 px is unreadable at any zoom. A TextScaled label's TextSize is
+    ignored by the engine (the box drives the size), so its drawn size is used."""
+    findings = []
+    for entry in nodes:
+        text = _text(entry)
+        if text is None or _collapsed(entry, ctx):
+            continue
+        size = float(text.get("drawnSize", text.get("size", 14))) if text.get("scaled") else float(text.get("size", 14))
+        if size < 2:
+            findings.append(_finding("text-size-below-2px", "error", entry, f"text drawn at {size:g}px is unreadable"))
+    return findings
+
+
+def _luminance(color) -> float:
+    def channel(value: float) -> float:
+        c = float(value) / 255.0
+        return c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4
+
+    r, g, b = (channel(v) for v in list(color)[:3])
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b
+
+
+def contrast_ratio(a, b) -> float:
+    la, lb = sorted((_luminance(a), _luminance(b)), reverse=True)
+    return (la + 0.05) / (lb + 0.05)
+
+
+def check_low_contrast(nodes: list[dict], ctx: dict) -> list[dict]:
+    """Text against what is painted right under it: its own background, else the last
+    element painted before it that covers the text's centre (its frame, or a sibling
+    image laid behind it). Silent when that is unknown: an image, a gradient, a colour
+    the model did not set, or text with an outline."""
+    images = ctx["image_paths"]
+    order = sorted(nodes, key=lambda e: e.get("paintOrder", 0))
+    index = {id(entry): i for i, entry in enumerate(order)}
+    findings = []
+    for entry in nodes:
+        text = _text(entry)
+        if (text is None or not entry.get("visible") or float(text.get("transparency", 0)) > 0.5
+                or _collapsed(entry, ctx)):
+            continue
+        if entry.get("gradient") or any(float(s.get("transparency", 0)) < 1 for s in entry.get("strokes") or []):
+            continue
+        rect = entry["rect"]
+        cx, cy = rect["x"] + rect["w"] / 2, rect["y"] + rect["h"] / 2
+        behind = _painted_under(entry, cx, cy, order, index[id(entry)], images, ctx)
+        if behind is None:
+            continue
+        ratio = contrast_ratio(text.get("color", [0, 0, 0]), behind)
+        if ratio < 3:
+            findings.append(_finding(
+                "low-contrast", "warning" if ratio < 1.5 else "info", entry,
+                f"text contrast {ratio:.2f}:1 against its background (3:1 is the least for large text)"))
+    return findings
+
+
+def _painted_under(entry: dict, cx: float, cy: float, order: list[dict], start: int, images: set[str],
+                   ctx: dict) -> list | None:
+    """The solid colour under a text's centre, or None when it is not a known colour."""
+    for i in range(start, max(-1, start - 4000), -1):
+        other = order[i]
+        if other is not entry:
+            r = other["rect"]
+            if (not other.get("visible") or _collapsed(other, ctx)
+                    or not (r["x"] <= cx <= r["x"] + r["w"] and r["y"] <= cy <= r["y"] + r["h"])):
+                continue
+            if other["path"] in images:
+                return None
+        bg = other.get("background")
+        if other.get("gradient") and bg and float(bg.get("transparency", 1)) < 1:
+            return None
+        if bg and float(bg.get("transparency", 1)) < 0.05:
+            return list(bg["color"]) if list(bg.get("color", [])) != _DEFAULT_GREY else None
+    return None
+
+
+def _clipped(entry: dict, by_path: dict) -> bool:
+    """Whether something above `entry` clips it (ScrollingFrame, ClipsDescendants):
+    content outside the screen there is hidden or scrolled to, not lost."""
+    path = entry["path"].rpartition("/")[0]
+    while path:
+        holder = by_path.get(path)
+        if holder is not None and (holder.get("clipsDescendants") or holder.get("class") == "ScrollingFrame"):
+            return True
+        path = path.rpartition("/")[0]
+    return False
+
+
+def check_off_screen(nodes: list[dict], ctx: dict) -> list[dict]:
+    width, height = ctx["viewport"]
+    by_path = ctx["by_path"]
+
+    def outside(rect: dict) -> bool:
+        return (rect["x"] + rect["w"] <= 0 or rect["y"] + rect["h"] <= 0
+                or rect["x"] >= width or rect["y"] >= height)
+
+    findings = []
+    for entry in nodes:
+        rect = entry["rect"]
+        if not entry.get("visible") or _collapsed(entry, ctx) or _clipped(entry, by_path):
+            continue
+        if outside(rect):
+            parent = by_path.get(entry["path"].rpartition("/")[0])
+            if parent is not None and parent.get("visible") and outside(parent["rect"]):
+                continue  # reported once, at the outermost element
+            # A panel parked outside the screen is how many games slide one in: a
+            # note. A button out there on its own is more likely a mistake.
+            button = entry.get("class") in BUTTON_CLASSES
+            findings.append(_finding(
+                "off-screen", "warning" if button else "info", entry,
+                f"entirely outside the {width}x{height} screen at ({rect['x']:.0f},{rect['y']:.0f}): "
+                "no player sees it (a start position for a tween, or a mistake)"))
+        elif entry.get("class") in BUTTON_CLASSES:
+            seen_w = min(rect["x"] + rect["w"], width) - max(rect["x"], 0)
+            seen_h = min(rect["y"] + rect["h"], height) - max(rect["y"], 0)
+            shown = (seen_w * seen_h) / (rect["w"] * rect["h"])
+            if shown < 0.99:
+                findings.append(_finding(
+                    "partly-off-screen", "warning", entry,
+                    f"{(1 - shown):.0%} of this {entry['class']} is outside the {width}x{height} screen"))
+    return findings
+
+
+def check_small_target(nodes: list[dict], ctx: dict) -> list[dict]:
+    device = ctx.get("device")
+    touch = device is not None and device.touch
+    least = MIN_TOUCH_PX if touch else MIN_TARGET_PX
+    findings = []
+    for entry in nodes:
+        rect = entry["rect"]
+        if entry.get("class") not in BUTTON_CLASSES or not entry.get("visible") or _collapsed(entry, ctx):
+            continue
+        if 0 < min(rect["w"], rect["h"]) < least:
+            how = f"at least {least}px on a touch screen" if touch else f"at least {MIN_TARGET_PX}px with a mouse, more on touch"
+            findings.append(_finding(
+                "small-target", "warning", entry,
+                f"a {rect['w']:.0f}x{rect['h']:.0f}px {entry['class']} is hard to hit ({how})"))
+    return findings
+
+
+def _overlap(rect: dict, box: tuple[float, float, float, float]) -> float:
+    x, y, w, h = box
+    ow = min(rect["x"] + rect["w"], x + w) - max(rect["x"], x)
+    oh = min(rect["y"] + rect["h"], y + h) - max(rect["y"], y)
+    return max(0.0, ow) * max(0.0, oh)
+
+
+def check_device_obstructions(nodes: list[dict], ctx: dict) -> list[dict]:
+    """On a --device: buttons where Roblox's touch controls are (a player's thumbs
+    rest there, and the jump button is drawn on top), and buttons reaching into the
+    notch or home bar (measured in Studio's emulator, rhr.devices)."""
+    device = ctx.get("device")
+    if device is None:
+        return []
+    width, height = ctx["viewport"]
+    left, top, right, bottom = device.safe
+    unsafe = [box for box in ((0.0, 0.0, left, height), (width - right, 0.0, right, height),
+                              (0.0, height - bottom, width, bottom), (0.0, 0.0, width, top)) if box[2] > 0 and box[3] > 0]
+    findings = []
+    for entry in nodes:
+        rect = entry["rect"]
+        if entry.get("class") not in BUTTON_CLASSES or not entry.get("visible") or _collapsed(entry, ctx):
+            continue
+        for name, box in device.touch_controls.items():
+            if _overlap(rect, box) > 0.2 * min(rect["w"] * rect["h"], box[2] * box[3]):
+                what = "the jump button" if name == "jumpButton" else "the thumbstick's corner"
+                findings.append(_finding("under-touch-controls", "warning", entry,
+                                         f"on a {device.name} this {entry['class']} is under {what} "
+                                         f"({box[0]:.0f},{box[1]:.0f} {box[2]:.0f}x{box[3]:.0f})"))
+        if any(_overlap(rect, box) > 0 for box in unsafe):
+            findings.append(_finding("under-notch", "warning", entry,
+                                     f"on a {device.name} this {entry['class']} reaches into the notch or home bar "
+                                     f"(safe area insets left {left:g}, right {right:g}, bottom {bottom:g})"))
+    return findings
+
+
+def check_image_missing(nodes: list[dict], ctx: dict) -> list[dict]:
+    missing = ctx.get("missing_images") or {}
+    findings = []
+    for entry in nodes:
+        known = missing.get(entry["path"])
+        if known is None or not entry.get("visible"):
+            continue
+        uri, why = known
+        findings.append(_finding("image-missing", "warning", entry,
+                                 f"{uri} could not be downloaded ({why}): it draws as nothing"))
+    return findings
+
+
+def check_zero_size_grid_cell(nodes: list[dict], _ctx: dict) -> list[dict]:
+    """A UIGridLayout cell resolved to <= 0 px collapses its items to nothing. (A
+    UIPadding on the holder shrinks the engine's reference, which the dump's rect does
+    not show, so only the model's own px is checked; layout_dump._grid_cell_px.)"""
     findings = []
     for entry in nodes:
         cell = entry.get("gridCellPx")
@@ -132,309 +353,168 @@ def check_zero_size_grid_cell(nodes: list[dict]) -> list[dict]:
             continue
         w, h = float(cell[0]), float(cell[1])
         if w <= 0 or h <= 0:
-            findings.append(
-                {
-                    "check": "zero-size-grid-cell",
-                    "severity": "error",
-                    "paths": [entry["path"]],
-                    "detail": f"grid CellSize resolves to {w:.0f}x{h:.0f}px: cells collapse to nothing",
-                }
-            )
+            findings.append(_finding("zero-size-grid-cell", "error", entry,
+                                     f"grid CellSize resolves to {w:.0f}x{h:.0f}px: cells collapse to nothing"))
     return findings
 
 
-def check_child_outside_clip(nodes: list[dict]) -> list[dict]:
-    """A child entirely outside the parent's rect, when the parent clips."""
+def check_child_outside_clip(nodes: list[dict], ctx: dict) -> list[dict]:
+    """A child entirely outside a parent that clips (not a ScrollingFrame, whose
+    content outside its window is scrolled to): not seen now. Often intended (a
+    ticker scrolling through a banner, a page sliding in), so a note."""
+    by_path = ctx["by_path"]
     findings = []
-    by_path = {entry["path"]: entry for entry in nodes}
-    for entry in nodes:
-        if not entry.get("clipsDescendants"):
+    for child in nodes:
+        parent = by_path.get(child["path"].rpartition("/")[0])
+        if parent is None or not parent.get("clipsDescendants") or parent.get("class") == "ScrollingFrame":
             continue
-        parent = entry["rect"]
-        for child in nodes:
-            if child is entry:
-                continue
-            # A direct child: its path extends this parent's path by one segment.
-            if not child["path"].startswith(entry["path"] + "/"):
-                continue
-            if "/" in child["path"][len(entry["path"]) + 1 :]:
-                continue
-            if by_path.get(child["path"]) is not child:
-                continue
-            rect = child["rect"]
-            if (
-                rect["x"] + rect["w"] <= parent["x"]
-                or rect["x"] >= parent["x"] + parent["w"]
-                or rect["y"] + rect["h"] <= parent["y"]
-                or rect["y"] >= parent["y"] + parent["h"]
-            ):
-                findings.append(
-                    {
-                        "check": "child-outside-clip",
-                        "severity": "warning",
-                        "paths": [child["path"]],
-                        "detail": (
-                            f"rect ({rect['x']:.0f},{rect['y']:.0f} {rect['w']:.0f}x{rect['h']:.0f}) is entirely "
-                            f"outside clipping parent {entry['path']} "
-                            f"({parent['x']:.0f},{parent['y']:.0f} {parent['w']:.0f}x{parent['h']:.0f})"
-                        ),
-                    }
-                )
-    return findings
-
-
-def check_text_size_below_2px(nodes: list[dict]) -> list[dict]:
-    """A font under 2 px is unreadable at any zoom; no deliberate render wants it.
-
-    Skipped for TextScaled labels: their specified TextSize is ignored by the
-    engine (the box drives the size, Task 1.10), so a scaled label carrying
-    TextSize 1 is a authoring leftover in the FILE, not in the RENDER — RTL2's
-    shop labels all carry TextSize 1 + TextScaled and render at 20+ px. The
-    model's real rendered size is a draw-time fact; flagging the specified
-    number would be a false alarm on every scaled label in real UI.
-    """
-    findings = []
-    for entry in nodes:
-        text = _resolve_text(entry)
-        if text is None or text.get("scaled"):
+        if by_path.get(child["path"]) is not child or not child.get("visible"):
             continue
-        if float(text.get("size", 14)) < 2:
-            findings.append(
-                {
-                    "check": "text-size-below-2px",
-                    "severity": "error",
-                    "paths": [entry["path"]],
-                    "detail": f"TextSize {text.get('size')} is unreadable",
-                }
-            )
-    return findings
-
-
-def check_invisible_content(nodes: list[dict]) -> list[dict]:
-    """A visible node that paints nothing and whose subtree paints nothing.
-
-    "Paints nothing" is about pixels, not one property: a label with a
-    transparent background and opaque text is the most common Roblox pattern
-    there is, and a Frame holding visible children is a layout scaffold —
-    neither is a finding. An ImageLabel's image paints even when the dump
-    carries no image field (the check cannot see assets), so any node the IR
-    gave an Image is assumed to paint; the honest default is to stay silent
-    rather than flag real UI as dead. The check fires only for a genuinely
-    dead branch: the node's every channel transparent (text at 100% or
-    absent, background at 100% or unset) AND no descendant that could paint
-    either. The engine's converter-default grey counts as no background: the
-    model did not set one.
-    """
-    findings = []
-    for entry in nodes:
-        if not entry.get("visible"):
-            continue
-        text = _resolve_text(entry)
-        has_text = text is not None and bool((text.get("content") or "").strip())
-        bg = entry.get("background")
-        # An explicit background: the model set BackgroundColor3/Transparency
-        # (the dump's default grey means the converter invented it).
-        has_bg = bg is not None and list(bg.get("color", [])) != [163, 162, 165]
-        text_trans = float(text.get("transparency", 0.0)) if text else 1.0
-        bg_trans = float(bg.get("transparency", 1.0)) if bg else 1.0
-        text_could_show = has_text and text_trans < 1.0
-        bg_could_show = has_bg and bg_trans < 1.0
-        if text_could_show or bg_could_show:
-            continue
-        subtree_paints = any(
-            other is not entry
-            and other["path"].startswith(entry["path"] + "/")
-            and _could_paint(other)
-            for other in nodes
-        )
-        if subtree_paints:
-            continue
-        if has_text:
-            findings.append(
-                {
-                    "check": "invisible-content",
-                    "severity": "warning",
-                    "paths": [entry["path"]],
-                    "detail": f"text at {text_trans:.0%} transparency: '"
-                    + (text.get("content") or "")[:40]
-                    + "'",
-                }
-            )
-        elif has_bg:
-            findings.append(
-                {
-                    "check": "invisible-content",
-                    "severity": "warning",
-                    "paths": [entry["path"]],
-                    "detail": f"background at {bg_trans:.0%} transparency paints nothing",
-                }
-            )
+        rect, box = child["rect"], parent["rect"]
+        if (rect["x"] + rect["w"] <= box["x"] or rect["x"] >= box["x"] + box["w"]
+                or rect["y"] + rect["h"] <= box["y"] or rect["y"] >= box["y"] + box["h"]):
+            findings.append(_finding(
+                "child-outside-clip", "info", child,
+                f"rect ({rect['x']:.0f},{rect['y']:.0f} {rect['w']:.0f}x{rect['h']:.0f}) is entirely outside "
+                f"clipping parent {parent['path']} "
+                f"({box['x']:.0f},{box['y']:.0f} {box['w']:.0f}x{box['h']:.0f})"))
     return findings
 
 
 def _could_paint(entry: dict) -> bool:
     """The node itself could put a pixel on the canvas."""
-    text = _resolve_text(entry)
-    if text is not None and (text.get("content") or "").strip():
-        if float(text.get("transparency", 0.0)) < 1.0:
-            return True
+    text = _text(entry)
+    if text is not None and float(text.get("transparency", 0.0)) < 1.0:
+        return True
     bg = entry.get("background")
-    if bg is not None and list(bg.get("color", [])) != [163, 162, 165]:
-        if float(bg.get("transparency", 1.0)) < 1.0:
-            return True
-    return False
+    return bool(bg and list(bg.get("color", [])) != _DEFAULT_GREY and float(bg.get("transparency", 1.0)) < 1.0)
 
 
-def check_invisible_content_with_ir(nodes: list[dict], image_paths: set[str] | None = None) -> list[dict]:
-    """check_invisible_content, minus nodes the IR says carry an Image.
-
-    Library twin of check_model's IR-aware filtering, for callers that hold
-    the dump and the IR separately.
-    """
-    if not image_paths:
-        return check_invisible_content(nodes)
-
-    def _has_image(entry: dict) -> bool:
-        return any(
-            p == entry["path"] or p.startswith(entry["path"] + "/") for p in image_paths
-        )
-
-    return [
-        f
-        for f in check_invisible_content(nodes)
-        if not _has_image({"path": f["paths"][0]})
-    ]
-
-
-def check_duplicate_zindex(nodes: list[dict]) -> list[dict]:
-    """Overlapping siblings with equal ZIndex: ambiguous paint order.
-
-    Siblings are entries whose paths share a parent prefix. Identity within a
-    pair is each entry's paintOrder (build_dump's composite walk order), not
-    the path: two siblings with the same Name collide in the path space (the
-    engine's rect map overwrites by key), but every dump entry still carries
-    its own paintOrder, so colliding siblings stay two findings, not one.
-    Reporting pairs, not clusters: a cluster of n expands to every overlapping
-    pair, which is what a fix touches.
-    """
+def check_invisible_content(nodes: list[dict], ctx: dict) -> list[dict]:
+    """A visible element that paints nothing, nor does anything in it: a leftover, or
+    (often) a holder or text a script fades in. Anything with an image is assumed to
+    paint (the dump does not see images)."""
+    images = ctx["image_paths"]
+    painting: set[str] = set()
+    for entry in nodes:
+        if _could_paint(entry) or entry["path"] in images:
+            path = entry["path"]
+            while path and path not in painting:
+                painting.add(path)
+                path = path.rpartition("/")[0]
     findings = []
-    order = sorted(nodes, key=lambda entry: entry.get("paintOrder", 0))
-    seen: set[tuple[int, int]] = set()
-    for i, first in enumerate(order):
-        for second in order[i + 1 :]:
-            if first["path"] == second["path"]:
-                # Two entries on one path: same-Name siblings the rect map's
-                # key overwrote. They are siblings by construction (one path,
-                # one parent), kept apart by paintOrder.
-                parent = first["path"].rsplit("/", 1)[0] if "/" in first["path"] else ""
-                if not parent:
+    for entry in nodes:
+        if not entry.get("visible") or entry["path"] in painting:
+            continue
+        if any(p.startswith(entry["path"] + "/") for p in images):
+            continue
+        text = entry.get("text") if isinstance(entry.get("text"), dict) else None
+        bg = entry.get("background")
+        if text and (text.get("content") or "").strip():
+            findings.append(_finding(
+                "invisible-content", "info", entry,
+                f"text at {float(text.get('transparency', 0)):.0%} transparency: '{(text.get('content') or '')[:40]}'"))
+        elif bg is not None and list(bg.get("color", [])) != _DEFAULT_GREY:
+            findings.append(_finding(
+                "invisible-content", "info", entry,
+                f"background at {float(bg.get('transparency', 1)):.0%} transparency paints nothing"))
+    return findings
+
+
+def check_duplicate_zindex(nodes: list[dict], _ctx: dict) -> list[dict]:
+    """Overlapping siblings with equal ZIndex: which is on top follows their order in
+    the file. Legal and usually fine; worth knowing when one must be on top. Pairs are
+    kept apart by paintOrder (same-named siblings share a path)."""
+    siblings: dict[str, list[dict]] = {}
+    for entry in sorted(nodes, key=lambda e: e.get("paintOrder", 0)):
+        parent = entry["path"].rpartition("/")[0]
+        if parent:
+            siblings.setdefault(parent, []).append(entry)
+    findings = []
+    for group in siblings.values():
+        for i, first in enumerate(group):
+            for second in group[i + 1:]:
+                if first["zIndex"] != second["zIndex"]:
                     continue
-            else:
-                parent = first["path"].rsplit("/", 1)[0] if "/" in first["path"] else ""
-                second_parent = second["path"].rsplit("/", 1)[0] if "/" in second["path"] else ""
-                if parent != second_parent or not parent:
+                a, b = first["rect"], second["rect"]
+                if (min(a["x"] + a["w"], b["x"] + b["w"]) - max(a["x"], b["x"]) <= 0
+                        or min(a["y"] + a["h"], b["y"] + b["h"]) - max(a["y"], b["y"]) <= 0):
                     continue
-            if first["zIndex"] != second["zIndex"]:
-                continue
-            a, b = first["rect"], second["rect"]
-            overlap_x = min(a["x"] + a["w"], b["x"] + b["w"]) - max(a["x"], b["x"])
-            overlap_y = min(a["y"] + a["h"], b["y"] + b["h"]) - max(a["y"], b["y"])
-            if overlap_x <= 0 or overlap_y <= 0:
-                continue
-            key = (first.get("paintOrder", 0), second.get("paintOrder", 0))
-            if key in seen:
-                continue
-            seen.add(key)
-            findings.append(
-                {
-                    "check": "duplicate-zindex",
-                    "severity": "warning",
+                findings.append({
+                    "check": "duplicate-zindex", "severity": "info",
                     "paths": sorted([first["path"], second["path"]]),
-                    "detail": (
-                        f"overlapping rects both ZIndex {first['zIndex']} "
-                        f"(paintOrder {key[0]} and {key[1]}): paint order is tree luck"
-                    ),
-                }
-            )
+                    "detail": (f"overlapping rects both ZIndex {first['zIndex']} (paintOrder "
+                               f"{first.get('paintOrder', 0)} and {second.get('paintOrder', 0)}): "
+                               "the later one in the file is on top"),
+                })
     return findings
 
 
-def check_text_truncated(nodes: list[dict]) -> list[dict]:
+def check_max_visible_graphemes(nodes: list[dict], _ctx: dict) -> list[dict]:
+    """A typewriter window: layout is computed as if every grapheme were visible."""
     findings = []
     for entry in nodes:
-        text = _resolve_text(entry)
-        if text is None:
-            continue
-        mode = text.get("truncate")
-        if mode not in TRUNCATE_OVERFLOW_MODES:
-            continue
-        if _overflows(entry):
-            findings.append(
-                {
-                    "check": "text-truncated",
-                    "severity": "warning",
-                    "paths": [entry["path"]],
-                    "detail": (
-                        f"TextTruncate {mode} trims text wider than the {entry['rect']['w']:.0f}px box"
-                    ),
-                }
-            )
-    return findings
-
-
-def check_max_visible_graphemes(nodes: list[dict]) -> list[dict]:
-    findings = []
-    for entry in nodes:
-        text = _resolve_text(entry)
-        if text is None:
-            continue
-        window = text.get("maxVisibleGraphemes")
-        if window is None:
-            continue
-        content = text.get("content") or ""
-        if window < len(content):
-            findings.append(
-                {
-                    "check": "max-visible-graphemes",
-                    "severity": "warning",
-                    "paths": [entry["path"]],
-                    "detail": (
-                        f"typewriter window shows {window} of {len(content)} graphemes "
-                        "(layout still computes all of them)"
-                    ),
-                }
-            )
+        text = _text(entry)
+        window = text.get("maxVisibleGraphemes") if text else None
+        if window is not None and window < len(text.get("content") or ""):
+            findings.append(_finding(
+                "max-visible-graphemes", "info", entry,
+                f"typewriter window shows {window} of {len(text['content'])} graphemes "
+                "(layout still computes all of them)"))
     return findings
 
 
 CHECKS = [
     check_text_wider_than_box,
+    check_text_taller_than_box,
+    check_text_truncated,
+    check_text_size_below_2px,
+    check_low_contrast,
+    check_off_screen,
+    check_small_target,
+    check_device_obstructions,
+    check_image_missing,
     check_zero_size_grid_cell,
     check_child_outside_clip,
-    check_text_size_below_2px,
     check_invisible_content,
     check_duplicate_zindex,
-    check_text_truncated,
     check_max_visible_graphemes,
 ]
+CHECK_IDS = (
+    "text-wider-than-box", "text-taller-than-box", "text-truncated", "text-size-below-2px", "low-contrast",
+    "off-screen", "partly-off-screen", "small-target", "under-touch-controls", "under-notch", "button-blocked", "button-covered", "image-missing", "zero-size-grid-cell", "child-outside-clip",
+    "invisible-content", "duplicate-zindex", "max-visible-graphemes",
+)
 
 
-def run_checks(dump: dict) -> list[dict]:
-    """The dump's findings, sorted by (severity, path, check) for determinism."""
+def _sort(findings: list[dict]) -> list[dict]:
+    return sorted(findings, key=lambda f: (_RANK[f["severity"]], f["paths"][0], f["check"], f["detail"]))
+
+
+def run_checks(dump: dict, image_paths: set[str] | None = None,
+               missing_images: dict[str, tuple[str, str]] | None = None) -> list[dict]:
+    """Every finding in the dump, sorted by (severity, path, check). `missing_images`:
+    path -> (uri, why) for images known to be unavailable."""
     nodes = dump.get("nodes") or []
+    ctx = {
+        "viewport": tuple(dump.get("viewport") or (0, 0)),
+        "by_path": {entry["path"]: entry for entry in nodes},
+        "image_paths": image_paths or set(),
+        "missing_images": missing_images or {},
+        "device": __import__("rhr.devices", fromlist=["CURRENT"]).CURRENT,
+    }
     findings: list[dict] = []
     for check in CHECKS:
-        findings += check(nodes)
-    findings.sort(key=lambda f: (f["severity"] != "error", f["paths"][0], f["check"]))
-    return findings
+        findings += check(nodes, ctx)
+    return _sort(findings)
 
 
-def check_model(ir_path, width: int, height: int, topbar_height: float | None = None) -> dict:
-    """build_dump + run_checks: the wrapper a caller (the CLI) uses.
+def check_model(ir_path, width: int, height: int, topbar_height: float | None = None, *,
+                min_severity: str = "warning", ignore: tuple[str, ...] = (), baseline: dict | None = None) -> dict:
+    """The CLI's `rhr check`: the dump, its findings, and the ones left out.
 
-    Accepts a Roblox model (IR emitted first, exactly as build_dump's callers
-    do) or an IR .json. `rhr check model.rbxm` and `rhr check ir.json` are
-    both real, matching render/layout.
+    Returns the rhr.check/1 document plus `_left_out`: how many findings each rule
+    left out (for the summary on stderr), popped by the caller.
     """
     from rhr.ir import cached_ir, load_ir
     from rhr.layout_dump import build_dump
@@ -443,44 +523,134 @@ def check_model(ir_path, width: int, height: int, topbar_height: float | None = 
     if ir_path.suffix != ".json":
         ir_path = cached_ir(ir_path)
     dump = build_dump(ir_path, width, height, topbar_height=topbar_height)
-    findings = run_checks(dump)
-    # The dump cannot see image assets; the IR can. An ImageLabel whose
-    # background is transparent paints its Image, so the invisible-content
-    # check stays silent about any path whose IR subtree carries an Image.
-    image_paths = _image_paths(load_ir(ir_path))
-    if image_paths:
-        findings = [
-            f
-            for f in findings
-            if f["check"] != "invisible-content"
-            or not any(
-                p == f["paths"][0] or p.startswith(f["paths"][0] + "/") or f["paths"][0].startswith(p + "/")
-                for p in image_paths
-            )
-        ]
-        findings.sort(key=lambda f: (f["severity"] != "error", f["paths"][0], f["check"]))
-    return stamp("check", {"model": dump["model"], "findings": findings})
+    ir = load_ir(ir_path)
+    findings = run_checks(dump, _image_paths(ir), _missing_images(ir))
+    findings = _sort(findings + _blocked_buttons(ir_path, width, height, topbar_height, dump))
+
+    left_out = {"severity": 0, "ignored": 0, "attribute": 0, "baseline": 0}
+    suppressed = _suppressed(ir)
+    known = {(f["check"], tuple(f["paths"])) for f in (baseline or {}).get("findings") or []}
+    kept = []
+    for finding in findings:
+        if _RANK[finding["severity"]] > _RANK[min_severity]:
+            left_out["severity"] += 1
+        elif finding["check"] in ignore:
+            left_out["ignored"] += 1
+        elif _is_suppressed(finding, suppressed):
+            left_out["attribute"] += 1
+        elif (finding["check"], tuple(finding["paths"])) in known:
+            left_out["baseline"] += 1
+        else:
+            kept.append(finding)
+    document = stamp("check", {"model": dump["model"], "findings": kept})
+    document["_left_out"] = left_out
+    return document
+
+
+def _blocked_buttons(ir_path, width: int, height: int, topbar_height, dump: dict) -> list[dict]:
+    """Buttons whose centre another element takes a click from (rhr.hitmap's rules)."""
+    from rhr.hitmap import build_hitmap
+
+    hitmap = build_hitmap(ir_path, width, height, topbar_height=topbar_height)
+    targets = {(test["point"]["x"], test["point"]["y"]): test for test in hitmap["hitTests"]}
+    by_path = {entry["path"]: entry for entry in dump.get("nodes") or []}
+    ctx = {"by_path": by_path}
+    findings = []
+    for node in hitmap["nodes"]:
+        rect = node.get("rect")
+        if not node.get("activatedTargetCandidate") or rect is None:
+            continue
+        entry = by_path.get(node["path"])
+        if entry is not None and _collapsed(entry, ctx):
+            continue
+        test = targets.get((round(rect["x"] + rect["w"] / 2, 3), round(rect["y"] + rect["h"] / 2, 3)))
+        if test is None or test["target"] in (None, node["path"]):
+            continue
+        finding = {"paths": [node["path"], test["target"]]}
+        if test.get("targetIsButton"):
+            findings.append({**finding, "check": "button-covered", "severity": "info",
+                             "detail": f"{test['target']} is on top at this button's centre and gets the click"})
+        else:
+            findings.append({**finding, "check": "button-blocked", "severity": "error",
+                             "detail": (f"{test['target']}, an Active element in a ScreenGui above, swallows the "
+                                        "clicks at this button's centre (even when transparent): players cannot "
+                                        "click it there")})
+    return findings
+
+
+def _suppressed(ir: dict) -> dict[str, set[str]]:
+    """Path -> check ids its `RhrIgnore` attribute leaves out ({"all"} for every one)."""
+    out: dict[str, set[str]] = {}
+
+    def walk(node: dict) -> None:
+        value = node.get("rhrIgnore")
+        if isinstance(value, str) and value.strip():
+            out[node["path"]] = {part.strip() for part in value.split(",") if part.strip()}
+        for child in node.get("children") or []:
+            walk(child)
+
+    for root in ir.get("roots") or []:
+        walk(root)
+    return out
+
+
+def _is_suppressed(finding: dict, suppressed: dict[str, set[str]]) -> bool:
+    if not suppressed:
+        return False
+    for path in finding["paths"]:
+        here = path
+        while here:
+            ids = suppressed.get(here)
+            if ids is not None and ("all" in ids or finding["check"] in ids):
+                return True
+            here = here.rpartition("/")[0]
+    return False
+
+
+def _missing_images(ir: dict) -> dict[str, tuple[str, str]]:
+    """Path -> (uri, why) for the UI's images Roblox refused when RHR last asked."""
+    from rhr import fetch
+    from rhr.adapter import ui_nodes
+
+    uses = fetch.image_uses(ui_nodes(ir))
+    refused = fetch.refused_recently("images", uses) if uses else {}
+    return {use["path"]: (use["uri"], why) for asset, why in refused.items() for use in uses[asset]}
 
 
 def _image_paths(ir: dict) -> set[str]:
-    """Every node path whose IR subtree carries an Image/ImageContent property."""
-    out: set[str] = set()
+    """Every UI node path that carries an Image (the dump does not see images)."""
+    from rhr.adapter import GUI_CLASSES, ui_branches
 
-    def walk(node: dict, prefix: str) -> None:
-        here = f"{prefix}/{node['name']}" if prefix else node["name"]
+    out: set[str] = set()
+    branches = ui_branches(ir)  # only the UI: a place's 3D world is skipped
+
+    def walk(node: dict, inside: bool = False) -> None:
         props = node.get("props") or {}
         if props.get("Image") or props.get("ImageContent"):
-            out.add(here)
+            out.add(node["path"])
+        inside = inside or node.get("className") in GUI_CLASSES
         for child in node.get("children") or []:
-            walk(child, here)
+            if inside or id(child) in branches:
+                walk(child, inside)
 
     for root in ir.get("roots") or []:
-        walk(root, "")
+        walk(root)
     return out
+
+
+def load_baseline(path: Path) -> dict:
+    """An earlier `rhr check` output, for --baseline."""
+    try:
+        document = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise ValueError(f"cannot read the baseline {path}: {exc}") from None
+    if not str(document.get("schema", "")).startswith("rhr.check/"):
+        raise ValueError(f"{path} is not an `rhr check` output (schema {document.get('schema')!r})")
+    return document
 
 
 def findings_json(result: dict) -> str:
     """The canonical serialisation: sorted keys, deterministic."""
-    import json
+    from rhr.schema import dumps
 
-    return json.dumps(result, indent=2, sort_keys=True)
+    return dumps({key: value for key, value in result.items() if not key.startswith("_")})

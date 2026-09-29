@@ -440,7 +440,7 @@ end
 -- model answers every instance. Item N is instance N only if rbx-dom keeps that
 -- order, so the class attribute of every item is checked against the tree before
 -- the index is used; any doubt and the per-instance call stays in charge.
-local function xml_visual_index(roots, classes, keep_map)
+local function xml_visual_index(roots, classes, keep_map, wanted)
   -- Fast profiles only need XML fallback values for retained visual nodes. Clone the
   -- retained roots once, prune runtime-only subtrees from the clones, and serialize
   -- that reduced tree. Originals are never mutated.
@@ -493,7 +493,7 @@ local function xml_visual_index(roots, classes, keep_map)
     elseif tag == "Properties" and close == "" then
       local stop = string.find(xml, "</Properties>", e + 1, true)
       local cur = items[count]
-      if cur then
+      if cur and (wanted == nil or wanted[count]) then
         local block = string.sub(xml, e + 1, (stop or #xml + 1) - 1)
         for name in pairs(VISUAL_XML_RECOVERY) do
           if string.find(block, 'name="' .. name .. '"', 1, true) then
@@ -525,7 +525,7 @@ local function xml_visual_index(roots, classes, keep_map)
   return items
 end
 
-local function xml_index(roots, classes)
+local function xml_index(roots, classes, wanted)
   local ok, xml = pcall(function() return roblox.serializeModel(roots, { xml = true }) end)
   if not ok then return nil end
   local items, count, pos = {}, 0, 1
@@ -540,7 +540,7 @@ local function xml_index(roots, classes)
     elseif tag == "Properties" and close == "" then
       local stop = string.find(xml, "</Properties>", e + 1, true)
       local cur = items[count]
-      if cur then
+      if cur and (wanted == nil or wanted[count]) then
         cur.found, cur.present =
           parse_property_block(string.sub(xml, e + 1, (stop or #xml + 1) - 1))
       end
@@ -575,10 +575,60 @@ local function preorder_classes(roots, keep_map)
   return out
 end
 
-local emission_profile = process.args[3] or "full"
+-- Arguments: this chunk's own (rhr-ir-serve.luau runs it once per file in one Lune
+-- process), else the command line's.
+local ARGS = table.pack(...)
+local serving = ARGS.n > 0
+if not serving then ARGS = process.args end
+-- A failure ends a command-line run with exit code 1; a served one reports it.
+local function fail()
+  if serving then error("rhr-ir failed", 0) end
+  process.exit(1)
+end
+local emission_profile = ARGS[3] or "full"
 local node_index = 0
-local xml_items = nil
 local visual_keep = {}
+
+-- XML recovery, deferred. A property the bridge will not hand over is looked up in
+-- the XML view of the same instance. Serializing the whole place up front cost a
+-- 116k-part place 46 s and most of its 6 GB peak, for one value (Lighting.ClockTime)
+-- in the 3D profile. So the walk only notes which (instance, names) need it, and the
+-- XML is made afterwards, for those alone.
+--
+-- In a binary file every instance of a class carries the same saved properties (the
+-- format stores them per class), so one shallow serialization per class says which
+-- names the XML can ever answer; the others are never looked up. An XML source file
+-- can differ per instance, so there every miss is looked up, as before.
+local binary_source = false
+local class_xml_present = {}
+local pending_recovery = {}
+-- Up to this many instances are serialized one by one; more, and one serialization
+-- of the whole (retained) tree answers them all.
+local PER_INSTANCE_LIMIT = 2000
+
+-- Per class: the allowlisted names worth visiting (a property of the class, or a
+-- name its saved XML carries) and the names its XML carries. Visiting only these
+-- instead of all of PROPS matters on big places: 370 names x 180k instances.
+local function class_plan(inst, valid)
+  local plan = class_xml_present[inst.ClassName]
+  if plan ~= nil then return plan end
+  if not binary_source then
+    plan = { names = PROPS, present = nil }
+  else
+    local _, present = xml_props(inst, true)
+    local names = {}
+    for _, name in ipairs(PROPS) do
+      if valid[name] or present[name] then table.insert(names, name) end
+    end
+    plan = { names = names, present = present }
+  end
+  class_xml_present[inst.ClassName] = plan
+  return plan
+end
+
+local function read_property(inst, name)
+  return inst[name]
+end
 
 -- Identity. Every instance gets a numeric id (preorder over the whole file, so it
 -- does not depend on the profile) and a unique slash path. Siblings that share a
@@ -627,10 +677,6 @@ end
 local function walk(inst)
   if emission_profile ~= "full" and not visual_keep[inst] then return nil end
   node_index = node_index + 1
-  local xml = xml_items and xml_items[node_index]
-  if xml_items and (xml == nil or xml.class ~= inst.ClassName) then
-    error("emitter: the XML index does not line up at instance " .. tostring(node_index))
-  end
   local children = inst:GetChildren()
 
   -- A non-visual ancestor is retained only to preserve hierarchy/full-name paths.
@@ -645,6 +691,7 @@ local function walk(inst)
 
   local valid = class_property_set(inst.ClassName)
   verify_class(inst, valid)
+  local plan = class_plan(inst, valid)
   -- Allowlisted names that this class has no property for but a child is called:
   -- the bridge answers `frame.Padding` with the *child* of that name, and feeding
   -- that on is worse than dropping it (flatten_node is name-driven, so a Frame with
@@ -657,14 +704,17 @@ local function walk(inst)
   end
   local props = {}
   local refs = {}
-  local found, present = xml and xml.found, xml and xml.present
-  local unreadable = {}
+  local recover = {}
   local unmapped = {}
   local not_a_property = {}
-  for _, name in ipairs(PROPS) do
+  -- A child named like a property of another class is reported (not_a_property)
+  -- in allowlist order, so such an instance visits every name.
+  local visit = next(child_named) and PROPS or plan.names
+  local xml_present = plan.present
+  for _, name in ipairs(visit) do
     local ok, value, child_fallback
     if valid[name] then
-      ok, value = pcall(function() return inst[name] end)
+      ok, value = pcall(read_property, inst, name)
     else
       -- Not a property of this class: no read, no error, no stack traceback. It
       -- can still be a child's name, which the map above already knows about.
@@ -707,24 +757,9 @@ local function walk(inst)
       -- Not a property of this class at all: the name belongs to a child. Nothing
       -- was lost, so this is informational, not a drop.
       table.insert(not_a_property, name .. " (child " .. child_fallback .. ")")
-    else
-      if emission_profile ~= "full" then
-        if VISUAL_XML_RECOVERY[name] then
-          if present == nil then found, present = xml_props(inst, true) end
-          local raw = found[name]
-          if raw ~= nil then props[name] = raw end
-        end
-      else
-        if present == nil then found, present = xml_props(inst) end
-        local raw = found[name]
-        if raw ~= nil then
-          props[name] = raw
-        elseif present[name] then
-          -- the file carries it, the bridge will not hand it over, nothing to
-          -- recover it from: name it rather than dropping it in silence
-          table.insert(unreadable, name)
-        end
-      end
+    elseif (emission_profile == "full" or VISUAL_XML_RECOVERY[name]) and (xml_present == nil or xml_present[name]) then
+      -- Looked up in the XML after the walk (see pending_recovery).
+      table.insert(recover, name)
     end
   end
   if inst.ClassName == "UnionOperation" and (props.AssetId == nil or props.AssetId == "") then
@@ -749,7 +784,12 @@ local function walk(inst)
       if next(kept) then node.attributes = kept end
     end
   end
-  if #unreadable > 0 then node.unreadable = unreadable end
+  -- `RhrIgnore`: which `rhr check` findings to leave out here (rhr.checks).
+  local okIgnore, ignore = pcall(function() return inst:GetAttribute("RhrIgnore") end)
+  if okIgnore and type(ignore) == "string" and ignore ~= "" then node.rhrIgnore = ignore end
+  if #recover > 0 then
+    table.insert(pending_recovery, { inst = inst, index = node_index, node = node, names = recover })
+  end
   if #unmapped > 0 then node.unmapped = unmapped end
   if #not_a_property > 0 then node.not_a_property = not_a_property end
   for _, child in ipairs(children) do
@@ -759,12 +799,18 @@ local function walk(inst)
   return node
 end
 
-local path, out = process.args[1], process.args[2]
+local path, out = ARGS[1], ARGS[2]
 if not path or not out or (emission_profile ~= "full" and emission_profile ~= "visual" and emission_profile ~= "static") then
   print("usage: lune run src/rhr/luau/rhr-ir.luau <source.rbxm|.rbxmx|.rbxl> <out.json> [full|visual|static]")
-  process.exit(1)
+  fail()
 end
 local data = fs.readFile(path)
+-- An XML declaration (`<?xml version="1.0"?>`, which some tools write before <roblox>)
+-- makes rbx-dom's format detection give up; Studio reads such files, so drop it.
+if string.sub(data, 1, 5) == "<?xml" then
+  local close = string.find(data, "?>", 1, true)
+  if close then data = string.gsub(string.sub(data, close + 2), "^%s+", "") end
+end
 local roots
 local ok = pcall(function() roots = roblox.deserializeModel(data) end)
 if not ok then roots = roblox.deserializePlace(data) end
@@ -781,18 +827,90 @@ if emission_profile ~= "full" then
   end
   for _, root in ipairs(roots) do mark(root) end
 end
-if emission_profile == "full" then
-  xml_items = xml_index(roots, node_classes)
-else
-  local retained_classes = preorder_classes(roots, visual_keep)
-  xml_items = xml_visual_index(roots, retained_classes, visual_keep)
-end
+binary_source = string.sub(data, 1, 8) == "<roblox!"
 local nodes = {}
 for _, r in ipairs(roots) do
   local node = walk(r)
   if node ~= nil then table.insert(nodes, node) end
 end
-fs.writeFile(out, serde.encode("json", { schema = "rhr.ir/1", sourcePath = path, roots = nodes }))
+
+-- Recover what the bridge would not hand over, from the XML view of each instance.
+if #pending_recovery > 0 then
+  local xml_items = nil
+  if #pending_recovery > PER_INSTANCE_LIMIT then
+    local wanted = {}
+    for _, entry in ipairs(pending_recovery) do wanted[entry.index] = true end
+    if emission_profile == "full" then
+      xml_items = xml_index(roots, node_classes, wanted)
+    else
+      xml_items = xml_visual_index(roots, preorder_classes(roots, visual_keep), visual_keep, wanted)
+    end
+  end
+  for _, entry in ipairs(pending_recovery) do
+    local found, present
+    local item = xml_items and xml_items[entry.index]
+    if item ~= nil then
+      if item.class ~= entry.inst.ClassName then
+        error("emitter: the XML index does not line up at instance " .. tostring(entry.index))
+      end
+      found, present = item.found, item.present
+    else
+      found, present = xml_props(entry.inst, true)
+    end
+    local unreadable = {}
+    for _, name in ipairs(entry.names) do
+      local raw = found[name]
+      if raw ~= nil then
+        entry.node.props[name] = raw
+      elseif emission_profile == "full" and present[name] then
+        -- the file carries it, the bridge will not hand it over, nothing to
+        -- recover it from: name it rather than dropping it in silence
+        table.insert(unreadable, name)
+      end
+    end
+    if #unreadable > 0 then entry.node.unreadable = unreadable end
+  end
+end
+
+-- The JSON is written node by node: encoding the whole tree in one call made a second
+-- full copy of it, which took a 116k-part place from 2.7 to over 5 GB. Each node is
+-- encoded without its children, which follow inside it; a subtree is let go once it
+-- is written. Same encoder, same document.
+local function write_ir()
+  local parts = {}
+  local function emit(node)
+    local children = node.children
+    node.children = nil
+    local head = serde.encode("json", node)
+    table.insert(parts, string.sub(head, 1, -2))
+    if #children == 0 then
+      -- An empty Lua table encodes as an object; keep the document as it was.
+      table.insert(parts, ',"children":{}}')
+      return
+    end
+    table.insert(parts, ',"children":[')
+    for index, child in ipairs(children) do
+      if index > 1 then table.insert(parts, ",") end
+      emit(child)
+      children[index] = false
+    end
+    table.insert(parts, "]}")
+  end
+  local header = serde.encode("json", { schema = "rhr.ir/1", sourcePath = path })
+  table.insert(parts, string.sub(header, 1, -2))
+  if #nodes == 0 then
+    fs.writeFile(out, table.concat(parts) .. ',"roots":{}}')
+    return
+  end
+  table.insert(parts, ',"roots":[')
+  for index, root in ipairs(nodes) do
+    if index > 1 then table.insert(parts, ",") end
+    emit(root)
+    nodes[index] = false
+  end
+  table.insert(parts, "]}")
+  fs.writeFile(out, table.concat(parts))
+end
 
 -- Never silent: report properties the file carries that we could not read, and
 -- properties whose datatype we could not map. Either one is a rendering bug
@@ -814,13 +932,15 @@ local function count(node)
   for _, child in ipairs(node.children) do count(child) end
 end
 for _, r in ipairs(nodes) do count(r) end
+local root_count = #nodes
+write_ir()
 local function tally(counts)
   local out = {}
   for name, n in pairs(counts) do table.insert(out, name .. "x" .. tostring(n)) end
   table.sort(out)
   return table.concat(out, ", ")
 end
-print("wrote " .. out .. " roots=" .. #nodes)
+print("wrote " .. out .. " roots=" .. root_count)
 print("unreadable: " .. tostring(nodes_affected) .. " nodes"
   .. (next(names) and (", " .. tally(names)) or ""))
 print("unmapped: " .. tostring(unmapped_nodes) .. " nodes"
@@ -844,5 +964,5 @@ if filter_mismatches.narrow > 0 then
   print("emitter: the reflection database is narrower than the bridge on "
     .. tostring(filter_mismatches.narrow) .. " names; the IR written to " .. out
     .. " may be missing them")
-  process.exit(1)
+  fail()
 end

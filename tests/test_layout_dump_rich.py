@@ -218,7 +218,8 @@ def main() -> int:
         [*RHR, "layout", str(REPO / "out" / "ir" / "unknown_class_values.json"), "--rich"],
         capture_output=True, text=True, cwd=str(REPO), timeout=300,
     )
-    check(empty.returncode == 1, f"an empty structured dump exits 1 (exit {empty.returncode})")
+    # An internal bug, so exit 2 ("the command failed"); 1 is only check's "errors found".
+    check(empty.returncode == 2, f"an empty structured dump exits 2 (exit {empty.returncode})")
     check("empty" in empty.stderr, f"the refusal says why on stderr ({empty.stderr.strip()[-80:]})")
 
     print("layout dump (rich): ok" if not failures else f"layout dump (rich): {len(failures)} failed")

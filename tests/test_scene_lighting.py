@@ -95,7 +95,7 @@ def main() -> None:
         normal_mean, dark_mean = foreground_means(dawn, dark_png)
         assert normal_mean > dark_mean + 10, (normal_mean, dark_mean)
 
-        proc = run("scene-dump", str(ir))
+        proc = run("scene-dump", "--parts", str(ir))
         assert proc.returncode == 0
         dumped = json.loads(proc.stdout)["lighting"]
         assert dumped["path"] == "Lighting"

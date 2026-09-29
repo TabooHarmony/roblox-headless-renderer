@@ -93,7 +93,7 @@ def main() -> None:
         assert bbox[3] - bbox[1] > 4, bbox
 
         dump_proc = subprocess.run(
-            [*RHR, "scene-dump", str(source)],
+            [*RHR, "scene-dump", "--parts", str(source)],
             cwd=ROOT,
             capture_output=True,
             text=True,

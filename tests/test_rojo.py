@@ -49,7 +49,7 @@ def main() -> int:
 
     with tempfile.TemporaryDirectory(prefix="rhr-rojo-") as directory:
         tmp = Path(directory)
-        proc = run(["render", str(PROJECT_DIR), "--viewport", "400x300", "--out", str(tmp / "hud.png")])
+        proc = run(["ui", str(PROJECT_DIR), "--viewport", "400x300", "--out", str(tmp / "hud.png")])
         check(proc.returncode == 0 and (tmp / "hud.png").is_file(), "render builds and draws the project")
         proc = run(["check", str(PROJECT_DIR)])
         check(proc.returncode == 0 and "findings" in proc.stdout, "check runs on the project")

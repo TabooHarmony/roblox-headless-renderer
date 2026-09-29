@@ -112,7 +112,7 @@ def main():
     pixel(img, 10, 10, [255,0,0,255], 'layout-placed group tinted')
     pixel(img, 50, 50, [255,255,255,255], 'layout-placed group isolated')
     # Global mode does not flatten groups, per CanvasGroup documentation.
-    from ui_engine.renderer import render_json
+    from rhr.ui_engine.renderer import render_json
     global_path = out / 'global.png'
     render_json(node, global_path, 300, 300, z_index_behavior='Global')
     img = np.asarray(Image.open(global_path).convert('RGBA')).astype(int)

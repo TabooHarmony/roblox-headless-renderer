@@ -1,6 +1,6 @@
 """Where RHR finds its bundled resources and where it writes caches.
 
-Bundled resources (the vendored renderers, the Lune IR script, the browser pages)
+Bundled resources (the UI engine's fonts, vendored three.js, the Lune IR script, the browser pages)
 live inside the `rhr` package, so an installed copy works without a git checkout.
 Everything RHR writes on its own (downloaded images and meshes, intermediate IR)
 goes to one per-user cache directory, never into the package or the caller's
@@ -8,7 +8,6 @@ working directory:
 
     <cache>/cache/icons/      image assets, <asset_id>.png
     <cache>/cache/meshes/     mesh assets, <asset_id>.mesh
-    <cache>/cache/particles/  particle textures
     <cache>/cache/unions/     decoded union (CSG) meshes, <asset_id>.json
     <cache>/cache/materials/  Roblox's material texture maps, <asset_id>.png
     <cache>/cache/studio/     PNGs converted from the local Roblox Studio install
@@ -26,7 +25,6 @@ from pathlib import Path
 
 PACKAGE = Path(__file__).resolve().parent
 VENDOR = PACKAGE / "vendor"
-PINEVEX = VENDOR / "pinevex"
 LUAU_IR_SCRIPT = PACKAGE / "luau" / "rhr-ir.luau"
 # Open-license copies of the font builds Roblox ships (see fonts/OFL.txt).
 FONTS = PACKAGE / "fonts"
@@ -45,7 +43,6 @@ CACHE = Path(os.environ["RHR_CACHE_DIR"]).expanduser() if os.environ.get("RHR_CA
 ICONS_DIR = CACHE / "icon_library"
 ICON_CACHE = CACHE / "cache" / "icons"
 MESH_CACHE = CACHE / "cache" / "meshes"
-PARTICLE_CACHE = CACHE / "cache" / "particles"
 UNION_CACHE = CACHE / "cache" / "unions"
 MATERIAL_CACHE = CACHE / "cache" / "materials"
 IR_DIR = CACHE / "ir"

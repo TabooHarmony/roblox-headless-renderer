@@ -137,7 +137,7 @@ def main() -> None:
         assert red > 500, red
 
         proc = subprocess.run(
-            [*RHR, "scene-dump", str(src)],
+            [*RHR, "scene-dump", "--parts", str(src)],
             cwd=ROOT, capture_output=True, text=True, timeout=120,
         )
         assert proc.returncode == 0, proc.stderr

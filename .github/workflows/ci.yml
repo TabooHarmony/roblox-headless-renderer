@@ -33,18 +33,20 @@ jobs:
 
       - name: Install system libraries
         if: runner.os == 'Linux'
-        # skia-python loads libEGL/libGL at import time, even for CPU rendering.
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libegl1 libgl1
+        # skia-python loads libEGL/libGL at import time, even for CPU rendering; the
+        # rest are what Chrome for Testing's headless shell needs on a bare Ubuntu.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libegl1 libgl1 \
+            libnss3 libnspr4 libatk1.0-0t64 libatk-bridge2.0-0t64 libcups2t64 libdrm2 \
+            libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libgbm1 \
+            libpango-1.0-0 libcairo2 libasound2t64 libdbus-1-3 libxshmfence1
 
-      - name: Install RHR and Chromium
+      - name: Install RHR and the headless browser
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -e ".[dev,mcp]"
-          if [ "$RUNNER_OS" = "Linux" ]; then
-            python -m playwright install --with-deps --only-shell chromium
-          else
-            python -m playwright install --only-shell chromium
-          fi
+          python -m pip install -e ".[dev]"
+          rhr setup --browser --no-rojo
 
       - name: Install Lune and Rojo
         run: |
@@ -76,18 +78,119 @@ jobs:
             # on every OS and runs in full on Ubuntu and Windows, so macOS runs every
             # non-browser test plus 3D smoke tests.
             python -m pytest -m "not browser"
-            python -m pytest tests/test_scene.py tests/test_preview.py tests/test_mcp_adapter.py \
+            python -m pytest tests/test_scene.py tests/test_preview.py \
               tests/test_scene_framing.py tests/test_browser_session.py tests/test_scene_material_textures.py \
               tests/test_place_realism.py tests/test_terrain.py
           else
             python -m pytest
           fi
 
+      - name: Render with the runner's own browser
+        # The suite uses the pinned shell; this checks RHR finds and drives the
+        # browsers people already have (Chrome everywhere; Edge on Windows).
+        run: |
+          python tests/test_browsers.py
+          python -m rhr scene examples/tower.rbxmx --viewport 400x300 --out out/installed.png --json \
+            | python scripts/check_report.py --installed
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            RHR_BROWSER="C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe" \
+              python -m rhr scene examples/tower.rbxmx --viewport 400x300 --out out/edge.png --json \
+              | python scripts/check_report.py --browser msedge
+          fi
+        env:
+          RHR_PERSISTENT_BROWSER: "0"
+          RHR_BROWSER_DOWNLOAD: "0"
+          RHR_CACHE_DIR: ${{ runner.temp }}/rhr-no-shell
+
       - name: Upload renders on failure
         if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: rhr-out-${{ matrix.os }}
+          path: out/
+          if-no-files-found: ignore
+          retention-days: 7
+
+  fresh-install:
+    # What a new user gets: the built wheel installed with uv on a clean runner, on the
+    # lowest supported Python, with no Lune, Rojo or `rhr setup`, rendering a UI, a
+    # place and an effect. Once with the runner's own browser, once with every
+    # installed browser hidden, so the headless shell is downloaded.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        browser: [installed, download]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+    env:
+      RHR_PERSISTENT_BROWSER: "0"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v6
+
+      - name: Build the wheel
+        run: uv build --wheel --out-dir dist
+
+      - name: System libraries for the headless shell
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libegl1 libgl1 \
+            libnss3 libnspr4 libatk1.0-0t64 libatk-bridge2.0-0t64 libcups2t64 libdrm2 \
+            libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libgbm1 \
+            libpango-1.0-0 libcairo2 libasound2t64 libdbus-1-3 libxshmfence1
+
+      - name: Hide the installed browsers
+        if: matrix.browser == 'download'
+        run: |
+          case "$RUNNER_OS" in
+            Linux)
+              for b in google-chrome google-chrome-stable microsoft-edge microsoft-edge-stable \
+                       chromium chromium-browser brave-browser; do
+                p=$(command -v "$b") && sudo rm -f "$p" || true
+              done ;;
+            macOS)
+              for app in "Google Chrome" "Microsoft Edge" "Chromium" "Brave Browser"; do
+                [ -d "/Applications/$app.app" ] && sudo mv "/Applications/$app.app" "$RUNNER_TEMP/" || true
+              done ;;
+            Windows)
+              for d in "/c/Program Files/Google/Chrome" "/c/Program Files (x86)/Google/Chrome" \
+                       "/c/Program Files (x86)/Microsoft/Edge" "/c/Program Files/Microsoft/Edge"; do
+                [ -d "$d" ] && mv "$d" "$d.hidden" || true
+              done ;;
+          esac
+
+      - name: Install with uv, Python 3.12
+        run: |
+          uv tool install --python 3.12 dist/*.whl
+          bin="$(uv tool dir --bin)"; echo "$bin" >> "$GITHUB_PATH"
+          if [ "$RUNNER_OS" = Windows ]; then bin="$(cygpath -u "$bin")"; fi; export PATH="$bin:$PATH"
+          rhr --version
+          # uvx runs the command named after the package.
+          uvx --python 3.12 --from dist/*.whl roblox-headless-renderer --version
+
+      - name: Render a UI, a place and an effect
+        run: |
+          mkdir -p out
+          rhr doctor || true
+          rhr ui examples/shop.rbxmx --out out/ui.png --json 2> out/ui.err | python scripts/check_report.py
+          grep -q "downloading Lune" out/ui.err || { cat out/ui.err; echo "Lune was not downloaded on first use"; exit 1; }
+          if [ "${{ matrix.browser }}" = download ]; then want=--shell; else want=--installed; fi
+          rhr preview tests/fixtures/scene_variants_placeholders.rbxlx --view iso --viewport 640x400 \
+            --out out/place.png --json | python scripts/check_report.py $want
+          rhr scene tests/fixtures/particle_scene.rbxmx --viewport 640x400 --out out/effect.png --json \
+            | python scripts/check_report.py $want --particles
+
+      - name: Upload renders on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rhr-fresh-${{ matrix.os }}-${{ matrix.browser }}
           path: out/
           if-no-files-found: ignore
           retention-days: 7

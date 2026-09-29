@@ -1,8 +1,9 @@
 # Replacing Chromium: is it worth it?
 
-Investigated 2026-09-25, before planning v1. Short answer: **keep Chromium and
-three.js; drop Playwright**. Drive Chromium's headless shell directly over the Chrome
-DevTools Protocol, and download a pinned build of it in `rhr setup`.
+Investigated 2026-09-25 and 2026-09-26, before planning v1. Short answer: **keep
+Chromium and three.js; drop Playwright**. Drive the browser directly over the Chrome
+DevTools Protocol: a Chromium-family browser already installed when there is one
+(same pixels, measured below), else a pinned headless shell downloaded on first use.
 
 ## What Chromium costs RHR today
 
@@ -55,11 +56,50 @@ Verdict: weeks of work and a full re-calibration, to save disk space. Not worth 
 before 1.0. It is worth revisiting only if the Chromium dependency itself becomes a
 blocker (a platform it cannot run on, or a user base that will not install it).
 
-## Option 2: the system browser (Edge or Chrome already installed)
+## Option 2: the browser already installed (measured 2026-09-26: adopted, with Option 3)
 
-It would need no download, but it cannot be relied on: **neither is installed on the
-maintainer's Windows machine**. Its version would also float, changing pixels between
-users. It could be kept as an optional speed-up, never as the default.
+A prototype DevTools client (standard library only, no Playwright) drove RHR's real 3D
+page through `rhr scene` and `rhr preview` on nine scenes (a place, lighting,
+materials, particles, played VFX, beams, in-world UI, the tower example, terrain
+hills), on the maintainer's Windows machine. Baseline: today's Playwright path with
+the pinned headless shell (Chromium 145).
+
+| Browser | Pixels, software (tests) | Pixels, GPU (normal use) | Warm render, small scene | Launch | 22 launch cycles, 2 at once |
+|---|---|---|---|---|---|
+| Pinned headless shell, own client | identical | reference | ~1 s | 0.4 s | no failures, 0.8 s each |
+| Chrome 154 | identical | within 1-2 shades | ~1 s | 0.8-1.0 s | no failures |
+| Brave 154 | identical (1 shade, 1% of one image) | as Chrome | ~1 s | 0.6-2 s | no failures |
+| Firefox 156 (WebDriver BiDi) | < 1 shade mean | within 1-2 shades | 20-30% slower | 3.3 s | 1 timeout, ~13 s to shut down |
+
+- **Pixels do not need a pinned browser.** In software mode Chrome 154 and Brave draw
+  exactly what the pinned build 145 draws. On the GPU every browser is within a shade
+  or two of the others, less than the GPU-vs-software difference RHR already accepts.
+- **Warm, the browsers are equally fast**; the worker pays the launch once. Driving
+  the pinned shell without Playwright is itself 0.7-1 s faster per cold render.
+- **Safe beside the user's own browser**: each run has its own throwaway profile and
+  `--remote-debugging-port=0` (the port is read from `DevToolsActivePort`). The
+  maintainer's own Brave window stayed open throughout, untouched; no window
+  appeared; every profile was removed.
+- **Found by the stress test, to handle in the real client:** Brave can still hold
+  `DevToolsActivePort` locked when it is first read (retry); a failed start must kill
+  the browser's whole process tree (one headless Brave was left running); tie every
+  browser to RHR's life (a job object on Windows).
+- **Firefox is not supported**: it no longer speaks CDP, so it needs a second protocol,
+  and it was slow to start and stop and timed out once.
+- **Studio's WebView2 is no substitute.** Studio ships no Chromium of its own; it uses
+  Microsoft's WebView2 runtime (and ships its installer). `msedgewebview2.exe` started
+  on its own with `--headless` exits without opening a debugging port: it only runs
+  inside a host application.
+- **Not measured here** (no Edge on this machine; Windows only): Edge is Chromium with
+  the same flags; CI runners on all three systems have Chrome and Edge. Known
+  gotchas: snap-packaged Chromium on Linux cannot use a profile under `/tmp`; Chrome
+  for Testing has no Linux ARM build; a company policy can turn off remote debugging
+  (then fall back to the download).
+
+**Order:** `RHR_BROWSER` if set; the pinned shell if already downloaded; Chrome, Edge,
+Brave, Chromium; otherwise download the pinned shell the first time a 3D render needs
+it, with a notice (and a switch to forbid it). The output and `rhr doctor` name the
+browser used.
 
 ## Option 3 (recommended): Chromium without Playwright
 
@@ -77,4 +117,4 @@ family Playwright uses), so tests still draw identical pixels.
 - About a week of work, with low risk: same browser, same page, same pixels, and the
   current tests compare them.
 
-Planned for the v1 contract milestone (see docs/GOAL.md).
+Planned for 1.0, together with Option 2 (see docs/GOAL.md).

@@ -1,0 +1,46 @@
+<roblox version="4">
+  <!-- A game's screens as code opens them: a HUD that is on, a shop saved closed
+       (ScreenGui.Enabled = false) whose page is hidden too (Visible = false), and an
+       inventory beside it. tests/test_show_only.py -->
+  <Item class="ScreenGui" referent="RBX0">
+    <Properties>
+      <string name="Name">Hud</string>
+    </Properties>
+    <Item class="Frame" referent="RBX1">
+      <Properties>
+        <string name="Name">Coins</string>
+        <UDim2 name="Size"><XS>0</XS><XO>120</XO><YS>0</YS><YO>40</YO></UDim2>
+        <token name="BorderSizePixel">0</token>
+      </Properties>
+    </Item>
+  </Item>
+  <Item class="ScreenGui" referent="RBX2">
+    <Properties>
+      <string name="Name">Menus</string>
+      <bool name="Enabled">false</bool>
+    </Properties>
+    <Item class="Frame" referent="RBX3">
+      <Properties>
+        <string name="Name">Shop</string>
+        <bool name="Visible">false</bool>
+        <UDim2 name="Position"><XS>0</XS><XO>200</XO><YS>0</YS><YO>100</YO></UDim2>
+        <UDim2 name="Size"><XS>0</XS><XO>300</XO><YS>0</YS><YO>200</YO></UDim2>
+        <token name="BorderSizePixel">0</token>
+      </Properties>
+      <Item class="TextButton" referent="RBX4">
+        <Properties>
+          <string name="Name">Buy</string>
+          <UDim2 name="Size"><XS>0</XS><XO>100</XO><YS>0</YS><YO>40</YO></UDim2>
+        </Properties>
+      </Item>
+    </Item>
+    <Item class="Frame" referent="RBX5">
+      <Properties>
+        <string name="Name">Inventory</string>
+        <UDim2 name="Position"><XS>0</XS><XO>600</XO><YS>0</YS><YO>100</YO></UDim2>
+        <UDim2 name="Size"><XS>0</XS><XO>200</XO><YS>0</YS><YO>200</YO></UDim2>
+        <token name="BorderSizePixel">0</token>
+      </Properties>
+    </Item>
+  </Item>
+</roblox>

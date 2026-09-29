@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import json
 import shutil
 import subprocess
 import sys
@@ -109,21 +110,22 @@ def main() -> int:
         second = Path(directory) / "second.png"
         atlas = Path(directory) / "atlas.png"
         command = [
-            *RHR, "particles", str(PARTICLE_FIXTURE),
-            "--viewport", "300x200", "--times", "0,0.5,1", "--seed", "7", "--burst", "10",
+            *RHR, "scene", str(PARTICLE_FIXTURE),
+            "--viewport", "300x200", "--effect-time", "0.5", "--seed", "7", "--offline", "--json",
         ]
-        results = []
+        textures = ["--texture-dir", str(REPO / "tests" / "fixtures" / "particle-textures")]
+        reports = []
         for output in (first, second):
-            run = subprocess.run(command + ["--out", str(output)], cwd=REPO,
-                                  capture_output=True, text=True, timeout=60)
+            run = subprocess.run(command + textures + ["--out", str(output)], cwd=REPO,
+                                  capture_output=True, text=True, timeout=120)
             if run.returncode:
                 print(run.stdout, end="")
                 print(run.stderr, end="", file=sys.stderr)
                 return run.returncode
-            results.append(run.stderr)
+            reports.append(json.loads(run.stdout))
         atlas_run = subprocess.run(
-            command + ["--texture-dir", str(REPO / "tests" / "fixtures" / "particle-textures"), "--out", str(atlas)],
-            cwd=REPO, capture_output=True, text=True, timeout=60,
+            command + ["--out", str(atlas)],
+            cwd=REPO, capture_output=True, text=True, timeout=120,
         )
         if atlas_run.returncode:
             print(atlas_run.stdout, end="")
@@ -141,13 +143,12 @@ def main() -> int:
             if red > green * 1.5 and red > blue * 1.5
         )
         checks = [
-            (dimensions == (300, 600), "CLI contact sheet dimensions are correct"),
-            (warm > 0, "CLI contact sheet contains visible particle pixels"),
-            (first_pixels == second_pixels, "CLI particle pixels are deterministic"),
-            (atlas_pixels != first_pixels and len(set(atlas_pixels)) > len(set(first_pixels)),
-             "local flipbook atlas changes rendered pixels"),
-            (all("3 frames" in stderr and "burst=10" in stderr for stderr in results),
-             "CLI reports the frame count and burst trigger"),
+            (dimensions == (300, 200), "scene picture dimensions are correct"),
+            (warm > 0, "scene picture contains visible particle pixels"),
+            (first_pixels == second_pixels, "particle pixels are deterministic for a seed"),
+            (atlas_pixels != first_pixels, "the local flipbook atlas changes the drawn pixels"),
+            (all(any(note.startswith("particles: ") for note in report["notes"]) for report in reports),
+             "the --json report says how many particles were drawn"),
         ]
         for ok, message in checks:
             print(f"  {'ok  ' if ok else 'FAIL'} {message}")

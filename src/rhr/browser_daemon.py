@@ -2,8 +2,8 @@
 
 `rhr.browser_session` launches this module with the same Python that runs RHR. The
 caller sends local HTTP requests containing an already-running RHR page URL; this
-worker owns Chromium and captures pages through `rhr.browser_render`, exactly as a
-one-shot render does.
+worker owns one browser and captures pages through `rhr.browser_render`, exactly as a
+one-shot render does. The browser is tied to this process's life (rhr.cdp).
 """
 
 from __future__ import annotations
@@ -22,7 +22,7 @@ from rhr.browser_render import KeptScenePage, capture, launch, webgl_mode
 
 class RenderServer(http.server.HTTPServer):
     browser = None
-    playwright = None
+    browser_info: dict = {}
     code = ""
     last_used = 0.0
     kept: KeptScenePage | None = None
@@ -46,7 +46,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
     def do_GET(self):  # noqa: N802
         if self.path == "/health":
-            self._json(200, {"ok": True, "pid": os.getpid(), "webgl": webgl_mode(), "code": self.server.code})
+            self._json(200, {"ok": True, "pid": os.getpid(), "webgl": webgl_mode(), "code": self.server.code,
+                             "browser": self.server.browser_info})
             return
         self._json(404, {"error": "not found"})
 
@@ -73,6 +74,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             if width <= 0 or height <= 0:
                 raise ValueError("render dimensions must be positive")
             timings = None
+            views_drawn = 0
             reuse = request.get("reuse")
             if reuse:
                 # The kept page first; any failure there (including a scene it cannot
@@ -82,6 +84,17 @@ class Handler(http.server.BaseHTTPRequestHandler):
                         query=str(reuse["query"]), base=str(reuse["base"]),
                         out=Path(request["out"]), width=width, height=height,
                     )
+                    # More views of the same built scene (rhr scene --views). One that
+                    # fails leaves the rest to the caller, drawn one by one.
+                    for view in reuse.get("views") or []:
+                        try:
+                            view_timings = self.server.kept.view(query=str(view["query"]), out=Path(view["out"]))
+                        except Exception as exc:  # noqa: BLE001
+                            print(f"rhr worker: another view failed ({str(exc)[:300]})", flush=True)
+                            break
+                        for name, seconds in view_timings.items():
+                            timings[f"view {views_drawn + 2}: {name}"] = seconds
+                        views_drawn += 1
                 except Exception as exc:  # noqa: BLE001
                     self.server.kept.close()
                     fallback_reason = str(exc)[:300]
@@ -98,13 +111,15 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 if reuse:
                     timings = {"kept page failed, fresh page used": 0.0, **timings}
                     print(f"rhr worker: kept page failed ({fallback_reason}); used a fresh page", flush=True)
-            self._json(200, {"ok": True, "timings": timings})
+            self._json(200, {"ok": True, "timings": timings, "browser": self.server.browser_info,
+                             "views": views_drawn})
         except Exception as exc:
-            # A crashed Chromium would fail every later render too: start a new one.
+            # A crashed browser would fail every later render too: start a new one.
             if not self.server.browser.is_connected():
-                print("rhr worker: Chromium disconnected, relaunching", flush=True)
+                print("rhr worker: the browser disconnected, relaunching", flush=True)
                 try:
-                    self.server.browser = launch(self.server.playwright)
+                    self.server.browser.close()
+                    self.server.browser, self.server.browser_info = launch()
                     self.server.kept = KeptScenePage(self.server.browser)
                 except Exception as relaunch_error:  # noqa: BLE001
                     print(f"rhr worker: relaunch failed: {relaunch_error}", flush=True)
@@ -120,13 +135,11 @@ def main() -> int:
     parser.add_argument("--token", required=True)
     args = parser.parse_args()
 
-    from playwright.sync_api import sync_playwright
-
-    playwright = sync_playwright().start()
-    browser = launch(playwright)
+    browser, info = launch()
+    print(f"rhr worker: {info['name']} {info['version']} at {info['path']}", flush=True)
     server = RenderServer(("127.0.0.1", 0), Handler)
     server.browser = browser
-    server.playwright = playwright
+    server.browser_info = info
     server.kept = KeptScenePage(browser)
     from rhr.browser_session import code_stamp
 
@@ -160,7 +173,6 @@ def main() -> int:
     finally:
         args.port_file.unlink(missing_ok=True)
         server.browser.close()
-        playwright.stop()
         server.server_close()
     return 0
 

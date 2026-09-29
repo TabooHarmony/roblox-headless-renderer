@@ -90,7 +90,7 @@ def main() -> int:
 
     # the cache the renderer reads must be the cache `rhr fetch` fills, and it
     # must live in the per-user cache, outside the package and the vendored tree
-    from ui_engine.assets import _asset_cache_dir
+    from rhr.ui_engine.assets import _asset_cache_dir
 
     from rhr import paths
 

@@ -36,7 +36,7 @@ def render(fixture: Path, name: str, fallback: bool):
     OUT.mkdir(parents=True, exist_ok=True)
     png = OUT / f"{name}-{'on' if fallback else 'off'}.png"
     env = {**os.environ, "RHR_SYSTEM_FONT_FALLBACK": "1" if fallback else "0"}
-    proc = subprocess.run([sys.executable, "-m", "rhr", "render", str(fixture), "--viewport", "300x250",
+    proc = subprocess.run([sys.executable, "-m", "rhr", "ui", str(fixture), "--viewport", "300x250",
                            "--topbar-height", "0", "--out", str(png)],
                           capture_output=True, text=True, cwd=str(REPO), env=env, timeout=300)
     assert proc.returncode == 0, proc.stderr
@@ -46,8 +46,7 @@ def render(fixture: Path, name: str, fallback: bool):
 def main() -> int:
     from PIL import ImageChops
 
-    sys.path.insert(0, str(REPO / "src" / "rhr" / "vendor" / "pinevex" / "src"))
-    from ui_engine.text_fonts import system_symbol_font_files
+    from rhr.ui_engine.text_fonts import system_symbol_font_files
 
     if not system_symbol_font_files():
         print("  skip no known symbol font on this machine")

@@ -113,7 +113,7 @@ def main() -> None:
         for name, _look_at, expected in directions:
             dominant(samples[name], expected)
 
-        proc = run("scene-dump", str(src), "--texture-dir", str(ASSETS))
+        proc = run("scene-dump", "--parts", str(src), "--texture-dir", str(ASSETS))
         assert proc.returncode == 0, proc.stderr
         dump = json.loads(proc.stdout)
         assert "Sky" not in dump["unsupportedVisualClasses"]

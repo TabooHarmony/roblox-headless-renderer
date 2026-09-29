@@ -16,25 +16,6 @@ with property dicts shaped as
 from __future__ import annotations
 
 import re
-import sys
-from pathlib import Path
-
-from rhr.paths import PINEVEX
-
-
-# Vendored helpers we reuse rather than re-derive: asset URL normalization and the
-# built-in font asset table. Imported lazily so the module stays importable in
-# environments without requests installed.
-_WEB_DEMO = PINEVEX / "web_demo"
-
-
-def _vendored_adapter():
-    if str(_WEB_DEMO) not in sys.path:
-        sys.path.insert(0, str(_WEB_DEMO))
-    from rbxm_parser_component import rbxm_adapter
-
-    return rbxm_adapter
-
 
 _RBXASSETID_RE = re.compile(r"rbxassetid://(\d+)")
 
@@ -92,7 +73,9 @@ def _convert(prop: str, v):
     if t == "Font":
         family = str(v["family"])
         if _RBXASSETID_RE.search(family):
-            family = _vendored_adapter()._resolve_font_family(family)
+            from rhr.ui_engine.font_assets import resolve_font_family
+
+            family = resolve_font_family(family)
         return {"family": family, "weight": str(v["weight"]), "style": str(v["style"])}
     if t == "Rect":
         lo, hi = v["Min"], v["Max"]
@@ -153,18 +136,133 @@ def ir_node_to_raw(node: dict) -> dict:
     }
 
 
+# The only nodes the 2D pipeline draws, lays out or checks (with their whole subtrees:
+# a ViewportFrame's parts, UI modifiers): every GuiBase2d class.
+from rhr.rbx.props import GUI_CLASSES  # noqa: E402
+
+
+def _ui_branches(ir: dict) -> frozenset[int]:
+    """id() of every node that is GUI or has GUI below it."""
+    found: set[int] = set()
+
+    def walk(node: dict) -> bool:
+        has = node.get("className") in GUI_CLASSES
+        for child in node.get("children") or []:
+            has = walk(child) or has
+        if has:
+            found.add(id(node))
+        return has
+
+    for root in ir["roots"]:
+        walk(root)
+    return frozenset(found)
+
+
+def ui_branches(ir: dict) -> frozenset[int]:
+    from rhr.ir import derived
+
+    return derived(ir, "ui_branches", _ui_branches)
+
+
+def ui_nodes(ir: dict):
+    """Every node the 2D pipeline can see: GUI nodes with their whole subtrees and the
+    nodes above them. Skips the rest of a place (its 3D world)."""
+    branches = ui_branches(ir)
+
+    def walk(node: dict, inside: bool):
+        yield node
+        inside = inside or node.get("className") in GUI_CLASSES
+        for child in node.get("children") or []:
+            if inside or id(child) in branches:
+                yield from walk(child, inside)
+
+    for root in ir["roots"]:
+        yield from walk(root, False)
+
+
+def ui_index(ir: dict) -> dict[str, dict]:
+    """path -> IR node, for ui_nodes()."""
+    from rhr.ir import derived
+
+    return derived(ir, "ui_index", lambda document: {node["path"]: node for node in ui_nodes(document)})
+
+
+def _ui_skeleton(node: dict, branches: frozenset[int]) -> dict:
+    """`ir_node_to_raw` of the UI in `node`'s subtree: GUI nodes whole, the nodes above
+    them with only the children that lead to UI, nothing else. A place's 3D world
+    (100k parts) is never converted for a UI command."""
+    if node.get("className") in GUI_CLASSES:
+        return ir_node_to_raw(node)
+    raw = ir_node_to_raw({**node, "children": []})
+    raw["children"] = [_ui_skeleton(child, branches) for child in node.get("children") or []
+                       if id(child) in branches]
+    return raw
+
+
+def _screen_gui_branches(ir: dict) -> frozenset[int]:
+    """id() of every node that is a ScreenGui or has one below it (not inside one)."""
+    from rhr.ir import derived
+
+    def compute(document: dict) -> frozenset[int]:
+        found: set[int] = set()
+
+        def walk(node: dict) -> bool:
+            if node.get("className") == "ScreenGui":
+                found.add(id(node))
+                return True
+            has = False
+            for child in node.get("children") or []:
+                has = walk(child) or has
+            if has:
+                found.add(id(node))
+            return has
+
+        for root in document["roots"]:
+            walk(root)
+        return frozenset(found)
+
+    return derived(ir, "screen_gui_branches", compute)
+
+
+def _screen_gui_skeleton(node: dict, branches: frozenset[int]) -> dict:
+    """What a service a place does not draw holds for the note naming its ScreenGuis:
+    the path to each ScreenGui, the ScreenGui with its own properties (Enabled), and
+    stubs for its children (whether it has any)."""
+    raw = ir_node_to_raw({**node, "children": []})
+    if node.get("className") == "ScreenGui":
+        raw["children"] = [{"className": child.get("className", "Frame"), "name": child.get("name"),
+                            "_path": child["path"], "properties": {}, "children": []}
+                           for child in node.get("children") or []]
+        return raw
+    raw["children"] = [_screen_gui_skeleton(child, branches) for child in node.get("children") or []
+                       if id(child) in branches]
+    return raw
+
+
 def ir_to_raw_nodes(ir: dict) -> list[dict]:
-    """Roots in paint order: highest `ScreenGui.DisplayOrder` first.
+    """The UI of the file (see _ui_skeleton), roots in paint order: highest
+    `ScreenGui.DisplayOrder` first.
 
     Roblox draws a higher DisplayOrder on top, and pinevex has no DisplayOrder
     handling at all, so a multi-ScreenGui file would stack in whatever order the file
     happens to list them. pinevex draws one root, so "first" is the pane you end up
     seeing: the top one. Ties keep file order (fixture: display_order).
     """
-    from rhr.ir import ensure_paths
+    from rhr.ir import ensure_ir_paths
 
-    ensure_paths(ir["roots"])
-    nodes = [ir_node_to_raw(root) for root in ir["roots"]]
+    from rhr import pipeline
+
+    ensure_ir_paths(ir)
+    branches = ui_branches(ir)
+    # A place draws StarterGui's UI (and what is outside its services); of the other
+    # services it only names the ScreenGuis (rhr.pipeline.shown_ui_roots), unless
+    # --all-guis. Their UI (a game's templates: 18k nodes on a real one) is not converted.
+    place = not (pipeline.INCLUDE_STORED_GUIS or pipeline.reveals_storage()) and any(
+        root.get("className") in pipeline.PLACE_SERVICES for root in ir["roots"])
+    nodes = [_screen_gui_skeleton(root, _screen_gui_branches(ir))
+             if place and root.get("className") in pipeline.PLACE_SERVICES and root.get("className") != "StarterGui"
+             else _ui_skeleton(root, branches)
+             for root in ir["roots"]]  # roots are always kept
     nodes.sort(key=_display_order, reverse=True)
     return nodes
 

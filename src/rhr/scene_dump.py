@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from rhr.schema import stamp
 
+import functools
 import json
 import math
 import re
@@ -80,6 +81,9 @@ def _asset_id(uri) -> str | None:
     return matches[-1] if matches else None
 
 
+# The three lookups below are asked once per part; a big place repeats a few
+# thousand asset ids over 100k parts. Cleared at the start of each dump.
+@functools.lru_cache(maxsize=None)
 def _mesh_available(asset_id: str | None, mesh_dir: Path | None) -> bool:
     if not asset_id:
         return False
@@ -90,10 +94,12 @@ def _mesh_available(asset_id: str | None, mesh_dir: Path | None) -> bool:
     return any((root / f"{asset_id}.mesh").is_file() for root in roots)
 
 
+@functools.lru_cache(maxsize=None)
 def _union_available(asset_id: str | None) -> bool:
     return bool(asset_id) and (UNION_CACHE / f"{asset_id}.json").is_file()
 
 
+@functools.lru_cache(maxsize=None)
 def _asset_available(asset_id: str | None, texture_dir: Path | None) -> bool:
     if not asset_id:
         return False
@@ -141,11 +147,47 @@ def _part_aabb(props: dict) -> tuple[list[float], list[float]] | None:
     )
 
 
+def cached_scene_dump(ir_path: Path, **options) -> tuple[dict, str]:
+    """(build_scene_dump(ir_path, **options), its JSON text), kept while the IR is
+    loaded and the asset caches are unchanged (rhr.ir.derived): a resident process asked
+    twice about a 100k-part place builds and writes the dump once."""
+    import os
+
+    from rhr.ir import derived
+
+    def stamp(path) -> int | None:
+        try:
+            return os.stat(path).st_mtime_ns
+        except (OSError, TypeError):
+            return None
+
+    data = load_ir(ir_path)
+    kept = derived(data, "scene_dumps", lambda _: {})
+    key = (tuple(sorted((name, str(value)) for name, value in options.items())),
+           stamp(ICON_CACHE), stamp(MESH_CACHE), stamp(UNION_CACHE), stamp(data.get("sourcePath")),
+           stamp(options.get("texture_dir")), stamp(options.get("mesh_dir")), _studio_installed())
+    if key not in kept:
+        dump = build_scene_dump(ir_path, **options)
+        kept.clear()  # one answer per IR is what an agent asks for again
+        kept[key] = (dump, dump_json(dump))
+    return kept[key]
+
+
 def build_scene_dump(
     ir_path: Path,
     texture_dir: Path | None = None,
     mesh_dir: Path | None = None,
+    *,
+    world: bool = False,
+    focus: str | None = None,
+    parts: bool = True,
 ) -> dict:
+    """The scene dump of an IR file. With `world`, only what a 3D view draws
+    (rhr.ir.world_roots), plus `_storedNote` naming what it left out, for the
+    render commands' report. With `parts` False, `parts` and `bounds` are left empty:
+    what a render's notes need (counts, missing assets) without per-part geometry."""
+    for lookup in (_mesh_available, _union_available, _asset_available):
+        lookup.cache_clear()
     data = load_ir(ir_path)
     path_by_id: dict[int, str] = {}
     path_by_full_name: dict[str, str | None] = {}
@@ -390,7 +432,9 @@ def build_scene_dump(
                 "preferred": node.get("name") == "CurrentCamera",
             })
 
-        if class_name in PART_CLASSES:
+        if class_name in PART_CLASSES and not parts:
+            material_name = _enum_name(props.get("Material"), "Plastic")
+        elif class_name in PART_CLASSES:
             cf = props.get("CFrame") or {}
             bounds = _part_aabb(props)
             material_name = _enum_name(props.get("Material"), "Plastic")
@@ -422,6 +466,7 @@ def build_scene_dump(
                     overall_min[i] = min(overall_min[i], bounds[0][i])
                     overall_max[i] = max(overall_max[i], bounds[1][i])
             nodes.append(entry)
+        if class_name in PART_CLASSES:
             if class_name == "MeshPart":
                 mesh_id = _asset_id(props.get("MeshId"))
                 available = _mesh_available(mesh_id, mesh_dir)
@@ -479,7 +524,15 @@ def build_scene_dump(
         for child in _children(node):
             visit(child, child["path"], in_lighting, node)
 
-    for root in data.get("roots", []):
+    roots = data.get("roots", [])
+    stored_line = None
+    if world:
+        from rhr.ir import stored_note, world_roots
+
+        roots, stored = world_roots(roots, focus)
+        # A world slice (rhr.ir.world_ir) already left the stored roots out, and says so.
+        stored_line = data.get("storedNote") or stored_note(stored, focus)
+    for root in roots:
         visit(root, root["path"], root.get("className") == "Lighting", None)
 
     bounds = None
@@ -495,7 +548,7 @@ def build_scene_dump(
     if preferred is None and cameras:
         preferred = cameras[0]["path"]
 
-    return stamp("scene-dump", {
+    dump = stamp("scene-dump", {
         "source": data.get("sourcePath"),
         "bounds": bounds,
         "parts": nodes,
@@ -517,6 +570,9 @@ def build_scene_dump(
         "classCounts": dict(sorted(class_counts.items())),
         "experimental": _experimental(class_counts, experimental_materials),
     })
+    if stored_line:
+        dump["_storedNote"] = stored_line
+    return dump
 
 
 # Rough approximations (docs/GOAL.md): present in the render, but not to be trusted
@@ -563,5 +619,100 @@ def notes_line(scene_dump: dict) -> str:
     )
 
 
+# How many groups and missing assets a summary names before it only counts the rest.
+SUMMARY_LIMIT = 40
+
+
+def _under(path: str, prefix: str) -> bool:
+    return path == prefix or path.startswith(prefix + "/")
+
+
+def summarize(scene_dump: dict, path: str | None = None) -> dict:
+    """The default `rhr scene-dump`: what a place or model holds, in a few KB whatever
+    its size (the full dump of a 116k-part place is 52 MB). Parts are grouped by their
+    first two path segments (Workspace/Map, ServerStorage/Maps, MyModel/Body), or with
+    `path` by the next level under it, biggest first, each with its part count and
+    bounds; `--parts` (with `--path`, `--class`, `--limit`) gives every part."""
+    groups: dict[str, dict] = {}
+    depth = len(path.split("/")) + 1 if path else 2
+    for part in scene_dump["parts"]:
+        if path and not _under(part["path"], path):
+            continue
+        segments = part["path"].split("/")
+        key = "/".join(segments[:depth]) if len(segments) > depth else part["path"]
+        group = groups.setdefault(key, {"path": key, "parts": 0, "min": [math.inf] * 3, "max": [-math.inf] * 3})
+        group["parts"] += 1
+        box = part.get("bounds")
+        if box:
+            group["min"] = [min(a, b) for a, b in zip(group["min"], box["min"])]
+            group["max"] = [max(a, b) for a, b in zip(group["max"], box["max"])]
+    ordered = sorted(groups.values(), key=lambda g: (-g["parts"], g["path"]))
+    models = []
+    for group in ordered[:SUMMARY_LIMIT]:
+        entry = {"path": group["path"], "parts": group["parts"]}
+        if all(math.isfinite(v) for v in group["min"] + group["max"]):
+            entry["size"] = [round(group["max"][i] - group["min"][i], 3) for i in range(3)]
+            entry["center"] = [round((group["max"][i] + group["min"][i]) / 2, 3) for i in range(3)]
+        models.append(entry)
+    missing = [{"path": item["path"], "class": item["class"], "uri": item.get("uri")}
+               for item in scene_dump["assetReferences"]
+               if not item["available"] and (not path or _under(item["path"], path))]
+    missing_meshes = [item for item in scene_dump["meshReferences"]
+                      if not item.get("available", True) and (not path or _under(item.get("path", ""), path))]
+    return stamp("scene-summary", {
+        "source": scene_dump.get("source"),
+        "path": path,
+        "parts": sum(group["parts"] for group in ordered),
+        "bounds": scene_dump["bounds"] if not path else _group_bounds(ordered),
+        "classCounts": scene_dump["classCounts"],
+        "models": models,
+        "moreModels": max(0, len(ordered) - SUMMARY_LIMIT),
+        "cameras": len(scene_dump["cameras"]),
+        "preferredCamera": scene_dump["preferredCamera"],
+        "lights": len(scene_dump["lights"]),
+        "effects": {"beams": len(scene_dump["beams"]), "trails": len(scene_dump["trails"])},
+        "terrain": len(scene_dump["terrain"]) > 0,
+        "sky": scene_dump["sky"] is not None,
+        "fallbacks": scene_dump["fallbacks"],
+        "materialFallbacks": scene_dump["materialFallbacks"],
+        "unsupportedVisualClasses": scene_dump["unsupportedVisualClasses"],
+        "experimental": scene_dump["experimental"],
+        "missingAssets": missing[:SUMMARY_LIMIT],
+        "moreMissingAssets": max(0, len(missing) - SUMMARY_LIMIT),
+        "missingMeshes": len(missing_meshes),
+        "detail": ("rhr scene-dump <file> --path <models[].path>: the same summary of one model; "
+                   "--parts [--path P] [--class C] [--limit N]: every part"),
+    })
+
+
+def _group_bounds(groups: list[dict]) -> dict | None:
+    lo = [min((g["min"][i] for g in groups), default=math.inf) for i in range(3)]
+    hi = [max((g["max"][i] for g in groups), default=-math.inf) for i in range(3)]
+    if not all(math.isfinite(v) for v in lo + hi):
+        return None
+    return {"min": [round(v, 6) for v in lo], "max": [round(v, 6) for v in hi],
+            "center": [round((lo[i] + hi[i]) / 2, 6) for i in range(3)],
+            "size": [round(hi[i] - lo[i], 6) for i in range(3)]}
+
+
+def select(scene_dump: dict, *, path: str | None = None, classes: tuple[str, ...] = (),
+           limit: int | None = None) -> dict:
+    """`--parts` narrowed: the parts (and lights, effects, meshes, asset references) under
+    `path`, of `classes`, at most `limit` parts (`partsTotal` says how many matched)."""
+    def keep(item: dict) -> bool:
+        return path is None or _under(item.get("path", ""), path)
+
+    parts = [p for p in scene_dump["parts"] if keep(p) and (not classes or p["class"] in classes)]
+    out = dict(scene_dump)
+    out["partsTotal"] = len(parts)
+    out["parts"] = parts[:limit] if limit is not None else parts
+    if path is not None:
+        for key in ("cameras", "lights", "beams", "trails", "specialMeshes", "assetReferences", "meshReferences"):
+            out[key] = [item for item in scene_dump[key] if keep(item)]
+    return out
+
+
 def dump_json(scene_dump: dict) -> str:
-    return json.dumps(scene_dump, indent=2, sort_keys=True)
+    from rhr.schema import dumps
+
+    return dumps(scene_dump)

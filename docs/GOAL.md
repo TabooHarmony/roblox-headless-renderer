@@ -1,227 +1,128 @@
 # What RHR is for
 
 This is the source of truth for the project's direction. If another document
-disagrees with it, this one wins.
+disagrees with it, this one wins. The step-by-step plan to 1.0 is
+docs/road-to-1.0.md (agreed 2026-09-28); the history of earlier roadmaps is in the
+CHANGELOG and in this file's git history.
 
 ## The goal
 
-RHR is a command-line tool that lets an AI agent **see** the Roblox UI and 3D builds
-it is making, without driving Roblox Studio. The agent points it at a file and gets a
-preview image plus numbers: where things are, how big they are, what overlaps, what
-is clickable, and what looks broken.
+RHR lets an agent **see** Roblox content without Studio: headless, parallel, on any
+OS, with the numbers behind the picture. Point it at a model, a place, a Rojo
+project, a UI story or an asset id, and in about a second get pictures and facts:
+where every UI element is, what is clickable, what looks broken, where every part
+is, and what was approximated. Built for agents and automation; just as useful for a
+person who wants a quick look without Studio's 20-30 s start.
 
-- **Who it is for:** Roblox developers and their agents. It is meant to be a public
-  tool, so it has to install and run on other people's machines, Windows included.
-- **What it covers:** UI (ScreenGuis) and 3D builds equally, including one combined
-  "whole scene" preview.
-- **Accuracy bar:** a *useful preview*. Roughly right is fine. It has to catch
-  obvious mistakes and must never be **silently** wrong: anything it cannot draw
-  faithfully is reported in its output. Matching Studio pixel for pixel is not a goal.
-- **Interface:** the CLI (`rhr`) comes first. The MCP server is a thin wrapper
-  over the same commands.
-- **Inputs:** `.rbxm`, `.rbxmx`, `.rbxl`, `.rbxlx` files, and Rojo projects (built
-  with `rojo build`).
-- **Studio's role:** RHR assumes the person using it has Roblox Studio installed and
-  signed in (anyone making Roblox content does), and uses both by default, with no
-  switch to turn on: the install's own files (default sky, surface textures, fonts)
-  and the Studio login, to download the meshes, unions and Roblox material textures
-  a render needs. Nothing from Roblox is shipped in RHR itself. Without Studio every
-  command still works, with stand-ins, and says clearly that the result will look
-  less like Roblox. The maintainer also uses Studio to calibrate previews against.
+Speed and size are part of the product: RHR runs inside an agent's edit loop, so every
+second and every kilobyte of output is paid on every command.
+
+Next to Roblox Studio's own MCP server (screenshots and live Luau in a running Studio
+with the place open, one Studio shared by every agent), RHR is what works without
+Studio: in CI, on Linux, in cloud sandboxes, many at once, with the file as the source
+of truth and structured findings rather than only pixels.
+
+## Who it serves
+
+- **Agents in Rojo repos**: UI saved as files, or built by React-lua / Fusion code
+  (stories); 3D builds as models.
+- **Agents in partially managed repos**: code in git, UI and maps saved in Studio.
+  RHR works from the place file or its id.
+- **Cloud and CI agents** (Linux, no Studio), with an Open Cloud API key.
+- **Teams reviewing changes**, asset pipelines (icons), anyone vetting a Creator Store
+  model before inserting it, and people without Studio open.
+
+## Scope
+
+- **Inputs:** `.rbxm`, `.rbxmx`, `.rbxl`, `.rbxlx`; Rojo projects (built with
+  `rojo build`); UI stories (`*.story.luau`, run in their Rojo project); asset ids and
+  Creator Store, library, catalog and game links.
+- **Interface:** the `rhr` command line only, with docs/AGENTS.md as the agent's
+  guide. No MCP server (decided 2026-09-26): an MCP server's tool descriptions cost
+  context on every turn; a command costs nothing until it runs.
+- **Platforms:** Windows and macOS first class (macOS once a real Mac run is written
+  up); Linux tested in CI and supported for cloud agents.
+- **Assets, in order:** the Studio login on the machine (most users); an Open Cloud
+  API key (`RHR_ROBLOX_API_KEY`); what Roblox serves without either; honest
+  stand-ins. Nothing from Roblox ships in RHR.
+- **Accuracy bar:** a useful preview. UI layout is measured against Studio (within
+  2 px); 3D pictures are close approximations. RHR must never be **silently** wrong:
+  anything it could not draw faithfully is reported in its output.
 
 ## What it is not
 
-- Not a Roblox engine: it does not run scripts, physics or gameplay.
-- Not a Studio companion: there is no live connection to a running Studio. That
-  would defeat the point of a headless tool. (Reading the install's files and its
-  saved login is not a live connection: Studio does not have to be running.)
-- Not a pixel-perfect replica of Studio's renderer.
+- Not an editor: RHR looks and never changes a file (not in 1.0).
+- Not a Roblox engine: no physics, gameplay or animation playback. The one input
+  where RHR runs code is a story, which it runs to see the UI the code builds.
+- Not a Studio companion: no live connection to a running Studio. Reading the
+  install's files and its saved login is not one; Studio need not be running.
+- Not a pixel-perfect copy of Studio's renderer.
 
 ## Feature status
 
 | Feature | Commands | Status |
 | --- | --- | --- |
-| UI preview | `render` | Core (layout by RHR's own pass, checked against Studio) |
-| UI layout numbers, build checks, clickable regions | `layout`, `check`, `hitmap` | Core |
-| 3D preview and camera controls | `scene` | Core (needs reliability work) |
-| 3D geometry as JSON | `scene-dump` | Core |
-| Combined world + UI preview | `preview` | Core |
+| UI picture, layout numbers, findings, clickable regions | `ui`, `layout`, `check`, `hitmap` | Core (layout within 2 px of Studio; findings being tuned for precision in Phase 1) |
+| UI built by code | stories through the UI commands | **Experimental in 1.0** |
+| 3D picture, camera controls | `scene` | Core |
+| 3D facts | `scene-dump` | Core (output size reworked before 1.0) |
+| World, in-world UI and screen UI together | `preview` | Core |
+| Roblox materials, sky, surfaces, unions, terrain, characters | `scene`, `preview` | Core (checked side by side with Studio) |
+| Particles, Beams, Trails, Atmosphere, lights | `scene`, `preview` | Approximate, one still frame |
 | Before/after comparison | `compare` | Core |
-| ViewportFrame | inside `render` | Core (slow) |
-| BillboardGui / SurfaceGui | inside `scene` / `preview` | Core (drawn by the UI renderer; placement approximated) |
-| Roblox materials, default sky, surfaces, unions, smooth terrain | `scene`, `preview` | Core (checked side by side with Studio) |
-| Particles, Beams, Trails, Atmosphere, shadows, lights | `particles`, `scene`, `preview` | **Experimental**: rough approximations |
-| MCP server | `rhr-mcp` | Thin wrapper |
+| A page to fly around a build | `view` | Core, for people |
+| Icons for many models | `icons` | Core |
+| What a file holds; risky script code | `inspect` | Core ("reasons to look": pattern matching) |
 
-## Path to v1
+## Road to 1.0 (agreed 2026-09-28)
 
-1. **One source of truth:** this document, and a README that matches it.
-2. **Tests you can trust:** pytest, with CI green on clean Ubuntu and Windows
-   runners, not just the development machine.
-3. **Installs and runs anywhere:** `pip install` gives an `rhr` command, with clear
-   errors when `lune` or Chromium are missing, and Windows support.
-4. **Never silently wrong:** stable per-instance IDs instead of name lookups,
-   duplicate-name paths disambiguated, the `Model.Scale` behaviour verified in
-   Studio, in-world UI drawn with the same renderer as ScreenGuis, and experimental
-   and approximated output flagged in the JSON.
-5. **Studio spot-check:** a handful of fixtures made in Studio, checked for
-   "roughly right" positions and sizes, not pixel identity.
-6. **Rojo input and release polish:** Rojo projects, a supported-feature table, a
-   usage guide for agents, and versioned JSON output. (Third-party game files were
-   removed from the test data on 2026-09-22.)
+Detail, findings and numbers: docs/road-to-1.0.md. In short:
 
-## Release roadmap (agreed 2026-09-25)
+0. **Clean slate:** finish stories, cache and memory hygiene, security hardening,
+   these docs; push, CI on three systems, publish **0.9.0b1** to PyPI.
+1. **Never silently wrong:** no command exits 0 with an empty result; UI screens that
+   code opens can be shown (`--show`, `--only`); checks at least 95% right on a
+   reviewed corpus of real games.
+2. **Output an agent can use:** every default JSON within a size budget
+   (`scene-dump` a summary by default), `--device` and a 1920x1080 default viewport,
+   `hitmap --at`, AGENTS.md and a `SKILL.md`. Then **1.0.0rc1**.
+3. **Speed the agent feels:** a native `rhr` client, `rhr batch`, several views of
+   one built scene.
+4. **Dogfood and freeze:** daily use from agents on real projects, the Studio
+   side-by-side, a real Mac and a cloud agent; then **1.0.0**.
 
-The aim for the release is **fast, cheap and agent-friendly**, not closer and closer
-to Studio. Lighting and shadows are "good enough" as of 0.5: when an agent needs
-exact visuals, Studio's own MCP is the tool for that.
+**Decided 2026-09-28:** `--view front` means Roblox's Front (-Z), and with `--focus`
+the model's own front; findings gain an `info` severity; nothing to draw exits 2 with
+a hint; hit map semantics follow a Studio measurement; the native client ships in 1.0
+if CI is green.
 
-**In the release:**
+**The ordering rule:** anything that changes JSON shapes, defaults, flag meanings or
+exit codes happens before the freeze. Anything additive or internal can land after
+1.0 without breaking anyone.
 
-1. **VFX as a still frame (done, 2026-09-25).** Particles, Beams and Trails drawn inside `scene` and
-   `preview`, frozen at one moment of the effect playing. Most real VFX are played by
-   a script (`:Emit()` on disabled emitters); RHR reads the community's `EmitCount` /
-   `EmitDelay` / `EmitDuration` attributes and plays them itself, then shows the
-   fullest moment. The line between useful and detail work: fix what would make an
-   agent edit differently (is the effect there, where, how big, what colour, does it
-   glow, is it hidden), not what a still frame cannot show (motion, exact randomness,
-   exact brightness). Checked against a local collection of community VFX that stays
-   off GitHub:
-   - particles inside the 3D scene (hidden by walls), playing from attributes,
-     framing that includes effects, emitter rotation, flipbooks, every `Orientation`;
-   - measured in Studio and matched: particle size (2 x `Size`), `Squash`,
-     `SpreadAngle` axes, Disc `ShapePartial`, Beam and Trail texture direction and
-     repeat, Highlight fill and outline, and particle brightness, blending and tone
-     (fitted to a 108-particle sweep, 9/255 RMS);
-   - side by side with Studio on ten community effects: five match, five close, none
-     misleading. Left for after the release: `TextureSpeed`, `LightInfluence`,
-     Roblox's built-in `rbxasset://` particle textures, fire saturation in very dense
-     effects.
-2. **Optimization: lighter, leaner, faster, more dependable** (agreed 2026-09-25).
-   Measured on the maintainer's Windows machine before starting: `rhr --version`
-   1.4-2.4 s (Python alone starts in 1.1 s there), a 2D UI render 3.4 s, a small 3D
-   scene 7.9 s with a fresh Chromium and 5.8 s with the warm worker (2.5 s of it in the
-   page, 0.6 s re-checking Lune), two Chromium builds installed (650 MB), 350 MB of
-   caches with no limit, an 18-minute test suite. In order:
-   - **Measure**: `RHR_PROFILE=1` prints the time of each phase (start-up, file
-     conversion, downloads, page load, scene build, frame, screenshot, notes); record
-     numbers here and on the three CI machines, so every change shows its gain.
-   - **Faster**: the warm worker keeps the page loaded and takes each render as a
-     message instead of reloading ~2 MB of script; it starts on the first render and
-     stops after some idle minutes; per-render overheads go (the Lune check is
-     remembered, heavy modules imported only when needed, the IR read once). A resident
-     `rhr serve` process with a thin CLI is decided after measuring. The test suite
-     shares one browser and runs in parallel (target: under 5 minutes).
-   - **More dependable**: a watchdog on every browser render (fail within ~20 s with
-     the page's own error, restart the worker once, retry); stale workers, lock files
-     and half-written cache files are cleaned up instead of failing; `rhr doctor`
-     checks more; a one-minute smoke test group for every commit.
-   - **Lighter**: `rhr setup` installs only Chromium's headless shell; caches get a
-     size limit (least recently used first) and `rhr cache`; unused vendored fonts
-     and rarely needed libraries leave the default install. Drawing the 2D UI in the
-     browser (dropping skia-python) is evaluated and written up, not done, in this
-     pass.
+**After 1.0:** visual regression of stories in CI, a structural diff of Roblox files
+(also as a `git diff` driver), place versions, pseudo-localisation; later a compact
+IR, instanced geometry for huge places, glTF export, animated effects. A native
+renderer only if Chromium ever blocks a platform.
 
-   Results (2026-09-25, same Windows machine): inside RHR, a warm small 3D scene
-   2.4 s -> 0.72 s (page kept loaded in the worker, Lune lookup 0.6 s -> 10 ms,
-   screenshot 0.41 -> 0.20 s), a 4,400-particle effect 4.0 s -> 1.5 s (simulation
-   1,160 -> 220 ms), a 2D UI render 0.3 s; the worker starts on the first 3D render and
-   stops when idle; MCP tool calls run in one long-lived process (a warm 3D render
-   0.8 s per call, from ~4.4 s). Test suite 18 -> ~5 minutes (own cache, own worker);
-   `-m smoke` in about a minute. `rhr setup` installs only the headless shell
-   (-394 MB); the cache stays under 2 GB (`rhr cache`). Dependability: the worker
-   falls back to a fresh page, relaunches a crashed Chromium, and the CLI falls back to
-   a one-shot Chromium; cache writes are atomic; `rhr doctor` shows the cache and the
-   worker. Decided: no `rhr serve` for the CLI. What is left per command is Python
-   starting (1-3 s on this machine: a venv launcher and antivirus, 0.1 s elsewhere),
-   which a Python client cannot avoid; the MCP server avoids it. Evaluated, not done:
-   drawing the 2D UI in the browser to drop skia-python. It would make UI-only use need
-   Chromium (~260 MB) instead of skia (15 MB) and mean re-writing painting that is
-   tuned to Studio within 2 px, so skia stays. The vendored fonts all back Roblox font
-   families, and numpy is used throughout the UI engine: nothing to trim there.
-3. **Release (0.6.0).** Docs brought up to date, a check on a fresh machine, CI on all
-   three systems, tag and publish. v0.5.0 was never tagged; its work ships in 0.6.0.
+## Standing decisions
 
-**Out of scope for good:** running scripts, physics or animation playback (see
-"What it is not").
-
-## Road to v1.0 (agreed 2026-09-25, shortened 2026-09-26)
-
-**What 1.0 means: an agent can rely on RHR without a human checking.**
-
-- **A stable contract.** Commands, flags and JSON schemas do not change without a
-  major version.
-- **Installs cleanly everywhere.** One `pip install` from PyPI plus `rhr setup` works on
-  a fresh Windows, macOS and Linux machine, proven in CI.
-- **Honest.** Every approximation is reported in the output, and none of them would
-  mislead an agent into a wrong edit on common content.
-- **Covers what people actually make**: typical games' UI, places, characters and
-  effects. Not everything Roblox can draw.
-
-**Standing decisions:**
-
-- **Chromium stays**, with three.js. A native renderer (wgpu/pygfx) was investigated
-  and is not worth it (docs/renderer-options.md). Replacing Playwright with RHR's own
-  DevTools client waits until after 1.0: it saves start-up time and disk, not pixels.
-- **The vendored UI engine (pinevex) stays frozen** with our patches. Upstream changes
-  are pulled in by hand, on purpose, as now (src/rhr/vendor/VENDOR.md).
-- **No pushes or CI runs until we both agree to release.** Work lands as local commits
-  on `main`; the full suite runs locally before each release.
-- Out of scope, as before: scripts, physics, animation playback, and pixel parity with
-  Studio.
-
-**Milestones.** The old 0.8 (scale, regression corpus) and 0.9 (contract,
-distribution) are folded into one 1.0 release candidate: only what 1.0's definition
-needs goes in, the rest moves after 1.0.
-
-1. **0.6: released 2026-09-26.** VFX as a still frame and the optimization pass.
-2. **0.7: coverage of common content.** Everything below was checked side by side
-   against Studio (details in docs/known-approximations.md and the CHANGELOG):
-   - **Done:** characters (R6/R15, classic and layered clothing, packages, faces);
-     terrain material blending and grass decoration; Clouds, the sun disc and
-     SunRays; UI edge cases (UIPageLayout spacing, UITableLayout FillEmptySpace,
-     overflowing text not clipped, glyph advances rounded up as Roblox does: text
-     width error 5.6% -> 1.3%, tests/studio/ui_edge_cases). Also fixed on the way: the
-     sky's top face orientation, terrain with unknown material ids, part surfaces on
-     Plastic only, no console windows on Windows. Beam `TextureSpeed` (the texture
-     scrolls with the effect time; the old "ParticleEmitter.TextureSpeed" item was a
-     Beam property all along), and on the way: Beam textures were drawn upside down,
-     `Wrap` Trail tiles started at the wrong end, and trails from saved files were
-     never drawn (files keep the part's velocity as `Velocity`). `LightInfluence` on
-     particles, Beams and Trails (15 lightings in Studio, 1.7/255 RMS). Roblox's
-     built-in particle textures checked side by side with Studio (all drawn; fire
-     darker).
-   - **Then:** CHANGELOG entry for 0.7, the full suite, CI on all three systems once we
-     agree, tag and publish.
-3. **1.0 release candidate.** Four pieces, then a short candidate period:
-   - **Freeze the public interface.** Review every CLI command and flag and every JSON
-     schema (`rhr.layout/1`, `rhr.check/1`, the scene dump, ...), clean up anything
-     awkward now (after 1.0 a change needs 2.0), and add tests that fail when a
-     command, flag or schema changes shape.
-   - **Published on PyPI**, with a CI job that installs the package on fresh Windows,
-     macOS and Linux runners, runs `rhr setup` and renders a UI, a place and an
-     effect. Versioned docs and an upgrade note per release.
-   - **The MCP server gets the full command set**, not the current subset.
-   - **A basic large-place check.** Render one or two real places with tens of
-     thousands of parts, measure time and memory, and fix only what actually breaks
-     (a timeout, running out of memory, a crash). No streaming or geometry merging
-     unless the check shows it is needed.
-   - **Candidate period:** a handful of the maintainer's real game files checked once
-     against Studio, CI green on all three systems, no open issue that misleads an
-     agent. Then tag 1.0.
-
-**After 1.0, not ruled out:** replacing Playwright with RHR's own DevTools client (a
-pinned Chrome for Testing shell; about 100 MB and 0.4 s per cold start less), a
-private regression corpus re-checked before every release, deeper large-place work
-(merged or instanced geometry, streaming the IR), animated VFX (GIFs, timelines),
-other special effects (depth of field, custom shader tricks), the moon and stars,
-further lighting tuning, particle positions that match Roblox's randomness, and a
-native renderer if Chromium ever becomes a blocker.
+- **Chromium stays**, with three.js, driven by RHR's own DevTools client (no
+  Playwright). A browser already installed is used; the pinned headless shell is
+  downloaded only when none is found. A native renderer was investigated and is not
+  worth it (docs/renderer-options.md).
+- **The UI engine is RHR's own code** (a fork of pinevex-renderer).
+- **A resident server** runs commands so Python and loaded files stay warm; the
+  native client comes in Phase 3.
+- **No pushes, CI runs or releases until the maintainer agrees**, each time. Work
+  lands as local commits on `main`.
 
 ## Rules for new work
 
-- A feature is worth adding when it helps an agent's edit → preview → fix loop.
-- "Done" means the tests pass in CI on a clean machine, not only on the machine
-  where the work was written.
-- Anything approximated or skipped is reported in the output, and listed in
-  `docs/known-approximations.md`.
+- A feature is worth adding when it helps an agent (or a person) see and check what
+  they are making, quickly and cheaply.
+- "Done" means the tests pass in CI on a clean machine, not only where the work was
+  written, and wall-clock times were measured on small and big files.
+- Anything approximated or skipped is reported in the output and listed in
+  docs/known-approximations.md.
+- Output sizes matter: a default output must fit an agent's context.

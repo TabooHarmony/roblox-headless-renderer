@@ -1,5 +1,286 @@
 # Changelog
 
+## 1.0.0rc1 (release candidate)
+
+### When upgrading
+
+- **The default screen is 1920x1080** (it was 1615x1080, from the engine's reference
+  renders): what most players have. Every layout, hit map and check without
+  `--viewport` is at the new size.
+- **Default outputs are summaries.** `rhr scene-dump` prints a summary
+  (`rhr.scene-summary/1`: counts, bounds, the biggest models with their part counts,
+  what was approximated or missing), a few KB for any place: the full dump of a
+  116k-part place was 52 MB. `--parts` prints every part as before (`rhr.scene-dump/1`),
+  narrowed by `--path`, `--class` and `--limit`. `rhr hitmap` lists visible elements
+  (`--all` adds hidden ones) and cuts each stack to its top four (`stackMore`); `rhr
+  inspect` lists the scripts with findings and the first 25 asset ids of each kind
+  (`scriptsTotal`, `assetCounts`; `--all` for everything).
+- **`--view front` shows the front.** Standard views are Roblox's sides: `front`
+  looks at the Front face (-Z, a part's LookVector: a car's nose, a character's
+  face); before, it looked from +Z and showed the back. `back` swapped with it, and
+  `iso` now looks from the front right. With `--focus`, the view turns with the
+  model (its PrimaryPart, or the part itself), so a car parked sideways in a place is
+  still seen from its front.
+- **`rhr check` severities:** `duplicate-zindex`, `invisible-content`,
+  `child-outside-clip` and `max-visible-graphemes` are now `info`, not printed by
+  default (`--min-severity info`). `text-wider-than-box` no longer fires on TextScaled
+  or wrapped labels; wrapped text that does not fit is `text-taller-than-box`.
+- **Nothing to draw is an error.** `ui`, `layout`, `check` and `hitmap` on a file
+  with no UI to draw exit 2 with the reason and what would draw something (a closed
+  screen to `--show`, templates stored outside StarterGui, a Rojo project that maps
+  only code: use the place file), instead of exiting 0 with a blank PNG or an empty
+  document.
+- **`rhr` runs commands in a resident server.** The first command starts it in the
+  background; later ones hand it their command line and get the output back, with
+  Python, RHR and the converted files already loaded. Output, exit codes and files
+  are the same as before. It replaces itself when RHR is upgraded, stops after 20 idle
+  minutes (`RHR_SERVER_IDLE_S`) or with `rhr server stop`; `RHR_SERVER=0` runs every
+  command in its own process as before.
+- **JSON output is compact**: the same documents (same keys, sorted, same values),
+  without indentation, and non-ASCII text written as UTF-8 rather than escaped. Parse
+  it as JSON; do not rely on its whitespace.
+- The MCP server (`rhr-mcp`, the `mcp` extra) is gone: RHR is a command-line tool only.
+  An agent runs `rhr` from its shell, which costs nothing in its context until it is
+  run; docs/AGENTS.md is its guide.
+- The interface is settled for 1.0 (docs/interface-1.0.md):
+  - `rhr render` is now **`rhr ui`**, and its default output is `<stem>-ui.png`.
+  - `ui`, `scene` and `preview` take **`--json`**: a report (`rhr.render/1`) with the
+    PNG's path and size, the camera used, what was approximated or missing, and the
+    notes that were only on stderr before.
+  - **`rhr compare`** prints JSON by default, with camelCase keys and `before`/`after`
+    in place of `ref`/`out`: `rhr.compare/2`. Its summary for people is on stderr.
+  - Removed: `rhr particles` (the contact sheet; `--effect-time` shows other moments),
+    `--ir PATH` (use `rhr ir`), and the leftover `--shadows`, `--coverage`, `--time`
+    (use `--effect-time`) and `fetch --use-studio-login`.
+  - `--no-effects` leaves out Beams and Trails too, not only particles.
+  - A command that fails exits 2; 1 now only ever means `check` found errors.
+  - `--texture-dir` and `--mesh-dir` are test hooks, hidden from `--help`.
+- **Playwright is gone.** RHR drives the browser itself over the DevTools protocol,
+  with a browser you already have: Chrome, Edge, Brave or Chromium. With none, the
+  first 3D render downloads Chrome for Testing's headless shell once (about 100 MB,
+  the same build as before, so pictures are unchanged); `rhr setup --browser` does
+  that ahead of time and `RHR_BROWSER_DOWNLOAD=0` forbids it. `RHR_CHROME` is now
+  **`RHR_BROWSER`** (the old name still works in this release). The old Playwright
+  Chromium in `ms-playwright` is no longer used and can be deleted.
+- The UI engine is RHR's own code (`rhr.ui_engine`, a fork of pinevex-renderer):
+  nothing changes in what it draws. RHR no longer adds the engine's folders to
+  `sys.path`, so the top-level modules `ui_engine`, `tree_to_pinevexobject`,
+  `product_output` and `rbxm_parser_component` are gone. The calibration switches
+  `RHR_TABLE_Y_SCALE*` / `RHR_TABLE_NODRAW_*` are removed.
+- The `--json` report and `rhr browser status` name the browser used (`browser`:
+  name, version, path); `rhr doctor` names the browser it will use and why any other
+  was skipped.
+
+- **Install from PyPI**: `uvx roblox-headless-renderer ...` runs it once, `uv tool
+  install roblox-headless-renderer` (or `pip install`) puts `rhr` on `PATH`. The
+  package also has a `roblox-headless-renderer` command, the same as `rhr`.
+- **No setup step**: Lune and Rojo download themselves the first time a command needs
+  them (a line on stderr says so), like the browser. `rhr setup` still does it ahead
+  of time. `RHR_TOOL_DOWNLOAD=0` turns that off; `--offline` / `RHR_OFFLINE=1` now
+  turns off every download (tools, the browser, font names), not only assets. A
+  missing tool with downloads off is an error that says to run `rhr setup`.
+
+### Changes
+
+- **Rounded frames no longer sit on a square.** The default 1 px legacy border
+  (BorderColor3 27,42,53) was drawn as a filled square under every frame and showed
+  at rounded corners; Roblox hides it when a UICorner is present, and now RHR does.
+- **A UIGradient on Fredoka text is a gradient again**, not the first colour.
+- **Partly transparent Neon glows less** (closer to Studio; see known approximations).
+- **Fredoka One (and every face with a Studio advance table) draws at Studio's size.**
+  The glyphs were drawn about 0.82x too small inside correctly laid-out text: the table
+  was read at the font's em size instead of the TextSize. Ink now matches Studio's
+  (137x22 px for "Sample Price" at 26, Studio 137x22).
+- **BillboardGuis with ClipsDescendants off draw their children past their own size**,
+  as in Roblox (a 1-stud sign with a wide label showed a few letters).
+- **Places with many shadow-casting lights no longer lose their parts.** Each
+  shadow takes one of a shader's 16 texture units; a shop with 17 SpotLights went past
+  the limit and every textured part (Wood, Plastic, Fabric) vanished, with nothing
+  reported. The 4 most relevant local lights now cast shadows (a note says how many
+  more light without them), and a shader the browser refuses is reported in the notes
+  instead of dropping parts silently.
+- **Several views on one build:** `rhr scene --views iso,front,top,right` draws each
+  view on one build of the scene, one PNG each (`--out`'s name plus `-<view>`), every
+  one identical to a render of that view alone; `--json` lists them in `views[]` with
+  their cameras. Four views of a small model cost about 1.2 times one view (four
+  commands: 4 times); on a 40k-part place 45 s instead of 91 s. Beams and Trails no
+  longer update the whole scene once each (a single render of a big place is faster
+  too).
+- **`rhr batch`:** several commands in one call, separated by a lone `+` (`rhr batch
+  check shop.rbxm + layout shop.rbxm + ui shop.rbxm`), printing one `rhr.batch/1`
+  document with each command's exit code, stdout (parsed when it is JSON) and stderr.
+  Exits with the worst code.
+- **A busy server makes the next command wait** up to 5 seconds
+  (`RHR_SERVER_WAIT_S`) before it runs in a process of its own: parallel tool calls
+  and sub-agents stay warm. `rhr --version` no longer loads the CLI, and help is
+  printed by the server.
+- **Stories run only when something changed:** the UI a story built is reused while
+  the project's files, the viewport and RHR's runtime are unchanged (`check` then
+  `ui` of one story runs it once: 1.2 s to 0.04 s on the fixture). A Rojo project is
+  likewise built again only when a file it maps changed.
+- **An agent skill:** `rhr skill` prints SKILL.md (for Claude Code and Codex), and
+  `rhr skill --install .claude/skills` puts it where the agent looks. docs/AGENTS.md
+  is rewritten around the loops agents run: where the UI lives, check, layout, a
+  small picture, devices.
+- **Pictures cut to what matters.** `rhr ui --crop <path>` (one element and a
+  margin), `--fit` (what was drawn), `--annotate` (numbered boxes on the buttons;
+  `--json` maps each number to its path, so an agent can refer to "3"), and on `ui`,
+  `scene` and `preview` `--max-size N` (the longer side at most N px; the layout does
+  not change). A row of cards went from a 1920x1080 canvas to 752x186.
+- **`--device desktop|laptop|phone|android|tablet|console`** on `ui`, `layout`,
+  `check`, `hitmap` and `preview`: a player's screen, measured in Studio's device
+  emulator (iPhone 16, Galaxy A16, iPad, Xbox, ...): its viewport, the notch and home
+  bar that `DeviceSafeInsets` and `CoreUISafeInsets` keep out of, and on touch screens
+  where Roblox puts the jump button and thumbstick. `rhr check --devices all` checks
+  every one in one run (each finding lists its devices), with touch-only checks: 44 px
+  targets, `under-touch-controls`, `under-notch`.
+- **`--path <path>`** on `layout`, `check`, `hitmap` and `scene-dump`: one screen or
+  model instead of the whole file. **`rhr hitmap --at X,Y`**: who gets a click at one
+  pixel.
+- **`rhr check` finds what players see, and less noise.** Text checks read what the
+  engine laid out instead of measuring again with another font (half of the old
+  `text-wider-than-box` warnings on real games were wrong: TextScaled labels, other
+  fonts). New checks: `text-taller-than-box` (wrapped text spilling out),
+  `off-screen` and `partly-off-screen`, `small-target`, `low-contrast`. A third
+  severity, `info`, for patterns that are often intended (`duplicate-zindex`,
+  `invisible-content`, `child-outside-clip`, `max-visible-graphemes`), left out
+  unless `--min-severity info`. `--ignore <check>`, `--baseline old.json` (only
+  what an edit added) and an `RhrIgnore` attribute in the file leave findings out.
+  Text in an uploaded font RHR cannot load, and UI collapsed to nothing (a menu a
+  tween grows open), is not judged. On four real games: 101 warnings on one became 1;
+  the review's probe UI went from 0 of 6 mistakes found (and 2 fine labels flagged)
+  to 5 of 6, with the sixth (a missing image) next.
+- **The hit map follows Studio.** Who gets a click was measured in Studio (simulated
+  clicks in a playtest, 27 cases): hidden elements never take a click, `Interactable
+  = false` (on a button or any parent) makes a button dead and lets clicks pass through
+  it, and within one ScreenGui a button gets the click even under an Active Frame; a
+  visible Active element in a ScreenGui with a higher DisplayOrder swallows clicks for
+  the ScreenGuis below, even when fully transparent. The old rule ("every Active
+  element captures clicks, visible or not") called 12 of 19 buttons blocked on one real
+  game; the new one calls none. `hitTests[].targetIsButton` and
+  `nodes[].interactable` are new. `rhr check` reports `button-blocked` (error) and
+  `button-covered` (info).
+- **UI commands on files with uploaded fonts are several times faster.** RHR asked
+  Roblox for the name of each uploaded font again on every command and never kept a
+  "not found": 28 requests, about 8 s, per command on one real game (`check` 13 s,
+  now 1 s). Answers are kept in the cache (a name for good, "not found" for a day).
+- **Avatar thumbnails and `rbxassetid://0`** (`rbxthumb://type=AvatarHeadShot&id=...`,
+  made by Roblox at run time; id 0, no image) are no longer taken for asset ids.
+- **Missing images are reported.** `rhr ui --json` lists the images it could not get
+  in `missingAssets` (path, class, uri, and why: refused, unavailable, offline), and
+  says so on stderr; `rhr check` reports `image-missing` for images Roblox refused the
+  last time RHR asked. A second kind of Roblox "image unavailable" placeholder (a
+  question mark on two cards) was drawn as if it were the image; it is recognised now.
+- **Screens code opens: `--show <path>` and `--only <path>`** on `ui`, `layout`,
+  `check`, `hitmap` and `preview`. A screen saved closed (`ScreenGui.Enabled` or
+  `Visible` false, as games save the screens their code opens) is drawn with
+  `--show` (repeatable), or alone with `--only`, every other screen closed. A path
+  into a place's storage (a template in ReplicatedStorage) works too.
+- **UI that code builds: stories (experimental).** `ui`, `layout`, `check` and
+  `hitmap` take a story file (`*.story.luau`, in the UI Labs, Hoarcekat or
+  Flipbook forms). RHR builds the story's Rojo project, runs the story in Lune with a
+  copy of the Roblox side UI code touches (instances, events, services, `require` by
+  instance) and draws what it built, like a file: React-lua, Fusion and plain Luau
+  alike, nothing library-specific. Code that reads the screen size gets `--viewport`;
+  tweens end at their goal; controls take their defaults. A story that fails exits 2
+  with the error pointed at the project's files and lines. A story runs the
+  project's code: do not run untrusted ones outside a sandbox. About 0.9 s warm.
+- **The cache keeps to its limit.** Converting an edited file now drops that file's
+  earlier conversion (a place's is about 25 times the file, and every edit made a new
+  one: 10 GB in a day of work on big places, against a 2 GB limit). The limit is
+  checked every hour instead of once a day, and right after writing a big conversion.
+- **The resident server lets go of big files.** After 3 idle minutes it keeps only
+  what fits in `RHR_SERVER_MEMORY_MB` (default 512): a small UI stays warm, a big
+  place's conversion is read again when next asked for. On a 116k-part place the
+  server went from 916 MB to 392 MB.
+- **Hardening.** The headless browser keeps Chromium's sandbox (it decodes images
+  and meshes from the internet); it is off only where Chromium cannot start it: Linux
+  as root, and the downloaded headless shell where Linux blocks user namespaces
+  (Ubuntu 24.04), and `RHR_BROWSER_SANDBOX=0` where it fails for another reason. RHR's
+  local servers (renders, `rhr view`) answer only requests addressed to this machine
+  and share data only with local pages, so a web page cannot read a scene through
+  them. A binary file whose chunks claim impossible sizes is refused before anything
+  is allocated. A story cannot use `getfenv`/`setfenv` (they led to Lune's own
+  `require`).
+- **`rhr inspect <file>`**: what a file holds (classes, scripts with their lines, the
+  asset ids it uses), and findings for script code worth a look before inserting a
+  model: `require(<id>)` (the classic backdoor: code loaded from Roblox at run time),
+  `getfenv`/`setfenv`, `loadstring`, obfuscated code, webhooks and HTTP posts,
+  `InsertService:LoadAsset`, purchase prompts, teleports, virus-named scripts. It
+  reads the scripts and never runs them; JSON `rhr.inspect/1`. A 180k-instance place
+  takes about 4 s, a model a few milliseconds.
+- **Assets without Studio: `RHR_ROBLOX_API_KEY`.** An Open Cloud API key (a user key
+  with `legacy-asset:manage`) downloads what the Studio login would, for cloud agents
+  and CI; it is asked for what the login could not get, before asking without either.
+  `rhr doctor` says whether one is set.
+- **`rhr icons`**: square icon PNGs of models on a transparent background, cropped to
+  the model with the same margin on every icon (`--size`, `--margin`, `--view`,
+  `--background`). Give it files, folders or asset ids; one page stays loaded for the
+  batch, so after the first each icon costs about a second.
+- **`rhr view <file>`**: the 3D world in a local page you move around in: drag to
+  orbit, right-drag to pan, wheel to zoom, WASD/QE to fly, double-click to aim, F to
+  frame everything; pinch and two-finger drag on a touch screen. It keeps up with the
+  source: when the file (or any file of a Rojo project) changes, the page redraws in
+  about a second with the camera where it was, so an agent's edits appear while you
+  look. Served on this machine only (127.0.0.1); the address is printed on stdout.
+- **Preview any Roblox asset by id or link**: `rhr scene 2810302648`, or a Creator
+  Store, library, catalog or game link, anywhere a file goes. RHR downloads the model
+  with the Studio login into its cache (the `models` area of `rhr cache`) and names
+  it on stderr (`asset  2810302648  "a CAR" by CS_GO2321`). Used again without asking
+  Roblox for 10 minutes, then downloaded again only when it changed. Meshes, images
+  and others' places are refused with what they are and why.
+- **Assets download about 15x faster.** RHR asks Roblox where up to 256 assets are in
+  one request, then downloads the files in parallel, instead of one asset at a time
+  (204 assets from three Creator Store models: 50.8 s -> 3.4 s; the first render of a
+  new car model: 55 s of downloads -> 2.2 s). The files are the same, byte for byte.
+  Without a Studio login RHR now asks for everything Roblox serves without one (some
+  meshes, images and material textures), not only meshes. Moderated images no longer
+  cost seconds of polling on every render, and an asset refused for lack of a login
+  is asked again as soon as there is one (it used to wait a day after
+  `rhr fetch --no-studio-login`).
+- **Much faster in an agent's loop** (numbers in docs/performance.md, measured one
+  process per command as an agent runs them). The main changes:
+  - the resident server (above): no Python start-up, imports or re-reading of the
+    converted file per command;
+  - UI commands (`ui`, `layout`, `check`, `hitmap`) read only a file's UI, and
+    `layout`/`check` no longer paint a picture to measure it: on a 40k-instance model
+    `layout` went from a minute to under a second;
+  - `scene` and `preview` on a place read only its world, not its storage;
+  - 3D renders no longer list the whole asset cache, re-check every asset, recompile
+    shaders or rebuild the sky each time;
+  - XML files convert in a Lune process that stays running (4x faster per edit).
+- **XML files with an XML declaration** (`<?xml version="1.0"?>` before `<roblox>`)
+  now read; Lune refused them ("Unknown document format").
+- **Big places are fast.** RHR reads binary files (`.rbxm`, `.rbxl`) itself instead of
+  asking Lune for every property of every instance: the same result (checked
+  identical on 63 real files and every fixture), 10-60x faster. On a 22k-part map a
+  render after an edit went from 124 s to 26 s, and a second render from 34 s to 7 s;
+  on a 116k-part place from 668 s to 36 s and from 75 s to 8 s. A render now reads its
+  converted file once instead of six times, and a place's 3D view reads only what it
+  draws (its stored maps are left in the cache, not re-read each time). Binary files
+  no longer need Lune at all. `RHR_READER=lune` reads them with Lune as before.
+- **Places draw their world, not their storage.** In a place file, `scene` and
+  `preview` no longer draw (or download, or count) the models kept in ServerStorage,
+  ReplicatedStorage, StarterPack and the like: on a real game, 110k stored parts
+  (every map, all at the same spot) had framed the view on fog. A note counts them
+  and suggests `--focus <path>`, which draws one. Model files are unchanged.
+- **Framing ignores far strays.** A standard view no longer backs off to include a
+  few parts far from everything else (a plugin's rig 126k studs out); a note names
+  them.
+- **Big places convert with less memory.** On a 116k-part place the 3D conversion
+  peaked at 3.9 GB instead of 5.5 GB (7.0 -> 5.7 GB for UI commands), without the
+  whole-place XML pass, with identical output. Reading
+  terrain and unions from binary files is 40x faster, and the scene dump 25%.
+- `rhr doctor` no longer counts a missing Lune as a problem when it can be
+  downloaded; it says it will be.
+- Downloaded tools are written beside their final name and renamed, so an interrupted
+  download never leaves a broken `lune` that RHR would then try to run.
+- Cold 3D renders are about 1.7 s faster (no Node driver to start); warm renders are
+  unchanged. Installing RHR no longer pulls in Playwright (104 MB).
+- A browser never outlives RHR: on Windows it runs in a job object that ends it with
+  the process that started it, even on a crash; on Linux it gets a parent-death
+  signal. Profiles left by a killed RHR are removed on the next launch.
+
 ## 0.7.0 (alpha)
 
 Coverage of common content: characters, terrain, the sky, UI edge cases and the last

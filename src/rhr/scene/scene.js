@@ -7,6 +7,10 @@ import { flipbookLayout, hashSeed, particleLook, playEmitter, playHorizon, playS
 // everything about the scene is reset). `persistent=1` in the address picks the second.
 const pageParams = new URLSearchParams(location.search);
 const persistentPage = pageParams.get('persistent') === '1';
+// `rhr view` (startViewer): a person moves around in the scene; its camera and target.
+const interactivePage = pageParams.get('interactive') === '1';
+let viewCamera = null;
+let viewTarget = null;
 let params = pageParams;
 
 // Data (the IR, images, meshes, notes) comes from the command's own local server. On a
@@ -31,15 +35,23 @@ function mark(name) {
 mark('scripts loaded and parsed');
 const viewportMode = pageParams.get('mode') === 'viewport';  // never on a persistent page
 const canvas = document.querySelector('#rhr-scene');
-if (viewportMode) document.body.style.background = 'transparent';
+if (viewportMode || pageParams.get('alpha') === '1') {
+  document.documentElement.style.background = 'transparent';
+  document.body.style.background = 'transparent';
+}
 let width = Math.max(1, window.innerWidth);
 let height = Math.max(1, window.innerHeight);
-const renderer = new THREE.WebGLRenderer({canvas, antialias: true, alpha: viewportMode, stencil: true});
+// `alpha=1`: a page whose canvas can be see-through (`rhr icons`, with `icon=1` per scene).
+const renderer = new THREE.WebGLRenderer({canvas, antialias: true, alpha: viewportMode || pageParams.get('alpha') === '1', stencil: true});
 renderer.setPixelRatio(1);
 renderer.setSize(width, height, false);
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.shadowMap.type = THREE.PCFShadowMap;
 renderer.setClearColor(viewportMode ? 0x000000 : 0x20242b, viewportMode ? 0 : 1);
+// One prefiltering generator for the page's life: making one compiles its blur shaders,
+// which a warm page would otherwise do again for every render.
+let pmrem = null;
+const pmremGenerator = () => (pmrem ||= new THREE.PMREMGenerator(renderer));
 // Constants fitted against Studio (see configureAtmosphere, configureModernEnvironment).
 // The `tune` query parameter (JSON, from RHR_SCENE_TUNE) overrides them while
 // calibrating; normal renders never set it.
@@ -54,6 +66,9 @@ const TUNE_DEFAULTS = {
   gNear: 40, gFar: 200, gCarpet: 0.75, gCarpetNear: 20, gCarpetFar: 150, gOn: 1,
 };
 let TUNE = {...TUNE_DEFAULTS};
+// `icon=1` (rhr icons): the model alone on a transparent background: no sky, clouds,
+// sun disc or fog, and no post effects (they are drawn over an opaque frame).
+let iconMode = false;
 let shadowsRequested = true;
 let flatMaterials = false;
 
@@ -94,6 +109,8 @@ function configure(query) {
   // Shadows are on unless the caller turns them off (Studio draws them by default).
   shadowsRequested = !viewportMode && params.get('shadows') !== '0';
   renderer.shadowMap.enabled = shadowsRequested;
+  iconMode = params.get('icon') === '1';
+  renderer.setClearColor(viewportMode || iconMode ? 0x000000 : 0x20242b, viewportMode || iconMode ? 0 : 1);
   flatMaterials = params.get('flatMaterials') === '1';
   sceneAssetManifest = jsonOrEmpty('/__rhr_assets__.json');
   sceneMeshManifest = jsonOrEmpty('/__rhr_meshes__.json');
@@ -707,7 +724,7 @@ function shapeGeometry(node) {
 const NEON_BRIGHTNESS = 3;
 function neonBrightness(transparency) {
   const t = Math.max(0, Math.min(1, Number(transparency) || 0));
-  return NEON_BRIGHTNESS * (1 - t * t);
+  return NEON_BRIGHTNESS * (1 - t);
 }
 const MATERIAL_TABLE = {
   Plastic: {roughness: TUNE.pRough, metalness: 0.0},
@@ -2910,6 +2927,7 @@ function beamRibbonGeometry(points, tangents, widths, camera, faceCamera, normal
 }
 
 async function addBeams(index, camera) {
+  let updated = false;
   for (const node of nodesOfClass(index, 'Beam')) {
     if (node.props?.Enabled === false) continue;
     const a0 = findNodeByReference(index, node, 'Attachment0');
@@ -2917,7 +2935,8 @@ async function addBeams(index, camera) {
     const anchor0 = anchorByNode.get(a0);
     const anchor1 = anchorByNode.get(a1);
     if (!anchor0 || !anchor1) continue;
-    scene.updateMatrixWorld(true);
+    // Once: the anchors do not move, and a full update walks every part (40k in a big place).
+    if (!updated) { scene.updateMatrixWorld(true); updated = true; }
     const p0 = anchor0.getWorldPosition(new THREE.Vector3());
     const p3 = anchor1.getWorldPosition(new THREE.Vector3());
     const x0 = new THREE.Vector3(1, 0, 0).applyQuaternion(anchor0.getWorldQuaternion(new THREE.Quaternion())).normalize();
@@ -3051,6 +3070,7 @@ function trailRibbonGeometry(positions0, positions1, ages, widthScale, colorSequ
 }
 
 async function addTrails(index, camera) {
+  let updated = false;
   for (const node of nodesOfClass(index, 'Trail')) {
     if (node.props?.Enabled === false) continue;
     const a0 = findNodeByReference(index, node, 'Attachment0');
@@ -3058,7 +3078,8 @@ async function addTrails(index, camera) {
     const anchor0 = anchorByNode.get(a0);
     const anchor1 = anchorByNode.get(a1);
     if (!anchor0 || !anchor1) continue;
-    scene.updateMatrixWorld(true);
+    // Once: the anchors do not move, and a full update walks every part (40k in a big place).
+    if (!updated) { scene.updateMatrixWorld(true); updated = true; }
     const current0 = anchor0.getWorldPosition(new THREE.Vector3());
     const current1 = anchor1.getWorldPosition(new THREE.Vector3());
     const velocity0 = assemblyVelocity(index, a0);
@@ -3528,6 +3549,7 @@ function addHighlights(index) {
         copy.renderOrder = order;
         copy.castShadow = false;
         copy.userData.rhrEffect = true;
+        copy.userData.rhrSharedGeometry = true;
         scene.add(copy);
       }
     }
@@ -3586,13 +3608,19 @@ function addLocalLight(node, parentNode) {
 // matter from this camera: nearest first, weighted by range and brightness. The
 // rest are removed and counted in a note.
 const MAX_LOCAL_LIGHTS = 16;
+// Each shadow-casting local light takes one of a shader's 16 texture units, which the
+// materials' own maps, the sky and the sun's shadow also need: past the limit the
+// browser refuses the shader and every part using it vanishes (a 17-SpotLight shop
+// drew only its Neon trim). The most relevant few keep their shadows.
+const MAX_LOCAL_SHADOWS = 4;
 let localLightsDropped = 0;
+let localShadowsDropped = 0;
+const unshadowedLights = [];
 
 function pruneLocalLights(camera) {
   const lights = [];
   scene.updateMatrixWorld(true);
   scene.traverse(object => { if (object.userData?.rhrLocalLight) lights.push(object); });
-  if (lights.length <= MAX_LOCAL_LIGHTS) return;
   const position = new THREE.Vector3();
   const score = light => {
     const {range, brightness} = light.userData.rhrLocalLight;
@@ -3600,9 +3628,20 @@ function pruneLocalLights(camera) {
     return Math.max(0, distance - range) / Math.max(0.1, Math.sqrt(brightness));
   };
   lights.sort((a, b) => score(a) - score(b));
+  const kept = lights.slice(0, MAX_LOCAL_LIGHTS);
+  for (const light of kept.filter(light => light.castShadow).slice(MAX_LOCAL_SHADOWS)) {
+    light.castShadow = false;
+    unshadowedLights.push(light);
+    localShadowsDropped += 1;
+  }
+  const take = object => {
+    if (!object.parent) return;
+    prunedObjects.push({object, parent: object.parent, at: object.parent.children.indexOf(object)});
+    object.removeFromParent();
+  };
   for (const light of lights.slice(MAX_LOCAL_LIGHTS)) {
-    if (light.target) light.target.removeFromParent();
-    light.removeFromParent();
+    if (light.target) take(light.target);
+    take(light);
     localLightsDropped += 1;
   }
 }
@@ -3634,13 +3673,27 @@ function parseVectorParam(name) {
   return new THREE.Vector3(...values);
 }
 
+// Where the camera stands, from the thing it looks at. Roblox's Front face is -Z (a
+// part's LookVector; a car's nose, a character's face), so `front` stands at -Z and
+// sees it; `iso` stands at the front right, above.
 function focusDirection(view) {
-  if (view === 'front') return new THREE.Vector3(0, 0, 1);
-  if (view === 'back') return new THREE.Vector3(0, 0, -1);
+  if (view === 'front') return new THREE.Vector3(0, 0, -1);
+  if (view === 'back') return new THREE.Vector3(0, 0, 1);
   if (view === 'left') return new THREE.Vector3(-1, 0, 0);
   if (view === 'right') return new THREE.Vector3(1, 0, 0);
   if (view === 'top') return new THREE.Vector3(0, 1, 0);
-  return new THREE.Vector3(1, 0.75, 1).normalize();
+  return new THREE.Vector3(1, 0.75, -1).normalize();
+}
+
+// The orientation `--focus` names: a part's own, or a model's PrimaryPart's (what
+// Roblox pivots it by), so `--view front` shows a car's front however it is turned
+// in the place. Null (world axes) when neither is known.
+function focusOrientation(index, target) {
+  let part = target;
+  if (!target?.props?.CFrame) part = findNodeByReference(index, target, 'PrimaryPart');
+  const cf = part?.props?.CFrame;
+  if (!cf || cf.R00 === undefined) return null;
+  return new THREE.Quaternion().setFromRotationMatrix(cframeMatrix(cf));
 }
 
 // A standard view frames the build, not the floor: nearly every place has a
@@ -3664,6 +3717,42 @@ function withoutGround(boxes) {
 }
 
 const framingIgnored = [];
+const framingStrays = [];
+
+// A standard view frames where the build is, not every part the file has: a rig a
+// plugin parked 126,000 studs away (inside Workspace.Camera, where animation tools keep
+// their dummies) put the camera so far out that the game itself was lost in fog. A
+// part is a stray when its centre is more than 4x the build's own spread (95th
+// percentile distance) from the median centre, and strays are few (under 5%): a
+// build that is genuinely spread out keeps all of it. Strays are still drawn.
+function withoutStrays(boxes) {
+  if (boxes.length < 20) return boxes;
+  const centers = boxes.map(entry => entry.box.getCenter(new THREE.Vector3()));
+  const median = axis => {
+    const values = centers.map(c => c[axis]).sort((a, b) => a - b);
+    return values[Math.floor(values.length / 2)];
+  };
+  const middle = new THREE.Vector3(median('x'), median('y'), median('z'));
+  const distances = centers.map(c => c.distanceTo(middle));
+  const sorted = [...distances].sort((a, b) => a - b);
+  const spread = Math.max(sorted[Math.floor(0.95 * (sorted.length - 1))], 50);
+  const strays = new Set(boxes.filter((entry, i) => distances[i] > 4 * spread));
+  if (!strays.size || strays.size > 0.05 * boxes.length) return boxes;
+  // Named by model, not part by part: the nearest ancestor that is a Model.
+  const names = new Map();
+  for (const entry of strays) {
+    let node = entry.node;
+    for (let up = sceneIndex?.parentByNode?.get(node); up; up = sceneIndex.parentByNode.get(up)) {
+      if (up.className === 'Model') { node = up; break; }
+      if (!sceneIndex.parentByNode.get(up)) break;
+    }
+    const name = node.path || node.name;
+    names.set(name, (names.get(name) || 0) + 1);
+  }
+  const far = Math.round(Math.max(...[...strays].map(entry => distances[boxes.indexOf(entry)])));
+  framingStrays.push({ names: [...names.keys()], count: strays.size, far });
+  return boxes.filter(entry => !strays.has(entry));
+}
 
 // Where the particles are, for framing: the 5th to 95th percentile on each axis, so a
 // few sparks flung far away do not push the camera back.
@@ -3690,9 +3779,11 @@ function particleBoundsWithin(allowed) {
 
 function frameScene(camera, index, focusPath, view = 'iso') {
   let allowed = null;
+  let orientation = null;
   if (focusPath) {
     const target = findNodeByPath(index, focusPath);
     if (!target) throw new Error(`focus path not found: ${focusPath}`);
+    orientation = focusOrientation(index, target);
     allowed = new Set();
     walk(target, node => allowed.add(node));
   }
@@ -3712,7 +3803,7 @@ function frameScene(camera, index, focusPath, view = 'iso') {
   // count when there is nothing else.
   const seen = boxes.filter(entry => Number(entry.node.props?.Transparency ?? 0) < 1);
   const candidates = seen.length || effectBounds ? seen : boxes;
-  const framed = focusPath ? candidates : withoutGround(candidates);
+  const framed = focusPath ? candidates : withoutStrays(withoutGround(candidates));
   const box = new THREE.Box3();
   for (const entry of framed) box.union(entry.box);
   if (effectBounds) box.union(effectBounds);
@@ -3728,6 +3819,10 @@ function frameScene(camera, index, focusPath, view = 'iso') {
   const direction = focusDirection(view);
   if (view === 'top') camera.up.set(0, 0, -1);
   else camera.up.set(0, 1, 0);
+  if (orientation) {
+    direction.applyQuaternion(orientation);
+    if (view === 'top') camera.up.applyQuaternion(orientation);
+  }
   camera.position.copy(center).addScaledVector(direction, distance);
   camera.lookAt(center);
   camera.updateMatrixWorld(true);
@@ -3766,7 +3861,13 @@ function sceneGeometryBounds() {
 // Quarter turns per cube face (+X, -X, +Y, -Y, +Z, -Z), clockwise on the canvas.
 const SKY_FACE_TURNS = [0, 0, -1, 0, 0, 0];
 
-async function loadSquareCube(urls) {
+// Kept on a warm page by the faces' addresses (versioned by file), like other loads: six
+// decodes, canvas copies and a cube upload once, not on every render.
+function loadSquareCube(urls) {
+  return keep('cube', urls.join('|'), () => buildSquareCube(urls));
+}
+
+async function buildSquareCube(urls) {
   const images = await Promise.all(urls.map(url => new Promise(resolve => {
     const image = new Image();
     image.crossOrigin = 'anonymous';  // from this render's data server; drawn to a canvas below
@@ -4237,13 +4338,14 @@ function buildSkyVisibility(camera) {
   texture.magFilter = THREE.LinearFilter;
   texture.unpackAlignment = 1;
   texture.needsUpdate = true;
-  skyVisibility = {
-    texture: {value: texture},
-    min: {value: min.clone()},
-    size: {value: new THREE.Vector3(nx * V, ny * V, nz * V)},
-    offset: {value: V * 0.6},
-    strength: {value: TUNE.aoK},
-  };
+  const values = {texture, min: min.clone(), size: new THREE.Vector3(nx * V, ny * V, nz * V), offset: V * 0.6, strength: TUNE.aoK};
+  if (skyVisibility) {
+    // Another view of the same scene: compiled shaders hold these uniform objects.
+    skyVisibility.texture.value.dispose();
+    for (const [name, value] of Object.entries(values)) skyVisibility[name].value = value;
+  } else {
+    skyVisibility = Object.fromEntries(Object.entries(values).map(([name, value]) => [name, {value}]));
+  }
   // Every lit material reads the grid (see withSkyVisibility).
   scene.traverse(object => {
     if (!object.isMesh) return;
@@ -4313,9 +4415,7 @@ function configureModernEnvironment(index, sky) {
   const skyScene = new THREE.Scene();
   if (sky) skyScene.add(makeSkyDome(sky));
   else skyScene.background = scene.background;
-  const generator = new THREE.PMREMGenerator(renderer);
-  const cubeCamera = generator.fromScene(skyScene, 0, 0.1, 100);
-  generator.dispose();
+  const cubeCamera = pmremGenerator().fromScene(skyScene, 0, 0.1, 100);
   scene.environment = cubeCamera.texture;
   scene.environmentIntensity = TUNE.skyK * envDiffuse;
   environmentTexture = cubeCamera.texture;
@@ -4382,9 +4482,7 @@ function configureEnvironment(index) {
     cube.colorSpace = THREE.SRGBColorSpace;
     cube.needsUpdate = true;
   }
-  const generator = new THREE.PMREMGenerator(renderer);
-  environmentTexture = generator.fromCubemap(cube).texture;
-  generator.dispose();
+  environmentTexture = pmremGenerator().fromCubemap(cube).texture;
   const lighting = findFirstClass(index, 'Lighting');
   const specular = Number(lighting?.props?.EnvironmentSpecularScale ?? 1);
   // Roblox metals stay readable with EnvironmentSpecularScale 0; keep some sky in them.
@@ -4536,13 +4634,23 @@ async function renderGuiImage(node, canvasWidth, canvasHeight) {
     }),
   });
   if (!response.ok) throw new Error(`in-world GUI ${node.path}: ${await response.text()}`);
+  // A BillboardGui that does not clip comes back larger than its own area, with
+  // the offset of that area inside the picture: drawn at its natural size, shifted.
+  const [offsetX, offsetY] = (response.headers.get('X-RHR-Offset') || '0,0').split(',').map(Number);
   const image = document.createElement('img');
   image.src = URL.createObjectURL(await response.blob());
   await image.decode();
   image.style.position = 'absolute';
-  image.style.inset = '0';
-  image.style.width = '100%';
-  image.style.height = '100%';
+  if (offsetX || offsetY || image.naturalWidth !== Math.round(canvasWidth) || image.naturalHeight !== Math.round(canvasHeight)) {
+    image.style.left = `${-offsetX}px`;
+    image.style.top = `${-offsetY}px`;
+    image.style.width = `${image.naturalWidth}px`;
+    image.style.height = `${image.naturalHeight}px`;
+  } else {
+    image.style.inset = '0';
+    image.style.width = '100%';
+    image.style.height = '100%';
+  }
   return image;
 }
 
@@ -4792,6 +4900,9 @@ async function reportNotes() {
   if (localLightsDropped) {
     notes.push(`drew the ${MAX_LOCAL_LIGHTS} most relevant local lights; ${localLightsDropped} farther ones were left out`);
   }
+  if (localShadowsDropped) {
+    notes.push(`the ${MAX_LOCAL_SHADOWS} most relevant local lights cast shadows; ${localShadowsDropped} more light without them`);
+  }
   if (particleState.emitters.length || particleState.idle.length) {
     const played = particleState.emitters.filter(emitter => emitter.schedule.played).length;
     const when = particleState.auto ? `${particleState.time.toFixed(2)} s into the effect (the fullest moment; --effect-time T picks another)` : `${particleState.time.toFixed(2)} s into the effect`;
@@ -4808,6 +4919,11 @@ async function reportNotes() {
   }
   if (framingIgnored.length) {
     notes.push(`framing left out ground ${framingIgnored.join(', ')} (still drawn; --focus <path> frames it)`);
+  }
+  for (const stray of framingStrays) {
+    const listed = stray.names.slice(0, 4).join(', ') + (stray.names.length > 4 ? `, +${stray.names.length - 4} more` : '');
+    notes.push(`framing left out ${stray.count} part(s) far from the rest of the build (up to ${stray.far} studs): `
+      + `${listed} (still drawn; --focus <path> frames it)`);
   }
   if (!notes.length) return;
   try {
@@ -4916,6 +5032,62 @@ const fullscreenQuad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2));
 const fullscreenScene = new THREE.Scene();
 fullscreenScene.add(fullscreenQuad);
 
+// Post-processing materials, kept for the page's life by their shaders; each use sets
+// its own uniforms. Made and disposed per pass, as they were, every frame compiled
+// every post-processing program again.
+const postMaterials = new Map();
+function postMaterial(parameters) {
+  const key = `${parameters.vertexShader}
+${parameters.fragmentShader}`;
+  let material = postMaterials.get(key);
+  if (!material) {
+    material = new THREE.ShaderMaterial(parameters);
+    postMaterials.set(key, material);
+  } else {
+    for (const [name, uniform] of Object.entries(parameters.uniforms || {})) material.uniforms[name] = uniform;
+  }
+  return material;
+}
+// Kept for the same reason: while one lives, the plain-colour program the Neon pass
+// draws with stays compiled.
+const blackMaterial = new THREE.MeshBasicMaterial({color: 0x000000});
+const depthOnlyMaterial = new THREE.MeshBasicMaterial({colorWrite: false});
+
+// Render targets, reused between passes and frames by size (they are cleared by every
+// pass that draws into them): allocating full-size multisampled targets every frame
+// was a cost of its own.
+const targetPool = [];
+function makeTarget(w, h, samples = 0) {
+  w = Math.max(1, w);
+  h = Math.max(1, h);
+  const index = targetPool.findIndex(t => t.width === w && t.height === h && t.samples === samples);
+  if (index >= 0) {
+    // As a new target starts: all zero (a pass that is off is still sampled, times 0).
+    const target = targetPool.splice(index, 1)[0];
+    const previous = renderer.getRenderTarget();
+    const clearColor = renderer.getClearColor(new THREE.Color());
+    const clearAlpha = renderer.getClearAlpha();
+    renderer.setRenderTarget(target);
+    renderer.setClearColor(0x000000, 0);
+    renderer.clear(true, true, true);
+    renderer.setClearColor(clearColor, clearAlpha);
+    renderer.setRenderTarget(previous);
+    return target;
+  }
+  const target = new THREE.WebGLRenderTarget(w, h, {
+    type: THREE.HalfFloatType,
+    colorSpace: THREE.LinearSRGBColorSpace,
+    depthBuffer: true,
+    stencilBuffer: true,  // Highlights mark their shape in it
+    samples,
+  });
+  return target;
+}
+function releaseTarget(target) {
+  targetPool.push(target);
+  while (targetPool.length > 16) targetPool.shift().dispose();
+}
+
 function drawFullscreen(material, target) {
   fullscreenQuad.material = material;
   renderer.setRenderTarget(target);
@@ -4927,7 +5099,7 @@ varying vec2 vUv;
 void main() { vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }`;
 
 function blurMaterial() {
-  return new THREE.ShaderMaterial({
+  return postMaterial({
     uniforms: {source: {value: null}, direction: {value: new THREE.Vector2()}, sigma: {value: 4}},
     vertexShader: FULLSCREEN_VERTEX,
     fragmentShader: `
@@ -4949,15 +5121,6 @@ void main() {
   });
 }
 
-function makeTarget(w, h) {
-  return new THREE.WebGLRenderTarget(Math.max(1, w), Math.max(1, h), {
-    type: THREE.HalfFloatType,
-    colorSpace: THREE.LinearSRGBColorSpace,
-    depthBuffer: true,
-    stencilBuffer: true,  // Highlights mark their shape in it
-  });
-}
-
 // Blur `source` into `out` (same size) with a Gaussian of `sigma` texels.
 function gaussian(source, scratch, out, sigma) {
   const material = blurMaterial();
@@ -4968,12 +5131,11 @@ function gaussian(source, scratch, out, sigma) {
   material.uniforms.source.value = scratch.texture;
   material.uniforms.direction.value.set(0, 1 / source.height);
   drawFullscreen(material, out);
-  material.dispose();
 }
 
 // Draw Neon parts only, in their colour; everything else black so it hides glow behind it.
 function renderNeonBuffer(camera, target) {
-  const black = new THREE.MeshBasicMaterial({color: 0x000000});
+  const black = blackMaterial;
   const swapped = [];
   const background = scene.background;
   const fog = scene.fog;
@@ -4990,7 +5152,7 @@ function renderNeonBuffer(camera, target) {
       // white, cyan light cyan; grey and dark colours hardly glow).
       const glow = colorValue(node.props?.Color).multiplyScalar(neonBrightness(transparency));
       const peak = Math.max(glow.r, glow.g, glow.b);
-      glow.multiplyScalar(THREE.MathUtils.smoothstep(peak, 0.8, 1.6) * (1 - transparency));
+      glow.multiplyScalar(THREE.MathUtils.smoothstep(peak, 0.8, 1.6) * (1 - transparency) ** 2);
       object.material = new THREE.MeshBasicMaterial({color: glow});
     } else if (object.isLineSegments || object.userData?.rhrEffect || (object.material?.transparent && object.material.opacity < 0.5)) {
       object.visible = false;
@@ -5010,7 +5172,6 @@ function renderNeonBuffer(camera, target) {
     object.material = material;
     object.visible = visible;
   }
-  black.dispose();
   scene.background = background;
   scene.fog = fog;
 }
@@ -5034,16 +5195,14 @@ function renderSunRays(camera, rays, size, out) {
   const background = scene.background, fog = scene.fog;
   scene.background = new THREE.Color(1, 1, 1);
   scene.fog = null;
-  const black = new THREE.MeshBasicMaterial({color: 0x000000});
-  scene.overrideMaterial = black;
+  scene.overrideMaterial = blackMaterial;
   renderer.setRenderTarget(mask);
   renderer.render(scene, camera);
   scene.overrideMaterial = null;
-  black.dispose();
   scene.background = background;
   scene.fog = fog;
   for (const object of hidden) object.visible = true;
-  const material = new THREE.ShaderMaterial({
+  const material = postMaterial({
     uniforms: {
       mask: {value: mask.texture}, sunUv: {value: sunUv}, sunView: {value: view.normalize()},
       tans: {value: new THREE.Vector2(tanX, tanY)},
@@ -5088,8 +5247,7 @@ void main() {
     depthWrite: false,
   });
   drawFullscreen(material, out);
-  material.dispose();
-  mask.dispose();
+  releaseTarget(mask);
   return true;
 }
 
@@ -5114,7 +5272,7 @@ function compositeMaterial(effects) {
     ccSaturation: {value: corrections.reduce((product, c) => product * (1 + c.saturation), 1)},
     ccTint: {value: corrections.reduce((tint, c) => tint.multiply(c.tint), new THREE.Color(1, 1, 1))},
   };
-  return new THREE.ShaderMaterial({
+  return postMaterial({
     uniforms,
     vertexShader: FULLSCREEN_VERTEX,
     fragmentShader: `
@@ -5196,8 +5354,7 @@ function compositeParticles(sceneTarget, camera) {
       object.visible = false;
     }
   });
-  const depthOnly = new THREE.MeshBasicMaterial({colorWrite: false});
-  scene.overrideMaterial = depthOnly;
+  scene.overrideMaterial = depthOnlyMaterial;
   scene.background = null;
   camera.layers.set(0);
   renderer.setRenderTarget(hdr);
@@ -5207,7 +5364,7 @@ function compositeParticles(sceneTarget, camera) {
   scene.overrideMaterial = null;
   for (const object of hidden) object.visible = true;
   renderer.autoClear = false;
-  const untone = new THREE.ShaderMaterial({
+  const untone = postMaterial({
     uniforms: {source: {value: sceneTarget.texture}},
     vertexShader: FULLSCREEN_VERTEX,
     fragmentShader: `uniform sampler2D source; varying vec2 vUv; ${TONE_GLSL}
@@ -5226,7 +5383,7 @@ void main() { gl_FragColor = vec4(rbxUntone(texture2D(source, vUv).rgb), 1.0); }
   renderer.autoClear = autoClear;
   renderer.setClearColor(clearColor, clearAlpha);
   const out = makeTarget(size.x, size.y);
-  const combine = new THREE.ShaderMaterial({
+  const combine = postMaterial({
     uniforms: {source: {value: sceneTarget.texture}, hdr: {value: hdr.texture}},
     vertexShader: FULLSCREEN_VERTEX,
     fragmentShader: `uniform sampler2D source; uniform sampler2D hdr; varying vec2 vUv; ${TONE_GLSL}
@@ -5239,8 +5396,7 @@ void main() {
     depthWrite: false,
   });
   drawFullscreen(combine, out);
-  for (const material of [depthOnly, untone, combine]) material.dispose();
-  hdr.dispose();
+  releaseTarget(hdr);
   return out;
 }
 
@@ -5249,20 +5405,19 @@ function renderFrame(camera) {
   if (!postEffects) postEffects = readPostEffects(sceneIndex);
   const effects = postEffects;
   const separateParticles = !viewportMode && !effects.modern && particleState.drawn > 0;
-  if (viewportMode || (!separateParticles && !effects.modern && !effects.neon.length && !effects.bloom && !effects.sunRays && !effects.corrections.length && !effects.exposure)) {
+  if (viewportMode || iconMode || (!separateParticles && !effects.modern && !effects.neon.length && !effects.bloom && !effects.sunRays && !effects.corrections.length && !effects.exposure)) {
     renderer.setRenderTarget(null);
     renderer.render(scene, camera);
     return;
   }
   const size = renderer.getSize(new THREE.Vector2());
-  let main = makeTarget(size.x, size.y);
-  main.samples = 4;
+  let main = makeTarget(size.x, size.y, 4);
   renderer.setRenderTarget(main);
   if (separateParticles) camera.layers.disable(PARTICLE_LAYER);
   renderer.render(scene, camera);
   if (separateParticles) {
     const withParticles = compositeParticles(main, camera);
-    main.dispose();
+    releaseTarget(main);
     main = withParticles;
   }
 
@@ -5278,7 +5433,7 @@ function renderFrame(camera) {
   const bloomBlur = makeTarget(...quarter);
   if (effects.bloom) {
     // Bright pass at quarter resolution: what is brighter than the threshold.
-    const bright = new THREE.ShaderMaterial({
+    const bright = postMaterial({
       uniforms: {source: {value: main.texture}, threshold: {value: effects.bloom.threshold * 0.5}},
       vertexShader: FULLSCREEN_VERTEX,
       fragmentShader: `
@@ -5292,10 +5447,9 @@ void main() {
       depthWrite: false,
     });
     drawFullscreen(bright, neonScratch);
-    bright.dispose();
     const scratch = makeTarget(...quarter);
     gaussian(neonScratch, scratch, bloomBlur, (effects.bloom.size * scale) / 8);
-    scratch.dispose();
+    releaseTarget(scratch);
   }
   const raysOut = makeTarget(...quarter);
   const raysOn = effects.sunRays ? renderSunRays(camera, effects.sunRays, quarter, raysOut) : false;
@@ -5306,8 +5460,36 @@ void main() {
   composite.uniforms.neon.value = neonBlur.texture;
   composite.uniforms.bloom.value = bloomBlur.texture;
   drawFullscreen(composite, null);
-  composite.dispose();
-  for (const target of [main, neonRaw, neonScratch, neonBlur, bloomBlur, raysOut]) target.dispose();
+  for (const target of [main, neonRaw, neonScratch, neonBlur, bloomBlur, raysOut]) releaseTarget(target);
+}
+
+// Where a place keeps models out of the world until a script clones them in (a game's
+// maps in ServerStorage, tools in StarterPack). Roblox does not draw them; drawing them
+// all at once frames the view on nothing useful. Same list and rule as
+// rhr.ir.world_roots, which also leaves them out of the downloads and the notes.
+const STORED_SERVICES = new Set(['ServerStorage', 'ReplicatedStorage', 'ReplicatedFirst',
+  'ServerScriptService', 'StarterPack', 'StarterPlayer']);
+const PLACE_ROOTS = new Set([...STORED_SERVICES, 'Workspace', 'Lighting', 'StarterGui']);
+
+function findStoredPath(nodes, wanted) {
+  for (const node of nodes) {
+    const path = node.path || '';
+    if (path === wanted) return node;
+    if (wanted.startsWith(`${path}/`)) return findStoredPath(Object.values(node.children || {}), wanted);
+  }
+  return null;
+}
+
+// The roots a 3D view draws: in a place, all but the storage services, plus the node
+// `focus` names when it is stored. A model file has no services and draws everything.
+function worldRoots(roots, focus) {
+  if (!roots.some(root => PLACE_ROOTS.has(root.className))) return roots;
+  const shown = roots.filter(root => !STORED_SERVICES.has(root.className));
+  if (focus) {
+    const target = findStoredPath(roots.filter(root => STORED_SERVICES.has(root.className)), focus);
+    if (target) shown.push(target);
+  }
+  return shown;
 }
 
 async function main() {
@@ -5315,7 +5497,8 @@ async function main() {
   if (!response.ok) throw new Error(`IR request failed: ${response.status}`);
   const ir = await response.json();
   mark('IR fetched');
-  const roots = ir.roots || [];
+  // A ViewportFrame draws its own contents, wherever its GUI is kept.
+  const roots = viewportMode ? (ir.roots || []) : worldRoots(ir.roots || [], params.get('focus'));
   const index = buildNodeIndex(roots);
   sceneIndex = index;
   use2022Materials = computeUse2022Materials(index);
@@ -5372,68 +5555,58 @@ async function main() {
     } else {
       configureEnvironment(index);
     }
-    await prepareClouds(index);
-    await prepareSun(index);
-    if (skyCube) {
+    if (!iconMode) {
+      await prepareClouds(index);
+      await prepareSun(index);
+    }
+    if (iconMode) {
+      scene.background = null;
+      scene.fog = null;
+    } else if (skyCube) {
       // Drawn as a dome so the Atmosphere can veil it.
       scene.background = null;
       scene.add(makeSkyDome(skyCube));
     }
     configureSceneLights(index);
     mark('sky, atmosphere and lights');
-    camera = new THREE.PerspectiveCamera();
-    camera.layers.enable(PARTICLE_LAYER);
-    configureCamera(camera, cameraNode);
-
-    const focusPath = params.get('focus');
-    // A model with no Camera of its own (most .rbxm files) is framed as a whole rather
-    // than seen from a fixed spot near the origin it may be nowhere near.
-    const requestedView = params.get('view') || (!cameraNode && !parseVectorParam('camera') ? 'iso' : null);
-    let framedCenter = null;
-    if (focusPath || requestedView) {
-      framedCenter = frameScene(camera, index, focusPath, requestedView || 'iso');
-      // A framed view stands back as far as the build is big, which for a whole map
-      // is hundreds of studs of fog. It exists to show the layout, so cap the fog at
-      // about a quarter at the framed centre (exp(-(d*density)^2) = 0.75).
-      if (scene.fog?.isFogExp2) {
-        // At most a quarter fogged at the framed centre: (d / L)^p <= -ln(0.75).
-        const distance = camera.position.distanceTo(framedCenter);
-        const power = atmosphereState?.curve?.power || 1;
-        scene.fog.density = Math.min(scene.fog.density, 0.2877 ** (1 / power) / Math.max(distance, 1));
-      }
-    }
-    const cameraOverride = parseVectorParam('camera');
-    const lookAtOverride = parseVectorParam('lookAt');
-    if (cameraOverride) camera.position.copy(cameraOverride);
-    if (lookAtOverride) camera.lookAt(lookAtOverride);
-    else if (cameraOverride && framedCenter) camera.lookAt(framedCenter);
-    camera.updateMatrixWorld(true);
-    fitSunShadow(camera, lookAtOverride || framedCenter || null);
-    pruneLocalLights(camera);
-    mark('camera and framing');
-    addTerrainGrass(camera);
-    mark('terrain grass');
-    if (modernLighting(index)) buildSkyVisibility(camera);
-    mark('sky visibility grid');
-    await addBeams(index, camera);
-    await addTrails(index, camera);
-    await addParticles(camera);
-    addHighlights(index);
-    mark('effects built');
-    await reportCamera(camera);
-    await reportNotes();
-    renderFrame(camera);
-    mark('first frame (shaders compiled)');
+    // What a view adds or changes is undone before another view of this scene (undoView).
+    viewState = {
+      index, cameraNode, children: new Set(scene.children), fogDensity: scene.fog?.density,
+      lightsDropped: localLightsDropped, shadowsDropped: localShadowsDropped, particlesDrawn: particleState.drawn, highlight: {...highlightState},
+      framingIgnored: framingIgnored.length, framingStrays: framingStrays.length, grassBlades: terrainSummary?.grassBlades,
+    };
+    await drawView();
+    await finishPage();
+    return;
   }
   await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
   renderFrame(camera);
   await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
   mark('second frame');
-  if (!viewportMode) {
-    await addBillboards(index, camera);
-    await addSurfaceGuis(index, camera);
-    mark('in-world UI');
+  await finishPage();
+}
+
+// A shader the browser refuses (too many textures, say) draws nothing at all, with no
+// error the page would otherwise see: every part using it just vanishes. Say so.
+async function reportShaderFailures() {
+  const failed = (renderer.info.programs || []).filter(program => program.diagnostics && !program.diagnostics.runnable);
+  if (!failed.length) return;
+  const log = failed.map(program => `${program.diagnostics.programLog || ''} ${program.diagnostics.fragmentShader?.log || ''}`.trim())
+    .find(Boolean) || 'no log';
+  try {
+    await fetch('/__rhr_notes__.json', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify([`the browser could not draw ${failed.length} material kind(s), so parts using them are `
+        + `missing from the picture (WebGL: ${log.split('\n')[0].slice(0, 200)}); please report this`]),
+    });
+  } catch (_) {
+    // Notes are advisory.
   }
+}
+
+async function finishPage() {
+  await reportShaderFailures();
   if (profiling) {
     try {
       await fetch('/__rhr_timing__.json', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(pageMarks)});
@@ -5444,15 +5617,126 @@ async function main() {
   document.documentElement.dataset.rhrReady = 'true';
 }
 
+// The camera and everything drawn for it, on a built scene: particles and beams face
+// the camera, grass and the lights kept depend on where it stands, in-world GUIs are
+// placed for it. `rhr scene --views` draws several of these on one build.
+let viewState = null;
+const prunedObjects = [];
+
+async function drawView() {
+  const {index, cameraNode} = viewState;
+  const camera = new THREE.PerspectiveCamera();
+  camera.layers.enable(PARTICLE_LAYER);
+  configureCamera(camera, cameraNode);
+
+  const focusPath = params.get('focus');
+  // A model with no Camera of its own (most .rbxm files) is framed as a whole rather
+  // than seen from a fixed spot near the origin it may be nowhere near.
+  const requestedView = params.get('view') || (!cameraNode && !parseVectorParam('camera') ? 'iso' : null);
+  let framedCenter = null;
+  if (focusPath || requestedView) {
+    framedCenter = frameScene(camera, index, focusPath, requestedView || 'iso');
+    // A framed view stands back as far as the build is big, which for a whole map
+    // is hundreds of studs of fog. It exists to show the layout, so cap the fog at
+    // about a quarter at the framed centre (exp(-(d*density)^2) = 0.75).
+    if (scene.fog?.isFogExp2) {
+      // At most a quarter fogged at the framed centre: (d / L)^p <= -ln(0.75).
+      const distance = camera.position.distanceTo(framedCenter);
+      const power = atmosphereState?.curve?.power || 1;
+      scene.fog.density = Math.min(scene.fog.density, 0.2877 ** (1 / power) / Math.max(distance, 1));
+    }
+  }
+  const cameraOverride = parseVectorParam('camera');
+  const lookAtOverride = parseVectorParam('lookAt');
+  if (cameraOverride) camera.position.copy(cameraOverride);
+  if (lookAtOverride) camera.lookAt(lookAtOverride);
+  else if (cameraOverride && framedCenter) camera.lookAt(framedCenter);
+  camera.updateMatrixWorld(true);
+  fitSunShadow(camera, lookAtOverride || framedCenter || null);
+  pruneLocalLights(camera);
+  viewCamera = camera;
+  viewTarget = (lookAtOverride || framedCenter
+    || camera.position.clone().add(camera.getWorldDirection(new THREE.Vector3()).multiplyScalar(50))).clone();
+  mark('camera and framing');
+  addTerrainGrass(camera);
+  mark('terrain grass');
+  if (modernLighting(index)) buildSkyVisibility(camera);
+  mark('sky visibility grid');
+  // --no-effects leaves out particles, Beams and Trails alike.
+  if (params.get('effects') !== '0') {
+    await addBeams(index, camera);
+    await addTrails(index, camera);
+  }
+  await addParticles(camera);
+  addHighlights(index);
+  mark('effects built');
+  await reportCamera(camera);
+  await reportNotes();
+  renderFrame(camera);
+  disposeRetired();
+  mark('first frame (shaders compiled)');
+  await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+  renderFrame(camera);
+  await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+  mark('second frame');
+  await addBillboards(index, camera);
+  await addSurfaceGuis(index, camera);
+  mark('in-world UI');
+}
+
+// Back to the built scene as it was before drawView, for the next view.
+function undoView() {
+  for (const object of [...scene.children]) {
+    if (viewState.children.has(object)) continue;
+    object.removeFromParent();
+    object.traverse(child => {
+      if (child.geometry && !child.userData.rhrSharedGeometry) child.geometry.dispose();
+      const materials = Array.isArray(child.material) ? child.material : [child.material];
+      for (const material of materials) if (material?.dispose) retiredMaterials.push(material);
+    });
+  }
+  // Put what pruneLocalLights took out back where it was, in its order.
+  for (const {object, parent, at} of prunedObjects.splice(0).reverse()) {
+    parent.add(object);
+    parent.children.splice(parent.children.indexOf(object), 1);
+    parent.children.splice(at, 0, object);
+  }
+  for (const light of unshadowedLights.splice(0)) light.castShadow = true;
+  if (scene.fog?.isFogExp2) scene.fog.density = viewState.fogDensity;
+  // No sky visibility until the next view builds its own (buildSkyVisibility).
+  if (skyVisibility) skyVisibility.strength.value = 0;
+  localLightsDropped = viewState.lightsDropped;
+  localShadowsDropped = viewState.shadowsDropped;
+  particleState.drawn = viewState.particlesDrawn;
+  Object.assign(highlightState, viewState.highlight);
+  framingIgnored.length = viewState.framingIgnored;
+  framingStrays.length = viewState.framingStrays;
+  if (terrainSummary) terrainSummary.grassBlades = viewState.grassBlades;
+  viewCamera = null;
+  document.querySelector('#rhr-overlay').replaceChildren();
+  delete document.documentElement.dataset.rhrReady;
+  delete document.documentElement.dataset.rhrError;
+}
+
+// The last scene's materials, disposed once the next scene has compiled its shaders.
+let retiredMaterials = [];
+function disposeRetired() {
+  for (const material of retiredMaterials) material.dispose();
+  retiredMaterials = [];
+}
+
 // Everything one render leaves behind, back to how a fresh page starts. Kept: the
 // renderer and its compiled shaders, keptLoads, the Draco decoder, static files.
 function resetScene() {
   // Scene meshes hold copies of kept geometry (fitted, scaled), never the kept one
-  // itself, and disposing a material leaves its textures alone.
+  // itself, and disposing a material leaves its textures alone. The materials are
+  // disposed only after the next scene's first frame (disposeRetired): three.js
+  // deletes a compiled shader program with the last material that uses it, and the
+  // next scene mostly needs the same programs.
   scene.traverse(object => {
     if (object.geometry) object.geometry.dispose();
     const materials = Array.isArray(object.material) ? object.material : [object.material];
-    for (const material of materials) material?.dispose?.();
+    for (const material of materials) if (material?.dispose) retiredMaterials.push(material);
   });
   environmentTexture?.dispose?.();
   scene = new THREE.Scene();
@@ -5467,6 +5751,9 @@ function resetScene() {
   lookAlikeMaterialsUsed.clear();
   environmentMaterials.clear();
   framingIgnored.length = 0;
+  framingStrays.length = 0;
+  viewState = null;
+  prunedObjects.length = 0;
   use2022Materials = true;
   environmentTexture = null;
   environmentSpecularScale = 1;
@@ -5484,6 +5771,8 @@ function resetScene() {
   sunState = null;
   postEffects = null;
   localLightsDropped = 0;
+  localShadowsDropped = 0;
+  unshadowedLights.length = 0;
   charactersDressed = 0;
   layeredClothingFitted = 0;
   partsWithoutDecals.clear();
@@ -5495,6 +5784,230 @@ function resetScene() {
   document.querySelector('#rhr-overlay').replaceChildren();
   delete document.documentElement.dataset.rhrReady;
   delete document.documentElement.dataset.rhrError;
+}
+
+// `rhr view`: the same scene in a page a person moves around in (`interactive=1`).
+// Drag to orbit, right-drag (or shift-drag, or two fingers) to pan, wheel or pinch to
+// zoom, WASD/QE to fly, double-click to aim at a point, F to frame everything. The
+// page asks its server for the source's version and redraws the scene when the file
+// changes, keeping the camera where it is. In-world GUIs are screen overlays placed
+// for one camera: hidden while the camera moves, placed again when it stops.
+function startViewer() {
+  const overlay = document.querySelector('#rhr-overlay');
+  const hud = document.createElement('div');
+  hud.style.cssText = 'position:fixed;left:12px;bottom:10px;font:12px/1.5 system-ui,sans-serif;'
+    + 'color:#d7dce4;background:rgba(20,23,28,.72);padding:6px 10px;border-radius:6px;user-select:none;max-width:calc(100vw - 48px)';
+  const status = document.createElement('div');
+  const help = document.createElement('div');
+  help.style.opacity = '0.75';
+  help.textContent = 'drag: orbit · right-drag: pan · wheel: zoom · WASD/QE: fly · double-click: aim · F: frame all';
+  hud.append(status, help);
+  document.body.append(hud);
+  const name = pageParams.get('name') || 'scene';
+  document.title = `${name} · rhr view`;
+  const say = (text, error = false) => { status.textContent = text; status.style.color = error ? '#ff8a80' : ''; };
+  say(`${name} · live`);
+
+  let dirty = true;
+  let busy = false;
+  let overlayTimer = 0;
+  const keys = new Set();
+  const offset = new THREE.Vector3();
+  const spherical = new THREE.Spherical();
+  const distance = () => viewCamera.position.distanceTo(viewTarget);
+  viewCamera.up.set(0, 1, 0);
+  viewCamera.lookAt(viewTarget);
+
+  async function placeOverlay() {
+    if (busy || !sceneIndex) return;
+    overlay.replaceChildren();
+    overlay.style.visibility = '';
+    try {
+      await addBillboards(sceneIndex, viewCamera);
+      await addSurfaceGuis(sceneIndex, viewCamera);
+    } catch (_) {
+      // In-world GUIs are a nicety while moving around.
+    }
+  }
+  function moved() {
+    dirty = true;
+    overlay.style.visibility = 'hidden';
+    clearTimeout(overlayTimer);
+    overlayTimer = setTimeout(placeOverlay, 250);
+  }
+  function orbit(dx, dy) {
+    offset.subVectors(viewCamera.position, viewTarget);
+    spherical.setFromVector3(offset);
+    spherical.theta -= dx * 0.006;
+    spherical.phi = Math.min(Math.PI - 0.01, Math.max(0.01, spherical.phi - dy * 0.006));
+    offset.setFromSpherical(spherical);
+    viewCamera.position.copy(viewTarget).add(offset);
+    viewCamera.lookAt(viewTarget);
+    moved();
+  }
+  function pan(dx, dy) {
+    viewCamera.updateMatrixWorld(true);
+    const perPixel = (2 * distance() * Math.tan(THREE.MathUtils.degToRad(viewCamera.fov) / 2)) / height;
+    const right = new THREE.Vector3().setFromMatrixColumn(viewCamera.matrixWorld, 0).multiplyScalar(-dx * perPixel);
+    const up = new THREE.Vector3().setFromMatrixColumn(viewCamera.matrixWorld, 1).multiplyScalar(dy * perPixel);
+    viewCamera.position.add(right).add(up);
+    viewTarget.add(right).add(up);
+    moved();
+  }
+  function zoom(factor) {
+    offset.subVectors(viewCamera.position, viewTarget).multiplyScalar(factor);
+    if (offset.length() < 0.25) offset.setLength(0.25);
+    viewCamera.position.copy(viewTarget).add(offset);
+    moved();
+  }
+
+  const canvasElement = renderer.domElement;
+  canvasElement.style.touchAction = 'none';
+  const pointers = new Map();
+  let pinch = null;
+  canvasElement.addEventListener('contextmenu', event => event.preventDefault());
+  canvasElement.addEventListener('pointerdown', event => {
+    canvasElement.setPointerCapture(event.pointerId);
+    pointers.set(event.pointerId, {x: event.clientX, y: event.clientY, button: event.button, shift: event.shiftKey});
+    pinch = null;
+  });
+  const release = event => { pointers.delete(event.pointerId); pinch = null; };
+  canvasElement.addEventListener('pointerup', release);
+  canvasElement.addEventListener('pointercancel', release);
+  canvasElement.addEventListener('pointermove', event => {
+    const pointer = pointers.get(event.pointerId);
+    if (!pointer) return;
+    const dx = event.clientX - pointer.x;
+    const dy = event.clientY - pointer.y;
+    pointer.x = event.clientX;
+    pointer.y = event.clientY;
+    if (pointers.size >= 2) {
+      const [a, b] = [...pointers.values()];
+      const spread = Math.hypot(a.x - b.x, a.y - b.y);
+      const middle = {x: (a.x + b.x) / 2, y: (a.y + b.y) / 2};
+      if (pinch) {
+        if (spread > 0 && pinch.spread > 0) zoom(pinch.spread / spread);
+        pan(middle.x - pinch.middle.x, middle.y - pinch.middle.y);
+      }
+      pinch = {spread, middle};
+    } else if (pointer.button === 2 || pointer.button === 1 || pointer.shift) {
+      pan(dx, dy);
+    } else {
+      orbit(dx, dy);
+    }
+  });
+  canvasElement.addEventListener('wheel', event => {
+    event.preventDefault();
+    zoom(Math.exp(Math.max(-100, Math.min(100, event.deltaY)) * 0.0015));
+  }, {passive: false});
+  canvasElement.addEventListener('dblclick', event => {
+    const ray = new THREE.Raycaster();
+    ray.layers.set(0);
+    ray.setFromCamera(new THREE.Vector2((event.clientX / width) * 2 - 1, -(event.clientY / height) * 2 + 1), viewCamera);
+    const hit = ray.intersectObjects(scene.children, true)
+      .find(entry => entry.object.isMesh && entry.object.visible && entry.object.userData?.rhrNode);
+    if (!hit) return;
+    viewTarget.copy(hit.point);
+    viewCamera.lookAt(viewTarget);
+    moved();
+  });
+  window.addEventListener('keydown', event => {
+    if (event.ctrlKey || event.metaKey || event.altKey) return;
+    const key = event.key.toLowerCase();
+    if (key === 'f' && sceneIndex && !busy) {
+      viewTarget.copy(frameScene(viewCamera, sceneIndex, pageParams.get('focus'), 'iso'));
+      viewCamera.up.set(0, 1, 0);
+      viewCamera.lookAt(viewTarget);
+      moved();
+      return;
+    }
+    keys.add(key);
+  });
+  window.addEventListener('keyup', event => keys.delete(event.key.toLowerCase()));
+  window.addEventListener('blur', () => keys.clear());
+  function fly(dt) {
+    const direction = new THREE.Vector3();
+    const forward = viewCamera.getWorldDirection(new THREE.Vector3());
+    const right = new THREE.Vector3().crossVectors(forward, viewCamera.up).normalize();
+    if (keys.has('w') || keys.has('arrowup')) direction.add(forward);
+    if (keys.has('s') || keys.has('arrowdown')) direction.sub(forward);
+    if (keys.has('d') || keys.has('arrowright')) direction.add(right);
+    if (keys.has('a') || keys.has('arrowleft')) direction.sub(right);
+    if (keys.has('e') || keys.has(' ')) direction.y += 1;
+    if (keys.has('q')) direction.y -= 1;
+    if (!direction.lengthSq()) return;
+    const speed = Math.max(8, distance()) * (keys.has('shift') ? 2.5 : 0.8);
+    direction.normalize().multiplyScalar(speed * dt);
+    viewCamera.position.add(direction);
+    viewTarget.add(direction);
+    moved();
+  }
+  window.addEventListener('resize', () => {
+    width = Math.max(1, window.innerWidth);
+    height = Math.max(1, window.innerHeight);
+    renderer.setSize(width, height, false);
+    viewCamera.aspect = width / height;
+    viewCamera.updateProjectionMatrix();
+    moved();
+  });
+
+  let last = performance.now();
+  function tick(now) {
+    const dt = Math.min(0.1, (now - last) / 1000);
+    last = now;
+    if (!busy) {
+      if (keys.size) fly(dt);
+      if (dirty) {
+        dirty = false;
+        renderFrame(viewCamera);
+      }
+    }
+    requestAnimationFrame(tick);
+  }
+  requestAnimationFrame(tick);
+
+  const vector = v => [v.x, v.y, v.z].map(n => n.toFixed(4)).join(',');
+  let version = null;
+  async function reload() {
+    busy = true;
+    say(`${name} · updating…`);
+    const position = viewCamera.position.clone();
+    const target = viewTarget.clone();
+    const query = new URLSearchParams(params);
+    query.set('camera', vector(position));
+    query.set('lookAt', vector(target));
+    try {
+      resetScene();
+      configure(query.toString());
+      await main();
+      viewCamera.up.set(0, 1, 0);
+      viewCamera.position.copy(position);
+      viewTarget = target;
+      viewCamera.lookAt(viewTarget);
+      say(`${name} · live · updated ${new Date().toLocaleTimeString()}`);
+    } catch (error) {
+      say(`${name} · could not draw the new version: ${error}`, true);
+    }
+    busy = false;
+    moved();
+  }
+  async function poll() {
+    try {
+      const response = await nativeFetch('/__rhr_version__', {cache: 'no-store'});
+      const state = await response.json();
+      if (state.error) say(`${name} · ${state.error}`, true);
+      if (version === null) version = state.version;
+      else if (state.version !== version && !busy) {
+        version = state.version;
+        if (!state.error) await reload();
+      }
+    } catch (_) {
+      say(`${name} · rhr view has stopped: this page no longer updates`, true);
+      return;
+    }
+    setTimeout(poll, 600);
+  }
+  poll();
 }
 
 if (persistentPage) {
@@ -5514,6 +6027,24 @@ if (persistentPage) {
       return {error: String(error)};
     }
   };
+  // Another view of the scene the last rhrRender built: `query` is that render's with
+  // other camera settings (view, camera, lookAt, fov).
+  window.rhrView = async ({query}) => {
+    try {
+      if (!viewState) throw new Error('no built scene to draw another view of');
+      undoView();
+      params = new URLSearchParams(query);
+      profiling = params.get('profile') === '1';
+      pageMarks = [];
+      lastMark = performance.now();
+      await drawView();
+      await finishPage();
+      return {ok: true};
+    } catch (error) {
+      document.documentElement.dataset.rhrError = String(error);
+      return {error: String(error)};
+    }
+  };
   document.documentElement.dataset.rhrPersistent = 'ready';
 } else {
   try {
@@ -5522,4 +6053,5 @@ if (persistentPage) {
     document.documentElement.dataset.rhrError = String(error);
     throw error;
   }
+  if (interactivePage && viewCamera) startViewer();
 }

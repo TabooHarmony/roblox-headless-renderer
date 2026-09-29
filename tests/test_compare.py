@@ -35,28 +35,28 @@ def main() -> None:
         make(recolor, (20, 20, 49, 49), (30, 120, 240))
         make(moved, (35, 20, 64, 49), (220, 40, 30))
 
-        proc = run("compare", str(before), str(recolor), "--json")
+        proc = run("compare", str(before), str(recolor))
         assert proc.returncode == 0, proc.stderr
         color = json.loads(proc.stdout)
-        assert color["changed_pct"] > 0
+        assert color["changedPct"] > 0
         assert color["silhouette"]["iou"] == 1.0, color["silhouette"]
 
-        proc = run("compare", str(before), str(moved), "--json")
+        proc = run("compare", str(before), str(moved))
         assert proc.returncode == 0, proc.stderr
         geometry = json.loads(proc.stdout)
         assert 0 < geometry["silhouette"]["iou"] < 1, geometry["silhouette"]
         assert geometry["silhouette"]["iou"] < color["silhouette"]["iou"]
-        assert geometry["diff_bbox"] is not None
+        assert geometry["diffBox"] is not None
 
         mismatch = tmp / "mismatch.png"
         Image.new("RGB", (10, 10), (0, 0, 0)).save(mismatch)
-        proc = run("compare", str(before), str(mismatch), "--json")
+        proc = run("compare", str(before), str(mismatch))
         assert proc.returncode != 0
 
     print(
         f"compare: recolor IoU={color['silhouette']['iou']:.3f}, "
         f"moved IoU={geometry['silhouette']['iou']:.3f}, "
-        f"moved changed={geometry['changed_pct']:.2f}%"
+        f"moved changed={geometry['changedPct']:.2f}%"
     )
 
 

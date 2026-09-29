@@ -3,7 +3,7 @@
 # `sh tests/run.sh -m "not browser"` for the quick checks only, `-m smoke` for one quick
 # test per area (about a minute, before every commit).
 #
-# Setup (once): pip install -e ".[dev]" && python -m playwright install --only-shell chromium
+# Setup (once): pip install -e ".[dev]" && rhr setup --browser
 # and Lune 0.10.5 on PATH (`rokit install` with Rokit, see rokit.toml).
 #
 # Each tests/test_*.py is also a standalone script (`python tests/test_x.py`).

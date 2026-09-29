@@ -15,7 +15,7 @@ FIXTURE = ROOT / "tests/fixtures/scene_geometry.rbxmx"
 
 def main() -> None:
     proc = subprocess.run(
-        [*RHR, "scene-dump", str(FIXTURE)],
+        [*RHR, "scene-dump", "--parts", str(FIXTURE)],
         cwd=ROOT,
         capture_output=True,
         text=True,

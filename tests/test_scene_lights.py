@@ -131,7 +131,7 @@ def main() -> None:
             deltas[light_class] = delta(dark_png, out)
             assert deltas[light_class] > 2.0, (light_class, deltas[light_class])
 
-            proc = run("scene-dump", str(ir))
+            proc = run("scene-dump", "--parts", str(ir))
             assert proc.returncode == 0, proc.stderr
             dump = json.loads(proc.stdout)
             assert dump["unsupportedVisualClasses"] == {}

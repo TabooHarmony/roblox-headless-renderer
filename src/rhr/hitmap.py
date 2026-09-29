@@ -34,10 +34,28 @@ Output shape::
 ``nodes`` is sorted by path. ``hitTests`` contains one deterministic probe at
 the centre of each unique interactive region. ``stack`` is topmost first and
 contains only interactive nodes whose effective clipped rectangles contain the
-probe. ``target`` is the first node in that stack that captures pointer input;
-therefore an invisible-but-Active node is reported when it wins the stack.
-A node with no positive effective rect is still listed with ``rect: null`` but
-cannot appear in a hit test.
+probe. A node with no positive effective rect is still listed with ``rect: null``
+but cannot appear in a hit test.
+
+Who gets a click, as measured in Studio (2026-09-28: simulated clicks in a playtest,
+Activated counted on every button; docs/known-approximations.md):
+
+- A button (TextButton, ImageButton; a TextBox takes focus the same way) gets
+  clicks when it is visible and Interactable, counting its ancestors: Visible or
+  Interactable false anywhere above it makes it dead.
+- Within one ScreenGui the topmost such button under the pointer gets the click.
+  Nothing else in that ScreenGui takes it from a button: not a Frame drawn over it,
+  Active or not, at any ZIndex; not a TextLabel or ImageLabel; not a button with
+  Interactable false (the click passes through it).
+- Across ScreenGuis the higher DisplayOrder is asked first. A visible, Interactable,
+  Active non-button there swallows the click even when fully transparent
+  (BackgroundTransparency 1, a CanvasGroup at GroupTransparency 1): the buttons
+  below never see it. Hidden, non-Active or non-Interactable elements, and disabled
+  ScreenGuis, never swallow anything.
+
+``target`` is the node that gets a click at the probe: a button, or the element
+that swallows it (``targetIsButton`` false). ``capturesClicks`` marks the nodes that
+can be a target at all.
 """
 
 from __future__ import annotations
@@ -73,13 +91,14 @@ def _path_index(raw: dict) -> dict[str, list[dict]]:
     """Index raw-node interaction properties, retaining same-name collisions."""
     out: dict[str, list[dict]] = {}
 
-    def walk(node: dict, inherited_visible: bool = True) -> None:
+    def walk(node: dict, inherited_visible: bool = True, inherited_interactable: bool = True) -> None:
         path = node.get("_path")
         props = node.get("properties") or {}
         visible = inherited_visible and not (
             props.get("Visible") is False
             or (isinstance(props.get("Visible"), str) and props["Visible"].lower() == "false")
         )
+        interactable = inherited_interactable and _bool_prop(props, "Interactable", True)
         if path:
             cls = node.get("className", "")
             text_editable = _bool_prop(props, "TextEditable", True) if cls == "TextBox" else None
@@ -94,15 +113,43 @@ def _path_index(raw: dict) -> dict[str, list[dict]]:
                     "active": active,
                     "selectable": selectable,
                     "interactive": interactive,
+                    "interactable": interactable,
                     "textEditable": text_editable,
                     "clearTextOnFocus": clear_on_focus,
                 }
             )
         for child in node.get("children") or []:
-            walk(child, visible)
+            walk(child, visible, interactable)
 
     walk(raw)
     return out
+
+
+def _is_button(meta: dict) -> bool:
+    return meta.get("class") in _BUTTON_CLASSES or meta.get("class") == "TextBox"
+
+
+def _captures(meta: dict, drawn: bool) -> bool:
+    """Whether the node can be a click's target: a button that is visible and
+    Interactable, or a visible, Interactable, Active element (which swallows clicks
+    for lower ScreenGuis)."""
+    if not (drawn and meta.get("visible", True) and meta.get("interactable", True)):
+        return False
+    return _is_button(meta) or bool(meta.get("active", False))
+
+
+def _click_target(stack: list[dict]) -> dict | None:
+    """Who gets a click, from the interactive nodes under it (topmost first): per
+    ScreenGui from the top, the topmost button there, else anything there that
+    swallows it, else the next ScreenGui down."""
+    for pane in sorted({record["pane"] for record in stack}, reverse=True):
+        here = [record for record in stack if record["pane"] == pane and record["capturesClicks"]]
+        button = next((record for record in here if _is_button(record)), None)
+        if button is not None:
+            return button
+        if here:
+            return here[0]
+    return None
 
 
 def _inside(rect, x: float, y: float) -> bool:
@@ -150,21 +197,21 @@ def _raw_pane_metadata(raw_pane: dict) -> dict[str, list[dict]]:
 
 def build_hitmap(ir_path, width: int, height: int, topbar_height: float | None = None) -> dict:
     """Build a deterministic hit-region dump from an IR JSON file."""
-    from rhr.adapter import ir_to_raw_nodes
     from rhr.insets import REFERENCE_TOPBAR_HEIGHT, for_nodes
     from rhr.ir import load_ir
     from rhr.pipeline import load_screens
 
     ir = load_ir(ir_path)
-    from rhr.pipeline import shown_ui_roots
+    from rhr.pipeline import ui_roots
 
-    raw_nodes, _ = shown_ui_roots(ir_to_raw_nodes(ir))
+    raw_nodes, _ = ui_roots(ir)
     raw_panes = _pane_raw_nodes(raw_nodes)
     screens = load_screens(
         str(ir_path),
         width,
         height,
         REFERENCE_TOPBAR_HEIGHT if topbar_height is None else topbar_height,
+        required=True,
     )
     if len(raw_panes) != len(screens):
         raise ValueError(
@@ -175,9 +222,9 @@ def build_hitmap(ir_path, width: int, height: int, topbar_height: float | None =
     probe_candidates: list[tuple[float, float, list[dict], int]] = []
     pane_records = []
 
-    from rhr.pipeline import _index_paths
+    from rhr.adapter import ui_index
 
-    ir_by_path = _index_paths(ir["roots"])
+    ir_by_path = ui_index(ir)
     for pane_index, ((obj, root_rect, inset, pane_name), raw_pane) in enumerate(zip(screens, raw_panes)):
         metadata = _raw_pane_metadata(raw_pane)
         ir_pane = ir_by_path.get(raw_pane.get("_path"))
@@ -205,10 +252,9 @@ def build_hitmap(ir_path, width: int, height: int, topbar_height: float | None =
                 "visible": bool(meta.get("visible", engine_node.get("visible") is not False)),
                 "active": bool(meta.get("active", False)),
                 "selectable": bool(meta.get("selectable", False)),
-                "capturesClicks": bool(meta.get("active", False)),
-                "activatedTargetCandidate": bool(
-                    meta.get("class") in _BUTTON_CLASSES and meta.get("active", False)
-                ),
+                "interactable": bool(meta.get("interactable", True)),
+                "capturesClicks": _captures(meta, engine_node.get("visible") is not False),
+                "activatedTargetCandidate": _is_button(meta) and _captures(meta, True),
                 "zOrder": draw_index,
                 "pane": pane_index,
             }
@@ -236,10 +282,9 @@ def build_hitmap(ir_path, width: int, height: int, topbar_height: float | None =
                     "visible": bool(meta.get("visible", False)),
                     "active": bool(meta.get("active", False)),
                     "selectable": bool(meta.get("selectable", False)),
-                    "capturesClicks": bool(meta.get("active", False)),
-                    "activatedTargetCandidate": bool(
-                        meta.get("class") in _BUTTON_CLASSES and meta.get("active", False)
-                    ),
+                    "interactable": bool(meta.get("interactable", True)),
+                    "capturesClicks": False,
+                    "activatedTargetCandidate": _is_button(meta) and _captures(meta, True),
                     "zOrder": None,
                     "pane": pane_index,
                 }
@@ -284,12 +329,13 @@ def build_hitmap(ir_path, width: int, height: int, topbar_height: float | None =
         # Sort by pane first, then the traversal's bottom-to-top zOrder. A
         # later pane paints on top; within a pane the larger zOrder is on top.
         stack.sort(key=lambda record: (record["pane"], record["zOrder"] if record["zOrder"] is not None else -1), reverse=True)
-        target_record = next((record for record in stack if record["capturesClicks"]), None)
+        target_record = _click_target(stack)
         hit_tests.append(
             {
                 "point": {"x": x, "y": y},
                 "stack": [record["path"] for record in stack],
                 "target": target_record["path"] if target_record else None,
+                "targetIsButton": _is_button(target_record) if target_record else None,
                 "targetVisible": target_record["visible"] if target_record else None,
             }
         )
@@ -308,6 +354,53 @@ def build_hitmap(ir_path, width: int, height: int, topbar_height: float | None =
     })
 
 
+STACK_LIMIT = 4
+
+
+def _under(path: str, prefix: str) -> bool:
+    return path == prefix or path.startswith(prefix + "/")
+
+
+def narrowed(hitmap: dict, *, path: str | None = None, everything: bool = False) -> dict:
+    """What `rhr hitmap` prints: visible nodes only (a hidden one takes no click;
+    `--all` lists them), only those under `path`, the probes at their centres, each
+    stack cut to its top STACK_LIMIT (`stackMore` counts the rest). A whole game's UI
+    was 298 KB with every stack in full."""
+    nodes = [n for n in hitmap["nodes"] if (everything or n["visible"]) and (path is None or _under(n["path"], path))]
+    centres = {(round(n["rect"]["x"] + n["rect"]["w"] / 2, 3), round(n["rect"]["y"] + n["rect"]["h"] / 2, 3))
+               for n in nodes if n.get("rect")}
+    tests = []
+    for test in hitmap["hitTests"]:
+        if (test["point"]["x"], test["point"]["y"]) not in centres:
+            continue
+        test = dict(test)
+        if len(test["stack"]) > STACK_LIMIT:
+            test["stackMore"] = len(test["stack"]) - STACK_LIMIT
+            test["stack"] = test["stack"][:STACK_LIMIT]
+        tests.append(test)
+    return {**hitmap, "nodes": nodes, "hitTests": tests}
+
+
+def at_point(hitmap: dict, x: float, y: float) -> dict:
+    """`rhr hitmap --at X,Y`: who gets a click at one pixel, with every interactive
+    node under it (topmost first) and those nodes' records."""
+    under = [n for n in hitmap["nodes"] if n.get("rect")
+             and n["rect"]["x"] <= x < n["rect"]["x"] + n["rect"]["w"]
+             and n["rect"]["y"] <= y < n["rect"]["y"] + n["rect"]["h"]]
+    under.sort(key=lambda n: (n["pane"], n["zOrder"] if n["zOrder"] is not None else -1), reverse=True)
+    target = _click_target(under)
+    test = {
+        "point": {"x": _round(x), "y": _round(y)},
+        "stack": [n["path"] for n in under],
+        "target": target["path"] if target else None,
+        "targetIsButton": _is_button(target) if target else None,
+        "targetVisible": target["visible"] if target else None,
+    }
+    return {**hitmap, "nodes": under, "hitTests": [test]}
+
+
 def dump_json(hitmap: dict) -> str:
     """Canonical sorted JSON for stable diffs."""
-    return json.dumps(hitmap, indent=2, sort_keys=True)
+    from rhr.schema import dumps
+
+    return dumps(hitmap)

@@ -4,7 +4,7 @@
 The engine's renderer takes a rect_map and records every drawn node's resolved
 rectangle under its `_path` label. That is the only honest layout output this
 project has: it is the geometry the paint pass used, not a second implementation
-that could disagree with it. tree_to_pinevexobject dropped the label, so the map
+that could disagree with it. the converter (then pinevex's tree_to_pinevexobject) dropped the label, so the map
 was always empty (patches/0004-path-passthrough.patch).
 
 Rect values come from Roblox's layout rules and the fixture XML, so a wrong one

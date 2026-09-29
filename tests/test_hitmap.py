@@ -51,10 +51,11 @@ def main() -> int:
 
     hidden = by_path["HitMap/Root/InvisibleTop"]
     check(hidden["visible"] is False, "the top button is reported invisible")
-    check(hidden["active"] is True and hidden["capturesClicks"] is True,
-          "invisible Active remains a click-capturing node")
-    check(hidden["activatedTargetCandidate"] is True,
-          "an Active TextButton is an Activated target candidate")
+    # Studio (2026-09-28): a hidden element never takes a click, Active or not.
+    check(hidden["active"] is True and hidden["capturesClicks"] is False,
+          "an invisible Active button captures no clicks")
+    check(hidden["activatedTargetCandidate"] is False and by_path["HitMap/Root/VisibleBottom"]["activatedTargetCandidate"],
+          "only the visible button can fire Activated")
 
     bottom = by_path["HitMap/Root/VisibleBottom"]
     bottom_rect = bottom.get("rect")
@@ -80,9 +81,9 @@ def main() -> int:
         f"the overlap stack is topmost first ({overlap['stack']})",
     )
     check(
-        overlap["target"] == "HitMap/Root/InvisibleTop"
-        and overlap["targetVisible"] is False,
-        f"the invisible top button is the reported click target ({overlap})",
+        overlap["target"] == "HitMap/Root/VisibleBottom"
+        and overlap["targetVisible"] is True and overlap["targetIsButton"] is True,
+        f"the click goes to the visible button under the hidden one ({overlap})",
     )
 
     # The renderer still paints only the visible lower button. This guards
@@ -100,7 +101,7 @@ def main() -> int:
     # CLI contract: JSON is stable and diagnostics stay on stderr.
     cli_out = OUT / "hitmap_cli.json"
     proc = subprocess.run(
-        [*RHR, "hitmap", str(FIXTURE), "--viewport", "400x300", "--out", str(cli_out)],
+        [*RHR, "hitmap", str(FIXTURE), "--all", "--viewport", "400x300", "--out", str(cli_out)],
         capture_output=True,
         text=True,
         cwd=str(REPO),
@@ -137,6 +138,26 @@ def main() -> int:
         grid_x == [85.0, 85.0, 145.0, 145.0, 205.0, 265.0],
         f"centered grid traversal matches the layout pass ({grid_x})",
     )
+
+    # Who gets a click, case by case as Studio did on 2026-09-28 (rhr.hitmap).
+    proc = subprocess.run([*RHR, "hitmap", str(REPO / "tests" / "fixtures" / "hitmap_studio.rbxmx"),
+                           "--viewport", "1000x300"], capture_output=True, text=True, cwd=str(REPO), timeout=300)
+    targets = {}
+    for test in json.loads(proc.stdout)["hitTests"] if proc.returncode == 0 else []:
+        targets[int(test["point"]["x"])] = test["target"]
+    expected = {
+        50: "Main/Alone",
+        150: "Main/UnderActiveFrame",       # an Active Frame over it in the same ScreenGui: no effect
+        250: None,                          # Interactable = false: dead
+        350: None,                          # a parent with Interactable = false: dead
+        450: "Main/UnderDeadButton",        # a non-Interactable button on top: clicks pass through
+        550: "Above/Cover[1]",              # a transparent Active Frame in a ScreenGui above swallows it
+        650: "Main/UnderOtherGuiPassive",   # ... but not when it is not Active
+        750: "Main/UnderOtherGuiHidden",    # ... or hidden
+        850: "Main/OverLowerGui",           # an Active Frame in a lower ScreenGui: no effect
+    }
+    for x, target in expected.items():
+        check(targets.get(x, "missing") == target, f"Studio case at x={x}: {target} gets the click ({targets.get(x)})")
 
     print("hitmap: ok" if not failures else f"hitmap: {len(failures)} failed")
     return 1 if failures else 0

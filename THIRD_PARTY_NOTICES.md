@@ -4,18 +4,18 @@ This repository vendors third-party code and fonts. This file lists what is
 vendored, the licence it carries, and what was left out. It is not a substitute
 for the upstream licence texts, which ship with the package.
 
-## pinevex-renderer (vendored, patched)
+## pinevex-renderer (forked)
 
-- Location: `src/rhr/vendor/pinevex/`
+- Location: `src/rhr/ui_engine/` (RHR's UI engine, a fork)
 - Upstream: https://github.com/whutdev/pinevex-renderer at commit `db292ac`
 - License: Apache License 2.0 (copy at the repository root, plus upstream's own
-  `src/rhr/vendor/pinevex/LICENSE`)
-- We modify it. Modifications are recorded in `src/rhr/vendor/VENDOR.md` and
-  mirrored as patch files in `patches/`.
+  `LICENSE` and `THIRD_PARTY_NOTICES.md`, unmodified, in `src/rhr/ui_engine/`)
+- We have modified it: `docs/ui-engine.md` says what was kept and left out, and
+  `patches/` records why each change was made.
 
 ## Fonts
 
-- `src/rhr/vendor/pinevex/src/ui_engine/fonts/`: typefaces bundled by upstream,
+- `src/rhr/ui_engine/fonts/`: typefaces bundled by upstream,
   under the SIL Open Font License 1.1, Apache License 2.0 and Ubuntu Font Licence
   1.0. `TwemojiMozilla.ttf` is from Mozilla's
   [twemoji-colr](https://github.com/mozilla/twemoji-colr): Apache-2.0 code,
@@ -45,15 +45,14 @@ metadata on redistribution.
 
 - `RobloxEmoji.ttf`: upstream bundles a generated private-use-area font whose
   artwork derives from Roblox's emoji set, with no licence covering that artwork.
-  We do not redistribute it; `src/rhr/vendor/REMOVED.md` explains why removing it
-  changes nothing.
-- Upstream's demo places, example models, renders, web frontend, Vercel API and
-  prebuilt Linux native libraries: unused by RHR and, for the examples, with
-  unverified redistribution rights. The parser and renderer code are kept.
-- `src/rhr/vendor/pinevex/vendor/icon_library/manifest.json` lists 11 icon names
-  whose artwork is Roblox's own. It is a name list; **no Roblox image files are
-  bundled**. Images and meshes that you fetch for your own models with `rhr fetch`
-  stay in your local cache and are not part of this project.
+  We do not redistribute it; `docs/ui-engine.md` explains why removing it changes
+  nothing.
+- Upstream's demo places, example models, renders, web frontend, Vercel API,
+  binary model parser, Luau exporter, icon manifest and prebuilt Linux native
+  libraries: unused by RHR and, for the examples, with unverified redistribution
+  rights. **No Roblox image files are bundled**. Images and meshes that you fetch for
+  your own models with `rhr fetch` stay in your local cache and are not part of this
+  project.
 
 ## Roblox material asset ids (data, not assets)
 

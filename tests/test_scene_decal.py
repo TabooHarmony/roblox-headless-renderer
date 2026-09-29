@@ -83,7 +83,7 @@ def main() -> None:
         proc = run(
             "scene", str(good),
             "--viewport", "320x240",
-            "--view", "back",
+            "--view", "front",
             "--texture-dir", str(ASSETS),
             "--out", str(out),
         )
@@ -92,7 +92,7 @@ def main() -> None:
         red, blue = color_counts(out)
         assert red > 1000 and blue > 1000, (red, blue)
 
-        proc = run("scene-dump", str(good), "--texture-dir", str(ASSETS))
+        proc = run("scene-dump", "--parts", str(good), "--texture-dir", str(ASSETS))
         assert proc.returncode == 0, proc.stderr
         data = json.loads(proc.stdout)
         assert data["unsupportedVisualClasses"] == {}
@@ -111,9 +111,8 @@ def main() -> None:
         proc = run(
             "scene", str(missing),
             "--viewport", "320x240",
-            "--view", "back",
+            "--view", "front",
             "--texture-dir", str(ASSETS),
-            "--coverage",
             "--out", str(missing_out),
         )
         assert proc.returncode == 0, proc.stderr

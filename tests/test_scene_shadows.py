@@ -59,7 +59,7 @@ def main() -> None:
         proc = run(*base, "--no-shadows", "--out", str(plain))
         assert proc.returncode == 0, proc.stderr
         for output in (shadowed, shadowed2):
-            proc = run(*base, "--shadows", "--out", str(output))
+            proc = run(*base, "--out", str(output))
             assert proc.returncode == 0, proc.stderr
         assert shadowed.read_bytes() == shadowed2.read_bytes(), "shadow pass is not deterministic"
 
@@ -72,7 +72,7 @@ def main() -> None:
         disabled_ir = tmp / "disabled.json"
         disabled_ir.write_text(json.dumps(disabled_data))
         disabled_png = tmp / "disabled.png"
-        proc = run("scene", str(disabled_ir), "--viewport", "360x240", "--view", "iso", "--shadows", "--out", str(disabled_png))
+        proc = run("scene", str(disabled_ir), "--viewport", "360x240", "--view", "iso", "--out", str(disabled_png))
         assert proc.returncode == 0, proc.stderr
         disabled_delta = mean_delta(plain, disabled_png)
         assert disabled_delta < 0.02, f"GlobalShadows=false still changed the frame ({disabled_delta})"

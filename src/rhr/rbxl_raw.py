@@ -43,8 +43,12 @@ def _string(data: bytes, offset: int) -> tuple[bytes, int]:
     return data[offset:end], end
 
 
-def _lz4_block(data: bytes, expected_size: int) -> bytes:
-    """Decode an LZ4 block (no frame header), as used by Roblox chunks."""
+def _lz4_block(data: bytes, expected_size: int, limit: int | None = None) -> bytes:
+    """Decode an LZ4 block (no frame header), as used by Roblox chunks.
+
+    With `limit`, stop once at least that many bytes are out and return them (a
+    prefix, enough to read a chunk's header without decoding all of it).
+    """
     source = 0
     out = bytearray()
 
@@ -66,8 +70,10 @@ def _lz4_block(data: bytes, expected_size: int) -> bytes:
         literal_end = source + literal_length
         if literal_end > len(data):
             raise BinaryRbxError("truncated LZ4 literals")
-        out.extend(data[source:literal_end])
+        out += data[source:literal_end]
         source = literal_end
+        if limit is not None and len(out) >= limit:
+            return bytes(out)
 
         # A final literal run may end the block without a match.
         if source >= len(data):
@@ -93,8 +99,15 @@ def _lz4_block(data: bytes, expected_size: int) -> bytes:
         match_length += 4
 
         start = len(out) - match_offset
-        for index in range(match_length):
-            out.append(out[start + index])
+        if match_offset >= match_length:
+            out += out[start:start + match_length]
+        else:
+            # An overlapping match repeats the last `match_offset` bytes.
+            pattern = out[start:]
+            repeats, rest = divmod(match_length, match_offset)
+            out += pattern * repeats + pattern[:rest]
+        if limit is not None and len(out) >= limit:
+            return bytes(out)
 
         if len(out) > expected_size:
             raise BinaryRbxError("LZ4 chunk expanded beyond declared size")
@@ -107,6 +120,13 @@ def _lz4_block(data: bytes, expected_size: int) -> bytes:
 
 
 def _chunks(data: bytes):
+    """(name, payload) for each chunk, decompressed."""
+    for name, body, compressed, uncompressed in _raw_chunks(data):
+        yield name, _decode(name, body, compressed, uncompressed)
+
+
+def _raw_chunks(data: bytes):
+    """(name, body, compressed size, uncompressed size) for each chunk, as stored."""
     if len(data) < 32 or data[:8] != MAGIC or data[8:14] != SIGNATURE:
         raise BinaryRbxError("not a Roblox binary model/place")
     version = struct.unpack_from("<H", data, 14)[0]
@@ -124,26 +144,41 @@ def _chunks(data: bytes):
             raise BinaryRbxError(f"truncated {name!r} chunk")
         body = data[offset:end]
         offset = end
-
-        if compressed:
-            if body.startswith(ZSTD_MAGIC):
-                # Recent Studio builds save some places with ZSTD chunks.
-                import zstandard
-
-                try:
-                    body = zstandard.ZstdDecompressor().decompress(body, max_output_size=uncompressed)
-                except zstandard.ZstdError as exc:
-                    raise BinaryRbxError(f"bad ZSTD {name!r} chunk: {exc}") from exc
-                if len(body) != uncompressed:
-                    raise BinaryRbxError(f"ZSTD size mismatch in {name!r} chunk")
-            else:
-                body = _lz4_block(body, uncompressed)
-        elif len(body) != uncompressed:
-            raise BinaryRbxError(f"bad uncompressed length for {name!r}")
-
-        yield name, body
+        yield name, body, compressed, uncompressed
         if name == b"END\x00":
             break
+
+
+def _decode(name: bytes, body: bytes, compressed: int, uncompressed: int, limit: int | None = None) -> bytes:
+    """A chunk's payload; with `limit`, possibly only its first `limit`-odd bytes."""
+    if not compressed:
+        if len(body) != uncompressed:
+            raise BinaryRbxError(f"bad uncompressed length for {name!r}")
+        return body
+    # The declared size is trusted for the output buffer, and `inspect` exists to open
+    # untrusted files: refuse sizes no real chunk has. LZ4 cannot expand more than
+    # about 255 times; real ZSTD chunks reach about 3,600 times (a 23.6 MB chunk was
+    # the biggest in the maintainer's places).
+    ceiling = min(len(body) * 16384, 1 << 30) if body.startswith(ZSTD_MAGIC) else len(body) * 255 + 256
+    if uncompressed > ceiling:
+        raise BinaryRbxError(f"{name!r} chunk claims {uncompressed} bytes from {len(body)}: not a real Roblox file")
+    if body.startswith(ZSTD_MAGIC):
+        # Recent Studio builds save some places with ZSTD chunks.
+        import zstandard
+
+        try:
+            body = zstandard.ZstdDecompressor().decompress(body, max_output_size=uncompressed)
+        except zstandard.ZstdError as exc:
+            raise BinaryRbxError(f"bad ZSTD {name!r} chunk: {exc}") from exc
+        if len(body) != uncompressed:
+            raise BinaryRbxError(f"ZSTD size mismatch in {name!r} chunk")
+        return body
+    return _lz4_block(body, uncompressed, limit)
+
+
+# Enough of a chunk to read its header: class id, a class or property name, and the
+# bytes after it. A header that needs more is decoded in full.
+_HEADER_BYTES = 512
 
 
 def extract_xml_binary_string_property(
@@ -197,6 +232,16 @@ def extract_serialized_string_property(
 EMPTY_TERRAIN_SMOOTH_GRID = b"\x01\x05"
 
 
+def _header_end(payload: bytes) -> int | None:
+    """Where an INST/PROP header (class id, name, one more byte, plus INST's count)
+    ends in `payload`, or None when the payload is too short to tell."""
+    if len(payload) < 8:
+        return None
+    length = struct.unpack_from("<I", payload, 4)[0]
+    end = 8 + length + 5
+    return end if end <= len(payload) else None
+
+
 def extract_string_property(
     path: str | Path | bytes,
     class_name: str,
@@ -212,7 +257,14 @@ def extract_string_property(
     wanted_id: int | None = None
     results: list[bytes] | None = None
 
-    for chunk_name, payload in _chunks(data):
+    # Only chunk headers are decoded, except for the one property wanted: a big place
+    # has thousands of chunks, and decoding them all took most of a scene dump.
+    for chunk_name, body, compressed, uncompressed in _raw_chunks(data):
+        if chunk_name not in (b"INST", b"PROP"):
+            continue
+        payload = _decode(chunk_name, body, compressed, uncompressed, _HEADER_BYTES)
+        if len(payload) < uncompressed and _header_end(payload) is None:
+            payload = _decode(chunk_name, body, compressed, uncompressed)
         if chunk_name == b"INST":
             offset = 0
             class_id, offset = _u32(payload, offset)
@@ -246,6 +298,8 @@ def extract_string_property(
                 raise BinaryRbxError("invalid UTF-8 property name") from exc
             if decoded_name != property_name:
                 continue
+            if len(payload) < uncompressed:
+                payload = _decode(chunk_name, body, compressed, uncompressed)
             if type_id != 0x01:
                 raise BinaryRbxError(
                     f"{class_name}.{property_name} has type 0x{type_id:02x}, expected String/BinaryString"

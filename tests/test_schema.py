@@ -50,7 +50,7 @@ def main() -> int:
             "layout-rich": run_json(["layout", str(UI), "--rich", "--viewport", "400x300"]),
             "check": run_json(["check", str(UI)]),
             "hitmap": run_json(["hitmap", str(UI)]),
-            "scene-dump": run_json(["scene-dump", str(SCENE)]),
+            "scene-dump": run_json(["scene-dump", "--parts", str(SCENE)]),
             "compare": run_json(["compare", str(png), str(png), "--json"]),
             "browser": run_json(["browser", "status"]),
         }

@@ -144,7 +144,7 @@ def main() -> None:
             assert top[2] > top[0] + 30, f"the sky stays blue overhead under an Atmosphere ({top})"
 
         dense_ir = tmp / "dense.json"
-        proc = run("scene-dump", str(dense_ir))
+        proc = run("scene-dump", "--parts", str(dense_ir))
         assert proc.returncode == 0, proc.stderr
         dump = json.loads(proc.stdout)
         assert "Atmosphere" not in dump["unsupportedVisualClasses"]

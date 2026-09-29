@@ -1,7 +1,7 @@
 """IR -> raw nodes -> pinevex object -> PNG.
 
 The order mirrors the web demo's own pipeline (FLOW read out of
-vendor/pinevex/web_demo/rbxm_parser_component/app.py):
+upstream pinevex's web demo, from which the UI engine was forked):
 
     find the renderable root -> flatten_node() -> postprocess_pinevex_object() -> render_json()
 
@@ -13,14 +13,9 @@ from __future__ import annotations
 
 import json
 import os
-import sys
 from pathlib import Path
 
-from rhr.paths import ICONS_DIR, PINEVEX
-
-ENGINE = PINEVEX / "src"
-COMPONENT = PINEVEX / "web_demo" / "rbxm_parser_component"
-PRODUCT_OUTPUT = PINEVEX / "vendor" / "product_output"
+from rhr.paths import ICONS_DIR, PACKAGE
 
 # The engine looks up faces by file name in these folders before its own bundled
 # fonts (text_fonts.py): a local Roblox install first (rhr.paths.roblox_font_dirs),
@@ -45,11 +40,7 @@ def font_source() -> str:
             "redistribution, such as Builder Sans, fall back to similar open fonts")
 
 
-for _p in (ENGINE, COMPONENT, PRODUCT_OUTPUT.parent):
-    if str(_p) not in sys.path:
-        sys.path.insert(0, str(_p))
-
-FONTS_DIR = ENGINE / "ui_engine" / "fonts"
+FONTS_DIR = PACKAGE / "ui_engine" / "fonts"
 # The engine's icon root (rhr.paths.ICONS_DIR). The engine derives its image cache
 # from the parent of this dir (`_asset_cache_dir`: <parent>/cache/icons/<asset_id>.png),
 # which is rhr.paths.ICON_CACHE, where `rhr fetch` writes.
@@ -107,7 +98,7 @@ def find_renderable(nodes: list[dict]) -> dict | None:
 
 def to_pinevex_object(raw_nodes: list[dict], postprocess: bool = True) -> dict:
     """flatten_node (+ the demo's postprocess) on the renderable root."""
-    from tree_to_pinevexobject import flatten_node
+    from rhr.ui_engine.converter import flatten_node
 
     renderable = find_renderable(raw_nodes)
     if renderable is None:
@@ -116,7 +107,7 @@ def to_pinevex_object(raw_nodes: list[dict], postprocess: bool = True) -> dict:
     if not postprocess:
         return obj
 
-    from product_output.pinevex_postprocess import postprocess_pinevex_object
+    from rhr.ui_engine.postprocess import postprocess_pinevex_object
 
     return postprocess_pinevex_object(obj)
 
@@ -130,16 +121,19 @@ def render_object(
     rect_map: dict | None = None,
     icons_dir=None,
     root_rect=None,
-) -> Path:
-    from ui_engine.renderer import render_json
+    draw: bool = True,
+) -> Path | None:
+    """Draw one pane to `out_path`; with `draw` False only lay it out (rect_map)."""
+    from rhr.ui_engine.renderer import render_json
 
     layout_rects = obj.pop("_layoutRects", None) if isinstance(obj, dict) else None
-    out_path = Path(out_path)
-    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path = Path(out_path) if out_path is not None else None
+    if draw:
+        out_path.parent.mkdir(parents=True, exist_ok=True)
     icons = Path(icons_dir) if icons_dir is not None else ICONS_DIR
     render_json(
         obj,
-        str(out_path),
+        str(out_path) if draw else None,
         width=width,
         height=height,
         icons_dir=icons,
@@ -148,8 +142,9 @@ def render_object(
         rect_map=rect_map,
         root_rect=root_rect,
         layout_rects=layout_rects,
+        draw=draw,
     )
-    return out_path
+    return out_path if draw else None
 
 
 def _strip_screens(nodes: list[dict]) -> list[dict]:
@@ -182,6 +177,131 @@ PLACE_SERVICES = {
 }
 # Set by the CLI's --all-guis.
 INCLUDE_STORED_GUIS = False
+# Set by the CLI's --show (repeatable) and --only: paths as RHR prints them. Screens a
+# game's code opens (ScreenGui.Enabled, Frame.Visible) are saved closed; these draw them.
+SHOW: list[str] = []
+ONLY: str | None = None
+
+
+def reset_options() -> None:
+    """The CLI's per-command switches back to their defaults (the resident server runs
+    one command after another in the same process)."""
+    global INCLUDE_STORED_GUIS, ONLY
+    INCLUDE_STORED_GUIS = False
+    SHOW.clear()
+    ONLY = None
+    from rhr import devices
+
+    devices.CURRENT = None
+
+
+def reveals_storage() -> bool:
+    """Whether --show/--only name something a place keeps outside StarterGui (a
+    template in ReplicatedStorage): that service's UI must be read, not only named."""
+    return any(path.split("/", 1)[0] in PLACE_SERVICES - {"StarterGui"} for path in [*SHOW, *([ONLY] if ONLY else [])])
+
+
+class NothingToDraw(Exception):
+    """A UI command found no UI to draw: an error (exit 2), never an empty success.
+    Not a ValueError, so it reaches rhr.cli.main, which adds hints about the input."""
+
+
+def _why_no_ui(raw: list[dict], stored: list[str]) -> str:
+    """Why a tree drew nothing, and what would draw something."""
+    closed: list[str] = []
+
+    def walk(node: dict) -> None:
+        if node.get("className") == "ScreenGui":
+            if (node.get("children") or []) and _prop_is_false((node.get("properties") or {}).get("Enabled")):
+                closed.append(node.get("_path") or node.get("name", "ScreenGui"))
+            return
+        for child in node.get("children") or []:
+            walk(child)
+
+    for root in raw:
+        walk(root)
+    lines = ["no UI to draw"]
+    if closed:
+        names = ", ".join(closed[:5]) + (f", +{len(closed) - 5} more" if len(closed) > 5 else "")
+        lines.append(f"{len(closed)} ScreenGui(s) are saved with Enabled = false (code opens them): {names}. "
+                     f"--show <path> draws one (and --only <path> draws it alone)")
+    if stored:
+        names = ", ".join(stored[:5]) + (f", +{len(stored) - 5} more" if len(stored) > 5 else "")
+        lines.append(f"{len(stored)} ScreenGui(s) are stored outside StarterGui: {names}. "
+                     f"--show <path> draws one, --all-guis all of them")
+    if len(lines) == 1:
+        lines.append("the file holds no ScreenGui or GUI object (a 3D build draws with rhr scene)")
+    return "\n".join(lines)
+
+
+def ui_roots(ir: dict) -> tuple[list[dict], list[str]]:
+    """The raw UI roots a UI command draws (--show and --only applied), and the paths
+    of stored ScreenGuis left out. Every node on the way to a shown path is in
+    `shown_ids`, so a node outside it holds nothing to show."""
+    from rhr.adapter import ir_to_raw_nodes
+
+    raw = ir_to_raw_nodes(ir)
+    if not SHOW and not ONLY:
+        return shown_ui_roots(raw)
+    by_path: dict[str, list[dict]] = {}
+
+    def chain_to(node_path: str) -> list[dict]:
+        if not by_path:
+            def walk(node: dict, above: list[dict]) -> None:
+                here = [*above, node]
+                by_path[node.get("_path", "")] = here
+                for child in node.get("children") or []:
+                    walk(child, here)
+            for root in raw:
+                walk(root, [])
+        chain = by_path.get(node_path)
+        if chain is None:
+            raise ValueError(f"{node_path} holds no UI to show")
+        return chain
+
+    from rhr.ir import resolve_path
+
+    def resolve(wanted: str) -> list[dict]:
+        return chain_to(resolve_path(ir["roots"], wanted.strip().strip("/"))["path"])
+
+    shown_ids = {id(node) for wanted in SHOW for node in resolve(wanted)}
+    only_chain = resolve(ONLY) if ONLY else None
+    if only_chain:
+        shown_ids |= {id(node) for node in only_chain}
+    only_ids = {id(node) for node in only_chain} if only_chain else None
+    target = id(only_chain[-1]) if only_chain else None
+
+    def reveal(nodes: list[dict], inside: bool) -> list[dict]:
+        out = []
+        for node in nodes:
+            cls = node.get("className", "")
+            gui = cls in _SCREEN_GUI_CLASSES or cls in _RENDERABLE_CLASSES  # (not a Folder or service)
+            key = "Enabled" if cls in _SCREEN_GUI_CLASSES else "Visible"
+            value = None
+            if id(node) in shown_ids and gui:
+                value = True
+            elif only_ids is not None and not inside and gui and id(node) not in shown_ids:
+                value = False  # --only: everything beside the chain to it is closed
+            if value is None and id(node) not in shown_ids and (only_ids is None or inside):
+                out.append(node)  # nothing to change at or below it (shared, not copied)
+                continue
+            copy = dict(node)
+            if value is not None:
+                copy["properties"] = {**(node.get("properties") or {}), key: value}
+            if value is not False:
+                copy["children"] = reveal(node.get("children") or [], inside or id(node) == target)
+            out.append(copy)
+        return out
+
+    revealed = reveal(raw, False)
+    if INCLUDE_STORED_GUIS or not any(n.get("className") in PLACE_SERVICES for n in revealed):
+        return revealed, []
+    # A place: StarterGui as usual, plus a stored service only for what was asked for.
+    asked = {id(root) for root in raw if id(root) in shown_ids}
+    kept = [new for root, new in zip(raw, revealed)
+            if new.get("className") == "StarterGui" or new.get("className") not in PLACE_SERVICES
+            or id(root) in asked]
+    return kept, []
 
 
 def shown_ui_roots(raw: list[dict]) -> tuple[list[dict], list[str]]:
@@ -249,23 +369,25 @@ def load_screens(
     postprocess: bool = True,
     *,
     screen_gui_only: bool = False,
+    required: bool = False,
 ) -> list[tuple[dict, object, "rhr.insets.Inset", str]]:
     """IR on disk -> one (object, root rect, inset, name) per ScreenGui, bottom first.
+    `required`: no UI at all is a NothingToDraw error (the UI commands), not [].
 
     Each ScreenGui gets its own content area from its own `ScreenInsets` (Task 1.9),
     which is why this is per screen rather than one rect for the file. A tree with no
     ScreenGui is a single entry, the whole-viewport case.
     """
-    from ui_engine.layout import Rect
+    from rhr.ui_engine.layout import Rect
 
     from rhr import insets
-    from rhr.adapter import ir_to_raw_nodes
+    from rhr.adapter import ir_to_raw_nodes, ui_index
     from rhr.ir import load_ir
 
     topbar = insets.REFERENCE_TOPBAR_HEIGHT if topbar_height is None else topbar_height
     ir = load_ir(ir_path)
-    ir_by_path = _index_paths(ir["roots"])
-    raw, _ = shown_ui_roots(ir_to_raw_nodes(ir))
+    ir_by_path = ui_index(ir)
+    raw, stored = ui_roots(ir)
     screens = _screen_nodes(raw, classes={"ScreenGui"} if screen_gui_only else None)
     if not screens:
         if screen_gui_only:
@@ -273,13 +395,15 @@ def load_screens(
         # Only disabled or empty ScreenGuis (if any): they draw nothing, so they must
         # not reach the layout, hitmap or checks either. What is left outside them is
         # the whole-viewport case; if nothing is left, there is no UI at all.
-        raw = _strip_screens(raw)
-        pane = find_renderable(raw)
+        outside = _strip_screens(raw)
+        pane = find_renderable(outside)
         if pane is None:
+            if required:
+                raise NothingToDraw(_why_no_ui(raw, stored))
             return []
-        inset = insets.for_nodes(raw, topbar_height=topbar)
+        inset = insets.for_nodes(outside, topbar_height=topbar)
         x, y, w, h = inset.rect(width, height)
-        obj = to_pinevex_object(raw, postprocess)
+        obj = to_pinevex_object(outside, postprocess)
         _attach_layout(obj, pane, ir_by_path, (x, y, w, h))
         return [(obj, Rect(x, y, w, h), inset, Path(ir_path).stem)]
 
@@ -322,7 +446,7 @@ def _attach_layout(obj: dict, pane: dict | None, ir_by_path: dict[str, dict], re
     own layout code only runs for objects this pass has no rect for. Under UIScale the
     drawn text size and outline thickness scale with the object, as in Roblox.
     """
-    from ui_engine.layout import Rect
+    from rhr.ui_engine.layout import Rect
 
     from rhr.ui_layout import lay_out_pane
 
@@ -363,7 +487,7 @@ def load_for_screen(
     and makes scale-sized children measure against the safe area, which is what
     `_viewport_rect` is for.
     """
-    from ui_engine.layout import Rect
+    from rhr.ui_engine.layout import Rect
 
     from rhr.adapter import ir_to_raw_nodes
     from rhr import insets
@@ -435,14 +559,20 @@ def render_screens(
     rect_map: dict | None = None,
     icons_dir=None,
     source_ir=None,
-) -> Path:
-    """A load_screens() list -> one PNG.
+    draw: bool = True,
+) -> Path | None:
+    """A load_screens() list -> one PNG. With `draw` False nothing is drawn or written:
+    the panes are only laid out, for `rect_map` (layout, check).
 
     One ScreenGui is one engine render, which is the path the frozen gate measures and
     must not change. Several ScreenGuis are one render each, composited in paint order,
     because the engine draws exactly one root: a file that holds a HUD pane and a shop
     pane used to lose one of them entirely.
     """
+    if not draw:
+        for obj, root_rect, _, _ in screens:
+            render_object(obj, None, width, height, bg_color, rect_map, icons_dir, root_rect=root_rect, draw=False)
+        return None
     out_path = Path(out_path)
     if len(screens) == 1:
         obj, root_rect, _, _ = screens[0]
@@ -456,18 +586,30 @@ def render_screens(
 
     from PIL import Image
 
+    from rhr.ui_engine.renderer import render_json
+
     out_path.parent.mkdir(parents=True, exist_ok=True)
     canvas = Image.new("RGBA", (width, height), tuple(bg_color))
     panes = []
     try:
         for index, (obj, root_rect, _, name) in enumerate(screens):
-            pane = out_path.with_name(f".{out_path.stem}-pane{index}.png")
-            panes.append(pane)
             pane_map = {} if rect_map is not None or source_ir is not None else None
-            render_object(obj, pane, width, height, (0, 0, 0, 0), pane_map, icons_dir, root_rect=root_rect)
-            if pane_map is not None:
+            if source_ir is not None and _viewport_nodes(obj):
+                # ViewportFrames are drawn into the pane's file (_overlay_viewports).
+                pane = out_path.with_name(f".{out_path.stem}-pane{index}.png")
+                panes.append(pane)
+                render_object(obj, pane, width, height, (0, 0, 0, 0), pane_map, icons_dir, root_rect=root_rect)
                 _overlay_viewports(obj, pane, pane_map, source_ir)
-            with Image.open(pane).convert("RGBA") as image:
+                with Image.open(pane).convert("RGBA") as image:
+                    canvas.alpha_composite(image)
+            else:
+                # In memory: the pixels a PNG round trip would give, without encoding
+                # one per pane (a model with a hundred SurfaceGuis has a hundred panes).
+                layout_rects = obj.pop("_layoutRects", None)
+                image = render_json(obj, None, width=width, height=height,
+                                    icons_dir=Path(icons_dir) if icons_dir is not None else ICONS_DIR,
+                                    fonts_dir=FONTS_DIR, bg_color=(0, 0, 0, 0), rect_map=pane_map,
+                                    root_rect=root_rect, layout_rects=layout_rects)
                 canvas.alpha_composite(image)
             if rect_map is not None and pane_map is not None:
                 rect_map.update(pane_map)
@@ -497,23 +639,48 @@ def render_ir(
 MAX_GUI_CANVAS = 4096
 
 
-def render_gui_node(ir, node_path: str, width: int, height: int, out_path) -> Path:
+def render_gui_node(ir, node_path: str, width: int, height: int, out_path) -> tuple[Path, tuple[int, int]]:
     """Render one BillboardGui/SurfaceGui subtree with the 2D engine at width x height.
 
     In-world UI goes through the same renderer as ScreenGuis, laid out on the canvas
     size Roblox would give it (the scene page computes that: camera distance for a
     BillboardGui, face size x PixelsPerStud or CanvasSize for a SurfaceGui). Canvases
     larger than MAX_GUI_CANVAS per side are clamped (see known-approximations).
+
+    A BillboardGui with ClipsDescendants off draws its children past its own size, as
+    in Roblox: a 1-stud billboard with a label five times as wide shows the whole
+    label. The picture is then larger than width x height; returns it with the
+    offset (left, top) of the billboard's own area inside it.
     """
+    import math
+
     from rhr.adapter import ir_node_to_raw
     from rhr.ir import resolve_path
+    from rhr.ui_engine.layout import Rect
 
     node = resolve_path(ir["roots"], node_path)
     if node.get("className") not in {"BillboardGui", "SurfaceGui"}:
         raise ValueError(f"{node_path} is a {node.get('className')}, not a BillboardGui or SurfaceGui")
     width = max(1, min(int(width), MAX_GUI_CANVAS))
     height = max(1, min(int(height), MAX_GUI_CANVAS))
-    return render_object(to_pinevex_object([ir_node_to_raw(node)]), out_path, width, height, (0, 0, 0, 0))
+    left = top = right = bottom = 0
+    if node.get("className") == "BillboardGui" and (node.get("props") or {}).get("ClipsDescendants") is False:
+        rects: dict = {}
+        render_object(to_pinevex_object([ir_node_to_raw(node)]), None, width, height, (0, 0, 0, 0), rect_map=rects,
+                      draw=False)
+        for rect in rects.values():
+            left = max(left, math.ceil(-rect.x))
+            top = max(top, math.ceil(-rect.y))
+            right = max(right, math.ceil(rect.x + rect.w - width))
+            bottom = max(bottom, math.ceil(rect.y + rect.h - height))
+        spare_w = max(0, MAX_GUI_CANVAS - width)
+        spare_h = max(0, MAX_GUI_CANVAS - height)
+        left, right = min(left, spare_w // 2), min(right, spare_w // 2)
+        top, bottom = min(top, spare_h // 2), min(bottom, spare_h // 2)
+    grown = left or top or right or bottom
+    out = render_object(to_pinevex_object([ir_node_to_raw(node)]), out_path, width + left + right, height + top + bottom,
+                        (0, 0, 0, 0), root_rect=Rect(left, top, width, height) if grown else None)
+    return out, (left, top)
 
 
 def render_pinevex_json(

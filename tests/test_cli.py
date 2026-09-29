@@ -36,15 +36,15 @@ def run(*args: str) -> subprocess.CompletedProcess:
 
 
 def main() -> int:
-    print("cli: ir / render / layout")
+    print("cli: ir / ui / layout")
     OUT.mkdir(parents=True, exist_ok=True)
 
     # A font given by asset id (Builder Sans, Roblox's default UI font, is
     # rbxassetid://16658221428) goes through the vendored parser's font table, which
     # needs `zstandard`: it once crashed every UI command on a new Studio template.
     font_fixture = FIXTURE.parent / "font_by_asset_id.rbxmx"
-    for command in ("layout", "render", "check", "hitmap"):
-        extra = ["--out", str(OUT / "font_by_asset_id.png")] if command == "render" else []
+    for command in ("layout", "ui", "check", "hitmap"):
+        extra = ["--out", str(OUT / "font_by_asset_id.png")] if command == "ui" else []
         proc = run(command, str(font_fixture), *extra)
         check(proc.returncode == 0, f"rhr {command} handles a font given by asset id "
                                     f"({proc.stderr.strip()[-120:] or 'clean'})")
@@ -67,13 +67,13 @@ def main() -> int:
         check(len(data["roots"]) == 1, "the IR has one root")
 
     png = OUT / "grid.png"
-    proc = run("render", str(FIXTURE), "--out", str(png), "--viewport", "400x300", "--transparent")
-    check(proc.returncode == 0, f"rhr render exits 0 ({proc.stderr.strip()[:120] or 'clean'})")
+    proc = run("ui", str(FIXTURE), "--out", str(png), "--viewport", "400x300", "--transparent")
+    check(proc.returncode == 0, f"rhr ui exits 0 ({proc.stderr.strip()[:120] or 'clean'})")
     check(
-        re.search(r"render\s+\S+\s+400x300\s+\d+ms", proc.stderr) is not None,
-        "rhr render reports the viewport and elapsed ms (stderr)",
+        re.search(r"ui\s+\S+\s+400x300\s+\d+ms", proc.stderr) is not None,
+        "rhr ui reports the viewport and elapsed ms (stderr)",
     )
-    check(re.search(r"total\s+\d+ms", proc.stderr) is not None, "rhr render reports a total")
+    check(re.search(r"total\s+\d+ms", proc.stderr) is not None, "rhr ui reports a total")
     if png.exists():
         from PIL import Image
 
@@ -85,8 +85,8 @@ def main() -> int:
     sparse = REPO / "tests" / "fixtures" / "zero_size_parent.rbxmx"
     clear = OUT / "sparse-clear.png"
     solid = OUT / "sparse-solid.png"
-    run("render", str(sparse), "--out", str(clear), "--viewport", "400x300", "--transparent")
-    run("render", str(sparse), "--out", str(solid), "--viewport", "400x300")
+    run("ui", str(sparse), "--out", str(clear), "--viewport", "400x300", "--transparent")
+    run("ui", str(sparse), "--out", str(solid), "--viewport", "400x300")
     from PIL import Image
 
     check(

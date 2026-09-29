@@ -1,0 +1,15 @@
+<roblox version="4">
+  <!-- Every screen saved closed: a UI command has nothing to draw and must say why. -->
+  <Item class="ScreenGui" referent="RBX0">
+    <Properties>
+      <string name="Name">Shop</string>
+      <bool name="Enabled">false</bool>
+    </Properties>
+    <Item class="Frame" referent="RBX1">
+      <Properties>
+        <string name="Name">Page</string>
+        <UDim2 name="Size"><XS>0</XS><XO>300</XO><YS>0</YS><YO>200</YO></UDim2>
+      </Properties>
+    </Item>
+  </Item>
+</roblox>

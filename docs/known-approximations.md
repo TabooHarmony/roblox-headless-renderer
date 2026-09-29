@@ -102,7 +102,16 @@ invisible element that swallows clicks is exactly the bug this command is for.
 ## 3D scenes
 
 `rhr scene` and `rhr preview` draw a static authoring preview with THREE.js in
-headless Chromium.
+a headless Chromium-family browser (Chrome, Edge, Brave, Chromium, or Chrome for
+Testing's headless shell; the `--json` report names it). They all draw the same
+page; the tests pin the headless shell for identical pixels.
+
+**What is drawn:** in a place file, the world (Workspace, Lighting, StarterGui's
+in-world UI). Models stored in ServerStorage, ReplicatedStorage, ReplicatedFirst,
+ServerScriptService, StarterPack and StarterPlayer are not drawn, as in a running game
+until a script clones them in; a note counts them, and `--focus` on one draws it. A
+model file draws everything. A place is drawn as saved: parts a script hides or moves
+at run time (a map's "invisible" walls saved opaque) show as they are in the file.
 
 **Measured:** part positions, sizes and rotations (`rhr scene-dump`) match Studio.
 Compared with Studio screenshots of the same scene, geometry, camera framing,
@@ -130,7 +139,11 @@ signed in, see below):
   own colour (a blurred quarter-resolution copy added over the picture, as Roblox
   does it) and dim Neon does not. Transparent Neon is see-through by its
   Transparency, with less glow. (In Studio a strongly transparent Neon part reads
-  more solid than that; RHR keeps what is behind it visible.) Compared with Studio at
+  more solid than that; RHR keeps what is behind it visible.) Partly transparent Neon fades by its Transparency
+  (brightness x (1 - T), glow x (1 - T)^2); at T = 0.3 it is still brighter and more
+  saturated than Studio's, which shows more of what is behind it (README picture:
+  mean difference 50 of 255 on the red bars). Additive particle effects also read
+  whiter than Studio's. Compared with Studio at
   its highest quality level; at low quality levels Studio draws no glow at all. Unknown materials draw as Plastic and are
   counted as `materialFallbacks`. `--flat-materials` draws plain colours.
 - Plastic has Roblox's faint surface relief, and legacy surfaces (`TopSurface =
@@ -281,7 +294,7 @@ stderr says so on every 3D render.
 
 ## Rendering speed and the GPU
 
-3D renders use the machine's GPU through Chromium's WebGL, which is about eight
+3D renders use the machine's GPU through the browser's WebGL, which is about eight
 times faster than software rendering (a textured test scene: 2 s instead of 17 s).
 Pixels can then differ slightly between GPUs: on the development machine a GPU render
 differed from a software one on 0.13% of pixels, by 0.4/255 on average.
@@ -289,7 +302,7 @@ differed from a software one on 0.13% of pixels, by 0.4/255 on average.
 the tests and CI use it. A machine without a usable GPU falls back to software by
 itself.
 
-The first 3D render starts a warm worker (Chromium with the 3D page loaded), which
+The first 3D render starts a warm worker (a browser with the 3D page loaded), which
 later renders reuse; it stops after 10 idle minutes. A render on the kept page is
 pixel for pixel the same as one on a fresh page (tests/test_kept_page.py).
 `RHR_PROFILE=1` prints where a command's time went.
@@ -394,7 +407,11 @@ whether it glows; not the exact particles Roblox would draw.
 
 ## Reading files
 
-RHR reads files with Lune and rbx-dom. A class that rbx-dom's database does not know
+RHR reads binary files (`.rbxm`, `.rbxl`) itself (`rhr.rbx`, a port of rbx-dom's
+reader and of the Lune script, with the reflection database of the pinned Lune) and
+XML files with Lune and rbx-dom; both give the same result, checked on every fixture
+and on real places (tests/test_rbx_reader.py). `RHR_READER=lune` reads binary files
+with Lune too. A class that rbx-dom's database does not know
 (newer than its build, or plugin-only) is read from the file's XML: simple values
 (booleans, numbers, text) are recovered; enums, references and structured values
 such as UDim2 and Color3 are listed in that node's `unreadable` list, so the element
@@ -409,3 +426,35 @@ in Roblox; one saved elsewhere in a model changes nothing.
 
 Scripts, physics, animation and anything else that happens at run time. A UI that a
 script builds or moves is previewed as it is saved in the file.
+
+## Hit map: who gets a click
+
+Measured in Studio on 2026-09-28 (a solo playtest, simulated left clicks at each
+button's centre, `Activated` counted on every button; 27 cases, kept as
+tests/fixtures/hitmap_studio.rbxmx). `rhr hitmap` and `rhr check`'s `button-blocked`
+follow these rules; they are exact for the cases measured, and the rest is inferred:
+
+- A button (TextButton, ImageButton; RHR treats a TextBox the same) gets clicks when it
+  and every ancestor are Visible and Interactable.
+- Within one ScreenGui the topmost such button under the pointer gets the click. A
+  Frame, TextLabel or ImageLabel over it never takes it, Active or not, at any ZIndex;
+  a button with Interactable false passes it through.
+- A visible, Interactable, Active non-button in a ScreenGui with a higher DisplayOrder
+  swallows the click for the ScreenGuis below, even at BackgroundTransparency 1 or in a
+  CanvasGroup at GroupTransparency 1. Hidden, non-Active or non-Interactable ones, and
+  those in a disabled ScreenGui or a lower DisplayOrder, do not.
+- Not measured: two ScreenGuis with equal DisplayOrder (RHR takes the later one as on
+  top), `Modal`, `Selectable`/gamepad selection, touch input, and a button with Active
+  false (RHR treats it like any button).
+
+## Devices (`--device`)
+
+Measured in Studio's device emulator on 2026-09-28 (a playtest client per preset: the
+camera's viewport, where a full-size Frame lands under each ScreenInsets mode, the
+touch controls' AbsolutePosition and size); rhr.devices holds the numbers. The top
+bar is 58 px on every device measured; phones in landscape have notch insets on both
+sides (iPhone 16: 59 px; Galaxy A16: 47 px) and a 21 px home bar. Not modelled:
+portrait, the on-screen keyboard, console "title safe" margins, the thumbstick's
+exact dead zones (the check uses the frame Roblox reserves for it), and changes to
+Roblox's touch controls after that date.
+

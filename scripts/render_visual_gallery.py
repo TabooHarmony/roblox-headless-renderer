@@ -332,7 +332,6 @@ def main() -> None:
         "--viewport", "640x400",
         "--texture-dir", str(ASSETS),
         "--mesh-dir", str(mesh_dir),
-        "--shadows",
         "--topbar-height", "0",
         "--fov", "48",
     ]
@@ -351,7 +350,7 @@ def main() -> None:
 
     # One no-shadow control for a direct lighting/shadow comparison.
     no_shadow = OUT / "front-no-shadows.png"
-    no_shadow_args = [arg for arg in common if arg != "--shadows"]
+    no_shadow_args = [*common, "--no-shadows"]
     render([*no_shadow_args, *views[0][1]], no_shadow)
 
     cell_w, cell_h = 640, 430

@@ -36,7 +36,7 @@ def main() -> int:
 
     with tempfile.TemporaryDirectory(prefix="rhr-overflow-") as directory:
         png = Path(directory) / "overflow.png"
-        proc = subprocess.run([sys.executable, "-m", "rhr", "render", str(PLACE), "--viewport", "937x592",
+        proc = subprocess.run([sys.executable, "-m", "rhr", "ui", str(PLACE), "--viewport", "937x592",
                                "--topbar-height", "0", "--background", "#ffffff", "--out", str(png)],
                               capture_output=True, text=True, cwd=str(REPO), timeout=300)
         check(proc.returncode == 0, f"renders the edge-case place ({proc.stderr.strip()[-120:]})")

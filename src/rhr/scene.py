@@ -5,18 +5,23 @@ from __future__ import annotations
 import http.server
 import json
 import os
+import re
 import struct
 import threading
 from pathlib import Path
 from urllib.parse import urlencode, urlparse
 
-from rhr.paths import ICON_CACHE, MESH_CACHE, PACKAGE, PARTICLE_CACHE
+from rhr.listing import listing as _listing
+from rhr.paths import ICON_CACHE, MESH_CACHE, PACKAGE
 
+_LOCAL_HOST = re.compile(r"^(?:127\.0\.0\.1|localhost|\[::1\])(?::\d+)?$", re.IGNORECASE)
+_LOCAL_ORIGIN = re.compile(r"^http://(?:127\.0\.0\.1|localhost|\[::1\])(?::\d+)?$", re.IGNORECASE)
 
 
 class _SceneHandler(http.server.SimpleHTTPRequestHandler):
     ir_path: Path
     metadata_sink: dict | None = None
+    camera_log: list | None = None
     asset_manifest_payload: bytes = b"{}"
     mesh_manifest_payload: bytes = b"{}"
     asset_files: dict[str, Path] = {}
@@ -31,10 +36,24 @@ class _SceneHandler(http.server.SimpleHTTPRequestHandler):
         kwargs["directory"] = str(PACKAGE)
         super().__init__(*args, **kwargs)
 
+    def parse_request(self):
+        # Pages on this machine only: a web page open in the user's browser, or one that
+        # points its own name at 127.0.0.1 (DNS rebinding), must not read the scene.
+        if not super().parse_request():
+            return False
+        if not _LOCAL_HOST.match(self.headers.get("Host", "")):
+            self.send_error(421, "RHR serves pages on this machine only")
+            return False
+        return True
+
     def end_headers(self):
         # The warm worker's page is on another local address (see rhr.browser_daemon)
-        # and fetches this render's data from here.
-        self.send_header("Access-Control-Allow-Origin", "*")
+        # and fetches this render's data from here; no other origin may.
+        headers = getattr(self, "headers", None)
+        origin = headers.get("Origin", "") if headers is not None else ""
+        if _LOCAL_ORIGIN.match(origin):
+            self.send_header("Access-Control-Allow-Origin", origin)
+            self.send_header("Vary", "Origin")
         super().end_headers()
 
     def do_OPTIONS(self):  # noqa: N802 - CORS preflight for the page's JSON POSTs
@@ -57,7 +76,9 @@ class _SceneHandler(http.server.SimpleHTTPRequestHandler):
             # Voxel terrain from the source place (rhr.terrain); `null` without any.
             from rhr.terrain import terrain_payload
 
-            source = json.loads(self.ir_path.read_text(encoding="utf-8")).get("sourcePath")
+            from rhr.ir import load_ir
+
+            source = load_ir(self.ir_path).get("sourcePath")
             terrain = terrain_payload(Path(source)) if source and Path(source).is_file() else None
             payload = json.dumps(terrain).encode()
             self.send_response(200)
@@ -145,6 +166,8 @@ class _SceneHandler(http.server.SimpleHTTPRequestHandler):
                 payload = json.loads(self.rfile.read(length) or b"{}")
                 self.metadata_sink.clear()
                 self.metadata_sink.update(payload)
+                if self.camera_log is not None:
+                    self.camera_log.append(payload)
                 self.send_response(204)
                 self.end_headers()
             except (ValueError, json.JSONDecodeError):
@@ -164,12 +187,26 @@ class _SceneHandler(http.server.SimpleHTTPRequestHandler):
             request = json.loads(self.rfile.read(length) or b"{}")
             if self.ir_cache is None:
                 type(self).ir_cache = load_ir(self.ir_path)
-            with tempfile.TemporaryDirectory(prefix="rhr-gui-") as tmp:
-                out = render_gui_node(
-                    self.ir_cache, str(request["path"]), int(request["width"]), int(request["height"]),
-                    Path(tmp) / "gui.png",
-                )
-                payload = out.read_bytes()
+            # Kept while the IR is loaded (rhr.ir.derived) and the image cache unchanged:
+            # a warm render of the same place does not draw its hundred SurfaceGuis again.
+            from rhr.ir import derived
+            from rhr.paths import ICON_CACHE
+
+            try:
+                images_stamp = ICON_CACHE.stat().st_mtime_ns
+            except OSError:
+                images_stamp = None
+            drawn = derived(self.ir_cache, "in_world_gui", lambda _: {})
+            key = (str(request["path"]), int(request["width"]), int(request["height"]), images_stamp)
+            cached = drawn.get(key)
+            if cached is None:
+                with tempfile.TemporaryDirectory(prefix="rhr-gui-") as tmp:
+                    out, offset = render_gui_node(
+                        self.ir_cache, str(request["path"]), int(request["width"]), int(request["height"]),
+                        Path(tmp) / "gui.png",
+                    )
+                    cached = drawn[key] = (out.read_bytes(), offset)
+            payload, offset = cached
         except Exception as exc:  # reported to the page, which fails the render loudly
             body = f"{type(exc).__name__}: {exc}".encode()
             self.send_response(500)
@@ -181,6 +218,9 @@ class _SceneHandler(http.server.SimpleHTTPRequestHandler):
         self.send_response(200)
         self.send_header("Content-Type", "image/png")
         self.send_header("Content-Length", str(len(payload)))
+        # Where the GUI's own area sits in a picture grown for children drawn past it.
+        self.send_header("X-RHR-Offset", f"{offset[0]},{offset[1]}")
+        self.send_header("Access-Control-Expose-Headers", "X-RHR-Offset")
         self.end_headers()
         self.wfile.write(payload)
 
@@ -191,29 +231,25 @@ class _SceneHandler(http.server.SimpleHTTPRequestHandler):
 _ASSET_EXTENSIONS = ("png", "webp", "jpg", "jpeg", "svg")
 
 
-def _asset_files(roots: list[Path]) -> dict[str, Path]:
+def _files_with(roots: list[Path], suffixes) -> dict[str, tuple[Path, int, int]]:
+    """asset id -> (path, size, mtime_ns), the first root and suffix that has it winning."""
+    found: dict[str, tuple[Path, int, int]] = {}
+    for root in roots:
+        listing = _listing(root)
+        for suffix in suffixes:
+            for stem, entry in listing.get(suffix, {}).items():
+                found.setdefault(stem, entry)
+    return found
+
+
+def _asset_files(roots: list[Path]) -> dict[str, tuple[Path, int, int]]:
     """Return asset-id -> local image file, preserving root/extension priority."""
-    found: dict[str, Path] = {}
-    for root in roots:
-        if not root.is_dir():
-            continue
-        for extension in _ASSET_EXTENSIONS:
-            for path in sorted(root.glob(f"*.{extension}")):
-                if path.stem.isdigit() and path.stem not in found:
-                    found[path.stem] = path.resolve()
-    return found
+    return _files_with(roots, _ASSET_EXTENSIONS)
 
 
-def _mesh_files(roots: list[Path]) -> dict[str, Path]:
+def _mesh_files(roots: list[Path]) -> dict[str, tuple[Path, int, int]]:
     """Return asset-id -> local decompressed Roblox mesh file, in root priority order."""
-    found: dict[str, Path] = {}
-    for root in roots:
-        if not root.is_dir():
-            continue
-        for path in sorted(root.glob("*.mesh")):
-            if path.stem.isdigit() and path.stem not in found:
-                found[path.stem] = path.resolve()
-    return found
+    return _files_with(roots, ("mesh",))
 
 
 def _inline_unions(ir_path: Path) -> dict[str, Path]:
@@ -221,16 +257,25 @@ def _inline_unions(ir_path: Path) -> dict[str, Path]:
 
     Decoded once per distinct mesh into the union cache, named by the bytes' hash.
     """
+    from rhr.ir import derived, load_ir
+
+    try:
+        ir = load_ir(ir_path)
+    except (OSError, ValueError):
+        return {}
+    found = derived(ir, "inline_unions", _decode_inline_unions)
+    if all(path.is_file() for path in found.values()):
+        return found
+    return _decode_inline_unions(ir)  # the union cache was cleared since
+
+
+def _decode_inline_unions(ir: dict) -> dict[str, Path]:
     import base64
     import hashlib
 
     from rhr import unions
     from rhr.paths import UNION_CACHE
 
-    try:
-        ir = json.loads(Path(ir_path).read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return {}
     found: dict[str, Path] = {}
 
     def visit(node: dict, parent: str) -> None:
@@ -260,12 +305,18 @@ def _inline_unions(ir_path: Path) -> dict[str, Path]:
 
 def _content_refs(ir_path: Path) -> set[str]:
     """Every `rbxasset://` file the IR names (see rhr.studio.content_path)."""
-    from rhr.studio import content_path
+    from rhr.ir import derived, load_ir
 
     try:
-        ir = json.loads(Path(ir_path).read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
+        ir = load_ir(ir_path)
+    except (OSError, ValueError):
         return set()
+    return derived(ir, "content_refs", _find_content_refs)
+
+
+def _find_content_refs(ir: dict) -> set[str]:
+    from rhr.studio import content_path
+
     found: set[str] = set()
 
     def visit(value) -> None:
@@ -291,15 +342,10 @@ def _extras(ir_path: Path | None = None) -> dict:
     from rhr.paths import MATERIAL_CACHE, UNION_CACHE
     from rhr.studio import AVATAR_CONTENT, SKY_CONTENT, studio_content, studio_install, studio_textures
 
-    def by_stem(root: Path, suffix: str) -> dict[str, Path]:
-        if not root.is_dir():
-            return {}
-        return {p.stem: p.resolve() for p in root.glob(f"*{suffix}") if p.stem.isdigit()}
-
-    unions = by_stem(UNION_CACHE, ".json")
+    unions: dict = dict(_listing(UNION_CACHE).get("json", {}))
     if ir_path is not None:
         unions.update(_inline_unions(ir_path))
-    materials = by_stem(MATERIAL_CACHE, ".png")
+    materials = _listing(MATERIAL_CACHE).get("png", {})
     studio = studio_textures()
     # Files the client ships with (rbxasset://), by path: what the IR names plus what
     # characters are drawn with. Served next to the Studio textures under a name
@@ -315,16 +361,19 @@ def _extras(ir_path: Path | None = None) -> dict:
         "studioInstalled": studio_install() is not None,
     }
     return {
-        "union_files": unions,
-        "material_files": materials,
+        "union_files": _paths(unions),
+        "material_files": _paths(materials),
         "studio_files": {**studio, **{content_names[key]: path for key, path in content.items()}},
         "extras_manifest_payload": json.dumps(manifest).encode(),
     }
 
 
-def _versioned(prefix: str, key: str, path: Path) -> str:
+def _versioned(prefix: str, key: str, path) -> str:
     """`prefix/key?v=<size>-<mtime>`: the page keeps what it loaded from an address
-    between renders, so a file that changed must get another address."""
+    between renders, so a file that changed must get another address. `path` is a
+    Path, or a (path, size, mtime_ns) listing entry."""
+    if isinstance(path, tuple):
+        return f"{prefix}{key}?v={path[1]}-{path[2]}"
     try:
         info = path.stat()
         return f"{prefix}{key}?v={info.st_size}-{info.st_mtime_ns}"
@@ -332,11 +381,47 @@ def _versioned(prefix: str, key: str, path: Path) -> str:
         return f"{prefix}{key}"
 
 
+def _paths(files: dict) -> dict[str, Path]:
+    return {key: value[0] if isinstance(value, tuple) else value for key, value in files.items()}
+
+
 def _png_size(path: Path) -> tuple[int, int]:
     header = path.read_bytes()[:24]
     if len(header) < 24 or header[:8] != b"\x89PNG\r\n\x1a\n" or header[12:16] != b"IHDR":
         raise RuntimeError(f"browser output is not a PNG: {path}")
     return struct.unpack(">II", header[16:24])
+
+
+def scene_handler(ir_path: Path, asset_files: dict | None = None, mesh_files: dict | None = None, *,
+                  metadata_sink: dict | None = None, notes_out: list[str] | None = None, base=None,
+                  camera_log: list | None = None) -> type:
+    """The request handler that serves the scene page and one scene's data."""
+    return type(
+        "RHRSceneHandler",
+        (base or _SceneHandler,),
+        {
+            "ir_path": ir_path,
+            "metadata_sink": metadata_sink,
+            "camera_log": camera_log,
+            "page_notes": notes_out if notes_out is not None else [],
+            "asset_manifest_payload": json.dumps({
+                asset_id: _versioned("/__rhr_asset__/", asset_id, path)
+                for asset_id, path in (asset_files or {}).items()
+            }).encode(),
+            "asset_files": _paths(asset_files or {}),
+            "mesh_manifest_payload": json.dumps({
+                asset_id: _versioned("/__rhr_mesh__/", asset_id, path)
+                for asset_id, path in (mesh_files or {}).items()
+            }).encode(),
+            "mesh_files": _paths(mesh_files or {}),
+            **_extras(ir_path),
+        },
+    )
+
+
+def cached_asset_files() -> tuple[dict, dict]:
+    """(images, meshes) in the cache, for a scene page: id -> listing entry."""
+    return _asset_files([ICON_CACHE]), _mesh_files([MESH_CACHE])
 
 
 def _render_browser(
@@ -350,31 +435,24 @@ def _render_browser(
     asset_files: dict[str, Path] | None = None,
     mesh_files: dict[str, Path] | None = None,
     notes_out: list[str] | None = None,
+    more_views: list[tuple[str, Path]] = (),
+    camera_log: list | None = None,
 ) -> tuple[int, int]:
-    """Render one local browser page and return its verified PNG dimensions."""
+    """Render one local browser page and return its verified PNG dimensions.
+
+    `more_views` ([(query, out)]) are more pictures of the same 3D scene from other
+    cameras: drawn on the one built scene when the warm worker's kept page can, else
+    one by one.
+    """
     # Absolute: the warm worker writes the file, and its working folder is not ours.
     out = Path(out).resolve()
     out.parent.mkdir(parents=True, exist_ok=True)
-    handler = type(
-        "RHRSceneHandler",
-        (_SceneHandler,),
-        {
-            "ir_path": ir_path,
-            "metadata_sink": metadata_sink,
-            "page_notes": notes_out if notes_out is not None else [],
-            "asset_manifest_payload": json.dumps({
-                asset_id: _versioned("/__rhr_asset__/", asset_id, path)
-                for asset_id, path in (asset_files or {}).items()
-            }).encode(),
-            "asset_files": asset_files or {},
-            "mesh_manifest_payload": json.dumps({
-                asset_id: _versioned("/__rhr_mesh__/", asset_id, path)
-                for asset_id, path in (mesh_files or {}).items()
-            }).encode(),
-            "mesh_files": mesh_files or {},
-            **_extras(ir_path),
-        },
-    )
+    more_views = [(view_query, Path(view_out).resolve()) for view_query, view_out in more_views]
+    for _, view_out in more_views:
+        view_out.parent.mkdir(parents=True, exist_ok=True)
+    drawn = 0
+    handler = scene_handler(ir_path, asset_files, mesh_files, metadata_sink=metadata_sink, notes_out=notes_out,
+                            camera_log=camera_log)
     server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
     thread = threading.Thread(
         target=lambda: server.serve_forever(poll_interval=0.01),
@@ -397,15 +475,17 @@ def _render_browser(
             # contact sheet always load a page of their own.
             reuse = None
             if page == "scene/index.html" and not transparent:
-                reuse = {"query": query, "base": f"http://127.0.0.1:{server.server_port}"}
+                reuse = {"query": query, "base": f"http://127.0.0.1:{server.server_port}",
+                         "views": [{"query": q, "out": str(o)} for q, o in more_views]}
             try:
-                render_persistent(url=url, out=out, width=width, height=height, transparent=transparent, reuse=reuse)
+                drawn = render_persistent(url=url, out=out, width=width, height=height, transparent=transparent,
+                                          reuse=reuse)
             except (RuntimeError, OSError) as exc:
-                # The worker failed (or crashed): draw this one in a Chromium of its own.
+                # The worker failed (or crashed): draw this one in a browser of its own.
                 from rhr.browser_render import render_once
 
                 if notes_out is not None:
-                    notes_out.append(f"the warm browser worker failed ({str(exc)[:160]}); drew with a fresh Chromium")
+                    notes_out.append(f"the warm browser worker failed ({str(exc)[:160]}); drew with a fresh browser")
                 render_once(url=url, out=out, width=width, height=height, transparent=transparent)
         else:
             from rhr.browser_render import render_once
@@ -414,12 +494,17 @@ def _render_browser(
     finally:
         server.shutdown()
         thread.join(timeout=2)
-    if not out.is_file() or out.stat().st_size == 0:
-        raise RuntimeError(f"Chromium did not write a screenshot: {out}")
-    actual = _png_size(out)
-    expected = (width, height)
-    if actual != expected:
-        raise RuntimeError(f"browser PNG is {actual[0]}x{actual[1]}, expected {expected[0]}x{expected[1]}")
+    if camera_log is not None:
+        del camera_log[1 + drawn:]  # a view that failed part way may have reported its camera
+    for view_query, view_out in more_views[drawn:]:
+        _render_browser(ir_path, view_out, width, height, page, view_query, asset_files=asset_files,
+                        mesh_files=mesh_files, notes_out=notes_out, camera_log=camera_log)
+    for picture in [out, *(view_out for _, view_out in more_views)]:
+        if not picture.is_file() or picture.stat().st_size == 0:
+            raise RuntimeError(f"the browser did not write a screenshot: {picture}")
+        actual = _png_size(picture)
+        if actual != (width, height):
+            raise RuntimeError(f"browser PNG is {actual[0]}x{actual[1]}, expected {width}x{height}")
     return actual
 
 
@@ -456,12 +541,16 @@ def render_scene(
     effects: bool = True,
     effect_time: float | None = None,
     seed: int = 0,
+    more_views: list[tuple[str, Path]] = (),
+    camera_log: list | None = None,
 ) -> tuple[int, int]:
     """Render the 3D scene to a PNG through headless Chromium.
 
     Particles are drawn frozen at one moment of the effect playing: `effect_time`
     seconds after it starts, or the fullest moment when None. `effects=False` leaves
-    them out.
+    out particles, Beams and Trails. `more_views` ([(view, out)]) draws the scene
+    from other standard views too, on the same build when it can; `camera_log` gets
+    each picture's camera in order.
     """
     query_values: dict[str, str | float] = {}
     if not effects:
@@ -525,6 +614,8 @@ def render_scene(
         asset_files=_asset_files(asset_roots),
         mesh_files=cached_meshes,
         notes_out=notes_out,
+        more_views=[(urlencode({**query_values, "view": name}), view_out) for name, view_out in more_views],
+        camera_log=camera_log,
     )
 
 
@@ -549,63 +640,4 @@ def render_viewport(
         height,
         "scene/index.html",
         urlencode({"mode": "viewport", "path": node_path}),
-    )
-
-
-def render_particle_sheet(
-    ir_path: Path,
-    out: Path,
-    width: int,
-    height: int,
-    times: list[float],
-    seed: int,
-    burst: int = 0,
-    texture_dir: Path | None = None,
-    *,
-    effects_only: bool = False,
-    camera: tuple[float, float, float] | None = None,
-    look_at: tuple[float, float, float] | None = None,
-    camera_quaternion: tuple[float, float, float, float] | None = None,
-    fov: float | None = None,
-) -> tuple[int, int]:
-    if not times:
-        raise ValueError("particle capture needs at least one time")
-    if any(time < 0 for time in times):
-        raise ValueError("particle capture times must be non-negative")
-    if texture_dir is not None:
-        resolved = texture_dir.resolve()
-        if not resolved.is_dir():
-            raise ValueError(f"no such texture directory: {texture_dir}")
-    asset_roots = [
-        resolved if texture_dir is not None else PARTICLE_CACHE,
-        ICON_CACHE,
-    ]
-    query_values = {
-        "width": width,
-        "height": height,
-        "times": ",".join(str(time) for time in times),
-        "seed": seed,
-        "burst": burst,
-    }
-    if effects_only:
-        query_values["effectsOnly"] = "1"
-    if camera is not None:
-        query_values["camera"] = _vector_query(camera)
-    if look_at is not None:
-        query_values["lookAt"] = _vector_query(look_at)
-    if camera_quaternion is not None:
-        query_values["cameraQuaternion"] = ",".join(
-            f"{component:.9g}" for component in camera_quaternion
-        )
-    if fov is not None:
-        query_values["fov"] = fov
-    query = urlencode(query_values)
-    return _render_browser(
-        ir_path,
-        out,
-        width,
-        height * len(times),
-        "particles/index.html",
-        query,
-        asset_files=_asset_files(asset_roots),
     )

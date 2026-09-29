@@ -1,22 +1,16 @@
 # patches/
 
-One `.patch` file per change we make to `src/rhr/vendor/pinevex/`, so a human can read a
-fix without diffing two trees, and so the fixes can be offered upstream as clean
-pull requests.
+History, not a build input. Until 2026-09-27 the UI engine was a vendored copy of
+pinevex-renderer (upstream commit `db292ac`), rebuilt from upstream plus these
+patches byte for byte. It is now RHR's own code in `src/rhr/ui_engine/`
+(docs/ui-engine.md) and these files are no longer applied: they stay as the record of
+why the engine differs from upstream, one defect per patch, each with the fixture or
+test that showed it. Paths inside them are upstream's (`src/ui_engine/...`,
+`web_demo/rbxm_parser_component/tree_to_pinevexobject.py` = `converter.py`,
+`vendor/product_output/pinevex_postprocess.py` = `postprocess.py`).
 
-Rules:
-
-- One defect per patch. No drive-by edits.
-- The patch file must reproduce the change against the vendored upstream commit
-  recorded in `src/rhr/vendor/VENDOR.md`.
-- Every patch ships with a fixture under `tests/fixtures/` or in a focused test that fails before the
-  patch and passes after it. A patch with no failing fixture is not a fix, it is
-  a preference.
-- Regenerate and verify with `python3 scripts/make_patches.py`, which diffs
-  `src/rhr/vendor/pinevex` against the pristine tree (`/root/pinevex-recon`, upstream at
-  the vendored commit), writes the .patch files, then applies all of them to a
-  clean copy of that tree and checks the result is byte-identical to the vendored
-  tree. A patch set that cannot reconstruct `src/rhr/vendor/pinevex` is a broken patch set.
+The rule they followed still holds for changes to the engine: one defect per change,
+with a fixture or focused test that fails before it and passes after.
 
 ## Applied
 

@@ -1,13 +1,15 @@
 """RHR's cache on disk: how big each part is, clearing it, and keeping it under a limit.
 
-The cache holds downloaded images, meshes, unions and material maps, converted Studio
-textures and IR conversions. It is only a cache: anything removed is downloaded or
+The cache holds downloaded images, meshes, unions, material maps and models (asset ids
+given as input), converted Studio textures and IR conversions. It is only a cache: anything removed is downloaded or
 converted again when needed. The pinned tools (`bin`) and the warm worker's session
 are never pruned or cleared by `--clear all`.
 
-At most once a day, a command checks the total; above `RHR_CACHE_LIMIT_MB` (default
-2048, 0 = no limit) the least recently used files go first, until it is 80% of the
-limit. Files used in the last hour stay.
+At most once an hour, and after writing a big IR, a command checks the total; above
+`RHR_CACHE_LIMIT_MB` (default 2048, 0 = no limit) the least recently used files go
+first, until it is 80% of the limit. Files used in the last hour stay. Converting an
+edited file drops that file's earlier IR (rhr.ir.cached_ir), so the edit loop does not
+fill the cache between checks.
 """
 
 from __future__ import annotations
@@ -24,12 +26,12 @@ AREAS = {
     "meshes": CACHE / "cache" / "meshes",
     "unions": CACHE / "cache" / "unions",
     "materials": CACHE / "cache" / "materials",
-    "particles": CACHE / "cache" / "particles",
     "studio": CACHE / "cache" / "studio",
+    "models": CACHE / "cache" / "models",
     "ir": CACHE / "ir",
 }
 PRUNE_STAMP = CACHE / "cache" / ".last-prune"
-DAY = 24 * 3600
+PRUNE_EVERY_S = 3600  # a check scans the whole cache: about 0.2 s at 10k files
 
 
 def _files(root: Path):
@@ -103,9 +105,9 @@ def prune(limit: int | None = None, *, keep_recent_s: float = 3600) -> int:
 
 
 def maybe_prune() -> None:
-    """Prune at most once a day; never fails a command."""
+    """Prune at most once an hour; never fails a command."""
     try:
-        if PRUNE_STAMP.is_file() and time.time() - PRUNE_STAMP.stat().st_mtime < DAY:
+        if PRUNE_STAMP.is_file() and time.time() - PRUNE_STAMP.stat().st_mtime < PRUNE_EVERY_S:
             return
         PRUNE_STAMP.parent.mkdir(parents=True, exist_ok=True)
         PRUNE_STAMP.touch()
