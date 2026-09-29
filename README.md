@@ -14,7 +14,7 @@
 </p>
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/TabooHarmony/roblox-headless-renderer/main/docs/images/hero.png" width="100%" alt="One scene split down the middle: the left half is a Roblox Studio screenshot, the right half is rhr preview of the same file from the same camera: a purple explosion effect over two studded shops, a loud sample shop UI with image cards, and two rigs under Shop signs">
+  <img src="docs/images/hero.png" width="100%" alt="One scene split down the middle: the left half is a Roblox Studio screenshot, the right half is rhr preview of the same file from the same camera: a purple explosion effect over two studded shops, a loud sample shop UI with image cards, and two rigs under Shop signs">
 </p>
 <p align="center"><sub>Left: Roblox Studio. Right: <code>rhr preview</code> of the same place from the same camera, drawn in about a second with no Studio running. Effects are one still moment, so individual particles differ.</sub></p>
 
