@@ -2,7 +2,7 @@
 
 <p align="center">
   <b>See Roblox files without opening Studio.</b><br>
-  Pictures and plain facts about your UI and 3D builds, in about a second, from the command line.
+  Pictures and plain facts about your UI and 3D builds, in seconds, from the command line.
 </p>
 
 <p align="center">
@@ -14,7 +14,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/images/hero.png" width="80%" alt="Speed banner: Roblox Studio takes 11.8 s from launch until the scene is drawn, rhr preview takes 4.5 s on a first run (3.6 s after that), 2.6 times faster. Studio needs to be open and logged in, with an MCP server for agents; rhr is one command with no Studio or MCP, runs on Windows, macOS, Linux and CI, and returns PNG and JSON for scripts and agents. Below it, one scene split down the middle: the left half is a Roblox Studio screenshot, the right half is rhr preview of the same file from the same camera: a purple explosion effect over two studded shops, a loud sample shop UI with image cards, and two rigs under Shop signs">
+  <img src="https://raw.githubusercontent.com/TabooHarmony/roblox-headless-renderer/main/docs/images/hero.png" width="80%" alt="Speed banner: Roblox Studio takes 11.8 s from launch until the scene is drawn, rhr preview takes 4.5 s on a first run (3.6 s after that), 2.6 times faster. Studio needs to be open and logged in, with an MCP server for agents; rhr is one command with no Studio or MCP, runs on Windows, macOS, Linux and CI, and returns PNG and JSON for scripts and agents. Below it, one scene split down the middle: the left half is a Roblox Studio screenshot, the right half is rhr preview of the same file from the same camera: a purple explosion effect over two studded shops, a loud sample shop UI with image cards, and two rigs under Shop signs">
 </p>
 
 ---

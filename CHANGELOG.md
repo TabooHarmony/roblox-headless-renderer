@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased (1.0)
+## 1.0.0rc1 (release candidate)
 
 ### When upgrading
 
