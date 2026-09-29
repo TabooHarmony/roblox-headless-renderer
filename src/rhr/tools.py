@@ -185,7 +185,7 @@ def browser_report() -> tuple[dict | None, list[str]]:
     skipped = []
     for candidate in browsers.candidates():
         try:
-            browser = Browser(candidate.path, launch_args(), headless_shell=candidate.headless_shell)
+            browser = Browser(candidate.path, launch_args(candidate.headless_shell), headless_shell=candidate.headless_shell)
         except (BrowserError, OSError) as exc:
             skipped.append(f"{candidate.name} ({candidate.path}): {exc}")
             continue

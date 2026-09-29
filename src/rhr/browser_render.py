@@ -46,17 +46,36 @@ def webgl_mode() -> str:
     return "software" if value in {"software", "swiftshader", "cpu"} else "gpu"
 
 
-def sandboxed() -> bool:
+def _userns_blocked() -> bool:
+    """Whether Linux keeps unprivileged processes out of user namespaces, which the
+    sandbox of a browser without its own permission (the downloaded headless shell)
+    needs: Ubuntu 23.10+ does this through AppArmor, and the shell then exits at start."""
+    for path, blocked in (("/proc/sys/kernel/apparmor_restrict_unprivileged_userns", "1"),
+                          ("/proc/sys/kernel/unprivileged_userns_clone", "0")):
+        try:
+            if Path(path).read_text().strip() == blocked:
+                return True
+        except OSError:
+            pass
+    return False
+
+
+def sandboxed(headless_shell: bool = False) -> bool:
     """Whether the browser keeps its sandbox: it decodes images and meshes from the
-    internet. Chromium's sandbox cannot start as root on Linux (containers, CI images);
+    internet. Chromium's sandbox cannot start as root on Linux (containers, CI images),
+    nor for the headless shell where user namespaces are blocked (Ubuntu 24.04);
     `RHR_BROWSER_SANDBOX=0` turns it off where it fails for another reason."""
     if os.environ.get("RHR_BROWSER_SANDBOX", "").strip().lower() in {"0", "no", "off", "false"}:
         return False
-    return not (sys.platform.startswith("linux") and hasattr(os, "geteuid") and os.geteuid() == 0)
+    if not sys.platform.startswith("linux"):
+        return True
+    if hasattr(os, "geteuid") and os.geteuid() == 0:
+        return False
+    return not (headless_shell and _userns_blocked())
 
 
-def launch_args() -> list[str]:
-    args = _COMMON_ARGS if sandboxed() else [*_COMMON_ARGS, "--no-sandbox"]
+def launch_args(headless_shell: bool = False) -> list[str]:
+    args = _COMMON_ARGS if sandboxed(headless_shell) else [*_COMMON_ARGS, "--no-sandbox"]
     if webgl_mode() == "software":
         return [*args, "--use-angle=swiftshader"]
     return [*args, "--enable-gpu"]
@@ -79,7 +98,7 @@ def launch() -> tuple[Browser, dict]:
     failures = []
     for candidate in browsers.candidates():
         try:
-            browser = Browser(candidate.path, launch_args(), headless_shell=candidate.headless_shell)
+            browser = Browser(candidate.path, launch_args(candidate.headless_shell), headless_shell=candidate.headless_shell)
         except (BrowserError, OSError) as exc:
             failures.append(f"{candidate.name} ({candidate.path}): {exc}")
             continue
@@ -92,7 +111,7 @@ def launch() -> tuple[Browser, dict]:
                            + (f" Tried: {'; '.join(failures)}" if failures else ""))
     path = browsers.download_shell()
     candidate = browsers.Candidate("headless shell", str(path), "downloaded")
-    browser = Browser(candidate.path, launch_args(), headless_shell=True)
+    browser = Browser(candidate.path, launch_args(True), headless_shell=True)
     return browser, browsers.describe(candidate, browser.version)
 
 

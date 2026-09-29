@@ -161,7 +161,7 @@ jobs:
             Windows)
               for d in "/c/Program Files/Google/Chrome" "/c/Program Files (x86)/Google/Chrome" \
                        "/c/Program Files (x86)/Microsoft/Edge" "/c/Program Files/Microsoft/Edge"; do
-                [ -d "$d" ] && mv "$d" "$d.hidden"
+                [ -d "$d" ] && mv "$d" "$d.hidden" || true
               done ;;
           esac
 

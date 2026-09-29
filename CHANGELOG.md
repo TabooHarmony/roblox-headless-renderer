@@ -194,8 +194,9 @@
   place's conversion is read again when next asked for. On a 116k-part place the
   server went from 916 MB to 392 MB.
 - **Hardening.** The headless browser keeps Chromium's sandbox (it decodes images
-  and meshes from the internet); only Linux as root turns it off, as Chromium
-  requires, and `RHR_BROWSER_SANDBOX=0` where it fails for another reason. RHR's
+  and meshes from the internet); it is off only where Chromium cannot start it: Linux
+  as root, and the downloaded headless shell where Linux blocks user namespaces
+  (Ubuntu 24.04), and `RHR_BROWSER_SANDBOX=0` where it fails for another reason. RHR's
   local servers (renders, `rhr view`) answer only requests addressed to this machine
   and share data only with local pages, so a web page cannot read a scene through
   them. A binary file whose chunks claim impossible sizes is refused before anything
