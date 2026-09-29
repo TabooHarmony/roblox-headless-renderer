@@ -14,9 +14,9 @@
 </p>
 
 <p align="center">
-  <img src="docs/images/hero.png" width="100%" alt="One scene split down the middle: the left half is a Roblox Studio screenshot, the right half is rhr preview of the same file from the same camera: a purple explosion effect over two studded shops, a loud sample shop UI with image cards, and two rigs under Shop signs">
+  <img src="docs/images/hero.png" width="100%" alt="Speed banner: Roblox Studio takes 11.8 s from launch until the scene is drawn, rhr preview takes 4.5 s on a first run (3.6 s after that), 2.6 times faster. Below it, one scene split down the middle: the left half is a Roblox Studio screenshot, the right half is rhr preview of the same file from the same camera: a purple explosion effect over two studded shops, a loud sample shop UI with image cards, and two rigs under Shop signs">
 </p>
-<p align="center"><sub>Left: Roblox Studio. Right: <code>rhr preview</code> of the same place from the same camera, drawn in about a second with no Studio running. Effects are one still moment, so individual particles differ.</sub></p>
+<p align="center"><sub>Same place, same camera, same PC. Times run from launch until the picture is there. Left: Roblox Studio. Right: <code>rhr preview</code>. Effects are one still moment, so individual particles differ.</sub></p>
 
 ---
 
