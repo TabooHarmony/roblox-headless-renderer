@@ -139,7 +139,11 @@ signed in, see below):
   own colour (a blurred quarter-resolution copy added over the picture, as Roblox
   does it) and dim Neon does not. Transparent Neon is see-through by its
   Transparency, with less glow. (In Studio a strongly transparent Neon part reads
-  more solid than that; RHR keeps what is behind it visible.) Compared with Studio at
+  more solid than that; RHR keeps what is behind it visible.) Partly transparent Neon fades by its Transparency
+  (brightness x (1 - T), glow x (1 - T)^2); at T = 0.3 it is still brighter and more
+  saturated than Studio's, which shows more of what is behind it (README picture:
+  mean difference 50 of 255 on the red bars). Additive particle effects also read
+  whiter than Studio's. Compared with Studio at
   its highest quality level; at low quality levels Studio draws no glow at all. Unknown materials draw as Plastic and are
   counted as `materialFallbacks`. `--flat-materials` draws plain colours.
 - Plastic has Roblox's faint surface relief, and legacy surfaces (`TopSurface =

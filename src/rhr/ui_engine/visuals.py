@@ -172,7 +172,10 @@ def draw_background(
     # slate band wrapping the frame edge).
     border = node.get("legacyBorder")
     bx, by, bw, bh = x, y, w, h
-    if border:
+    # A UICorner hides the legacy border in Roblox: without this, the default
+    # BorderSizePixel 1 filled a square of BorderColor3 behind every rounded frame,
+    # showing at its corners (Studio side-by-side, 2026-09-28).
+    if border and resolve_corner(node, w, h) <= 0:
         bsize = max(0, int(border.get("size", 0)))
         bcolor = border.get("color") or [0, 0, 0]
         if bsize > 0:

@@ -13,6 +13,8 @@ are a slight upper bound on string width (0-8px over a 30-char string);
 no kerning exists at small sizes (adjacent pairs sum exactly).
 """
 import json
+
+import skia
 from pathlib import Path
 
 _DATA_DIR = Path(__file__).resolve().parent / "data"
@@ -132,6 +134,10 @@ def draw_line_table(canvas, text: str, x: float, baseline_y: float,
     table_sum = sum(t for t, a in measured if t >= 0 and a > 0)
     skia_sum = sum(a for t, a in measured if t >= 0 and a > 0)
     scale = table_sum / skia_sum if skia_sum > 0 else 1.0
+    # A gradient (UIGradient on the label) is laid over the label's box: undo each
+    # glyph's move and scale for it, or every glyph samples the gradient's first
+    # stop and the text comes out one flat colour.
+    shader = paint.getShader()
     cursor = x
     for ch, (tadv, skia_adv) in zip(text, measured):
         if tadv < 0 or skia_adv <= 0:
@@ -141,9 +147,16 @@ def draw_line_table(canvas, text: str, x: float, baseline_y: float,
         if abs(scale - 1.0) < 1e-3:
             canvas.drawString(ch, cursor, baseline_y, font, paint)
         else:
+            glyph_paint = paint
+            if shader is not None:
+                undo = skia.Matrix()
+                undo.setScale(1.0 / scale, 1.0 / scale)
+                undo.preTranslate(-cursor, -baseline_y)
+                glyph_paint = skia.Paint(paint)
+                glyph_paint.setShader(shader.makeWithLocalMatrix(undo))
             canvas.save()
             canvas.translate(cursor, baseline_y)
             canvas.scale(scale, scale)
-            canvas.drawString(ch, 0.0, 0.0, font, paint)
+            canvas.drawString(ch, 0.0, 0.0, font, glyph_paint)
             canvas.restore()
         cursor += tadv

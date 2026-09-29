@@ -94,6 +94,36 @@ def main() -> None:
             xs = np.nonzero(red.any(axis=0))[0]
             widths[clips] = int(xs.max() - xs.min() + 1) if len(xs) else 0
         assert widths[False] > 2.5 * max(widths[True], 1), f"billboard text widths (clipped, not clipped): {widths}"
+
+        # 3. A rounded frame has no square of the default legacy border (BorderColor3
+        #    27,42,53) at its corners, and 4. a UIGradient on Fredoka text is a gradient.
+        frame = {"className": "Frame", "name": "Round", "props": {
+            "BackgroundColor3": color(1, 1, 1), "BackgroundTransparency": 0, "BorderSizePixel": 1,
+            "BorderColor3": {"_t": "Color3", "R": 27 / 255, "G": 42 / 255, "B": 53 / 255},
+            "Position": udim2(0, 20, 0, 20), "Size": udim2(0, 160, 0, 80)},
+            "children": [{"className": "UICorner", "name": "UICorner", "children": [],
+                          "props": {k: {"_t": "UDim", "Scale": 0, "Offset": 24} for k in
+                                    ("TopLeftRadius", "TopRightRadius", "BottomLeftRadius", "BottomRightRadius")}}]}
+        title = fredoka_ir()["roots"][0]["children"][0]["children"][0]
+        title["props"].update(Text="GRADIENT", TextSize=48, Position=udim2(0, 20, 0, 120), Size=udim2(0, 300, 0, 60),
+                              BackgroundTransparency=1)
+        title["children"] = [{"className": "UIGradient", "name": "UIGradient", "children": [], "props": {
+            "Rotation": 90, "Color": {"_t": "ColorSequence", "kind": "ColorSequence", "keypoints": [
+                {"Time": 0, "Value": color(1, 1, 0)}, {"Time": 1, "Value": color(1, 0, 0)}]}}}]
+        gui = {"className": "ScreenGui", "name": "Gui", "props": {"IgnoreGuiInset": True}, "children": [frame, title]}
+        source = tmp / "shapes.json"
+        source.write_text(json.dumps({"sourcePath": "shapes", "roots": [
+            {"className": "StarterGui", "name": "StarterGui", "props": {}, "children": [gui]}]}), encoding="utf-8")
+        run("ui", str(source), "--viewport", "400x200", "--topbar-height", "0", "--background", "00000000",
+            "--out", str(tmp / "shapes.png"))
+        shapes = np.asarray(Image.open(tmp / "shapes.png").convert("RGBA")).astype(int)
+        assert shapes[21, 21, 3] == 0, f"square border corner behind a rounded frame: {shapes[21, 21]}"
+        ink = shapes[120:180, 20:320]
+        lit = (ink[..., 3] > 200) & (ink[..., 0] > 200)
+        rows = np.nonzero(lit.any(axis=1))[0]
+        top_g = ink[rows[0] + 3][lit[rows[0] + 3]][:, 1].mean()
+        bottom_g = ink[rows[-1] - 3][lit[rows[-1] - 3]][:, 1].mean()
+        assert top_g - bottom_g > 30, f"gradient text is one colour (green top {top_g:.0f}, bottom {bottom_g:.0f})"
     print(f"ink {ink_w}x{ink_h} for bounds {bounds}; billboard text {widths[True]} px clipped, {widths[False]} px not")
 
 

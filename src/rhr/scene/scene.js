@@ -724,7 +724,7 @@ function shapeGeometry(node) {
 const NEON_BRIGHTNESS = 3;
 function neonBrightness(transparency) {
   const t = Math.max(0, Math.min(1, Number(transparency) || 0));
-  return NEON_BRIGHTNESS * (1 - t * t);
+  return NEON_BRIGHTNESS * (1 - t);
 }
 const MATERIAL_TABLE = {
   Plastic: {roughness: TUNE.pRough, metalness: 0.0},
@@ -5152,7 +5152,7 @@ function renderNeonBuffer(camera, target) {
       // white, cyan light cyan; grey and dark colours hardly glow).
       const glow = colorValue(node.props?.Color).multiplyScalar(neonBrightness(transparency));
       const peak = Math.max(glow.r, glow.g, glow.b);
-      glow.multiplyScalar(THREE.MathUtils.smoothstep(peak, 0.8, 1.6) * (1 - transparency));
+      glow.multiplyScalar(THREE.MathUtils.smoothstep(peak, 0.8, 1.6) * (1 - transparency) ** 2);
       object.material = new THREE.MeshBasicMaterial({color: glow});
     } else if (object.isLineSegments || object.userData?.rhrEffect || (object.material?.transparent && object.material.opacity < 0.5)) {
       object.visible = false;

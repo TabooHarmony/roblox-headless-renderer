@@ -82,6 +82,11 @@
 
 ### Changes
 
+- **Rounded frames no longer sit on a square.** The default 1 px legacy border
+  (BorderColor3 27,42,53) was drawn as a filled square under every frame and showed
+  at rounded corners; Roblox hides it when a UICorner is present, and now RHR does.
+- **A UIGradient on Fredoka text is a gradient again**, not the first colour.
+- **Partly transparent Neon glows less** (closer to Studio; see known approximations).
 - **Fredoka One (and every face with a Studio advance table) draws at Studio's size.**
   The glyphs were drawn about 0.82x too small inside correctly laid-out text: the table
   was read at the font's em size instead of the TextSize. Ink now matches Studio's
