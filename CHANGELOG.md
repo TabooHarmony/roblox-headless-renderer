@@ -82,6 +82,12 @@
 
 ### Changes
 
+- **Fredoka One (and every face with a Studio advance table) draws at Studio's size.**
+  The glyphs were drawn about 0.82x too small inside correctly laid-out text: the table
+  was read at the font's em size instead of the TextSize. Ink now matches Studio's
+  (137x22 px for "Sample Price" at 26, Studio 137x22).
+- **BillboardGuis with ClipsDescendants off draw their children past their own size**,
+  as in Roblox (a 1-stud sign with a wide label showed a few letters).
 - **Places with many shadow-casting lights no longer lose their parts.** Each
   shadow takes one of a shader's 16 texture units; a shop with 17 SpotLights went past
   the limit and every textured part (Wood, Plastic, Fabric) vanished, with nothing

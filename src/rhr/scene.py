@@ -198,14 +198,15 @@ class _SceneHandler(http.server.SimpleHTTPRequestHandler):
                 images_stamp = None
             drawn = derived(self.ir_cache, "in_world_gui", lambda _: {})
             key = (str(request["path"]), int(request["width"]), int(request["height"]), images_stamp)
-            payload = drawn.get(key)
-            if payload is None:
+            cached = drawn.get(key)
+            if cached is None:
                 with tempfile.TemporaryDirectory(prefix="rhr-gui-") as tmp:
-                    out = render_gui_node(
+                    out, offset = render_gui_node(
                         self.ir_cache, str(request["path"]), int(request["width"]), int(request["height"]),
                         Path(tmp) / "gui.png",
                     )
-                    payload = drawn[key] = out.read_bytes()
+                    cached = drawn[key] = (out.read_bytes(), offset)
+            payload, offset = cached
         except Exception as exc:  # reported to the page, which fails the render loudly
             body = f"{type(exc).__name__}: {exc}".encode()
             self.send_response(500)
@@ -217,6 +218,9 @@ class _SceneHandler(http.server.SimpleHTTPRequestHandler):
         self.send_response(200)
         self.send_header("Content-Type", "image/png")
         self.send_header("Content-Length", str(len(payload)))
+        # Where the GUI's own area sits in a picture grown for children drawn past it.
+        self.send_header("X-RHR-Offset", f"{offset[0]},{offset[1]}")
+        self.send_header("Access-Control-Expose-Headers", "X-RHR-Offset")
         self.end_headers()
         self.wfile.write(payload)
 

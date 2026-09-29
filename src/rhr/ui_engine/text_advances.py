@@ -1,9 +1,10 @@
 """Studio-measured per-character advance tables (task 0.2a).
 
 Roblox's rasterizer quantizes glyph advances independently of the TTF's raw
-metrics: for FredokaOne, Studio draws advances at 0.75-0.80x of the
-byte-identical font binary's skia advances, and fits single-line TextScaled
-size <= box height exactly (TextBounds.Y == fitted size). The tables here are
+metrics: for FredokaOne, Studio's advances are about 1.1x the byte-identical
+font binary's skia advances at RHR's em (roblox_em_px), its glyphs are drawn
+that much larger in both axes (ink width == TextBounds.X), and it fits
+single-line TextScaled size <= box height exactly (TextBounds.Y == fitted size). The tables here are
 captured from live Studio TextBounds probes (see
 scripts/groundtruth/*probe.luau in the RHR repo and plan task 0.2a).
 
@@ -16,11 +17,6 @@ from pathlib import Path
 
 _DATA_DIR = Path(__file__).resolve().parent / "data"
 _CACHE: dict[tuple[str, int, str], dict | None] = {}
-# Vertical glyph scale for table mode: Studio's rasterizer draws these glyphs
-# smaller than the raw TTF outlines in BOTH axes; the advance ratio models x,
-# this constant models y (Studio ink height / skia ink height at the fitted
-# size). Calibrated on the RTL2PCParts title band.
-TABLE_Y_SCALE = 0.87
 
 
 def _table_path(family: str, weight: int, style: str) -> Path:
@@ -118,31 +114,36 @@ def string_width(table: dict, text: str, size: float) -> float | None:
 
 
 def draw_line_table(canvas, text: str, x: float, baseline_y: float,
-                    font, paint, table: dict, y_scale: float | None = None) -> None:
-    """Draw one line at Studio-measured advances with per-glyph y scale.
+                    font, paint, table: dict, size: float | None = None) -> None:
+    """Draw one line at Studio-measured advances.
 
-    Studio's rasterizer draws this family's glyphs narrower than the raw TTF
-    outlines; each glyph keeps the measured advance (x) and is scaled
-    vertically by y_scale about the baseline. Chars outside the table's ASCII
-    range fall back to the font's natural advance with no scale.
+    Studio draws this family's glyphs uniformly larger than the raw TTF outlines
+    at RHR's em, by the ratio of its advances to skia's: measured in Studio 2026-09,
+    "Sample Price" at TextSize 26 has 137x22 px of ink for TextBounds 138 wide,
+    1.10x skia's ink both ways, and table/skia advances over the string are 1.10.
+    One scale per line (the per-glyph ratio is noisy: the table rounds each
+    advance up to a whole pixel); each glyph still sits at its measured advance.
+    Chars outside the table's ASCII range keep the font's natural advance and size.
+    `size` is the Roblox TextSize the table is indexed by (the font's own size is
+    the em, which is smaller).
     """
-    if y_scale is None:
-        y_scale = TABLE_Y_SCALE
+    size = float(font.getSize()) if size is None else float(size)
+    measured = [(char_advance(table, ch, size), float(font.measureText(ch))) for ch in text]
+    table_sum = sum(t for t, a in measured if t >= 0 and a > 0)
+    skia_sum = sum(a for t, a in measured if t >= 0 and a > 0)
+    scale = table_sum / skia_sum if skia_sum > 0 else 1.0
     cursor = x
-    for ch in text:
-        skia_adv = float(font.measureText(ch))
-        tadv = char_advance(table, ch, float(font.getSize()))
+    for ch, (tadv, skia_adv) in zip(text, measured):
         if tadv < 0 or skia_adv <= 0:
             canvas.drawString(ch, cursor, baseline_y, font, paint)
             cursor += skia_adv
             continue
-        sx = tadv / skia_adv
-        if abs(sx - 1.0) < 1e-3 and abs(y_scale - 1.0) < 1e-3:
+        if abs(scale - 1.0) < 1e-3:
             canvas.drawString(ch, cursor, baseline_y, font, paint)
         else:
             canvas.save()
             canvas.translate(cursor, baseline_y)
-            canvas.scale(sx, y_scale)
+            canvas.scale(scale, scale)
             canvas.drawString(ch, 0.0, 0.0, font, paint)
             canvas.restore()
         cursor += tadv

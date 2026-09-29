@@ -4634,13 +4634,23 @@ async function renderGuiImage(node, canvasWidth, canvasHeight) {
     }),
   });
   if (!response.ok) throw new Error(`in-world GUI ${node.path}: ${await response.text()}`);
+  // A BillboardGui that does not clip comes back larger than its own area, with
+  // the offset of that area inside the picture: drawn at its natural size, shifted.
+  const [offsetX, offsetY] = (response.headers.get('X-RHR-Offset') || '0,0').split(',').map(Number);
   const image = document.createElement('img');
   image.src = URL.createObjectURL(await response.blob());
   await image.decode();
   image.style.position = 'absolute';
-  image.style.inset = '0';
-  image.style.width = '100%';
-  image.style.height = '100%';
+  if (offsetX || offsetY || image.naturalWidth !== Math.round(canvasWidth) || image.naturalHeight !== Math.round(canvasHeight)) {
+    image.style.left = `${-offsetX}px`;
+    image.style.top = `${-offsetY}px`;
+    image.style.width = `${image.naturalWidth}px`;
+    image.style.height = `${image.naturalHeight}px`;
+  } else {
+    image.style.inset = '0';
+    image.style.width = '100%';
+    image.style.height = '100%';
+  }
   return image;
 }
 

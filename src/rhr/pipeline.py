@@ -639,23 +639,48 @@ def render_ir(
 MAX_GUI_CANVAS = 4096
 
 
-def render_gui_node(ir, node_path: str, width: int, height: int, out_path) -> Path:
+def render_gui_node(ir, node_path: str, width: int, height: int, out_path) -> tuple[Path, tuple[int, int]]:
     """Render one BillboardGui/SurfaceGui subtree with the 2D engine at width x height.
 
     In-world UI goes through the same renderer as ScreenGuis, laid out on the canvas
     size Roblox would give it (the scene page computes that: camera distance for a
     BillboardGui, face size x PixelsPerStud or CanvasSize for a SurfaceGui). Canvases
     larger than MAX_GUI_CANVAS per side are clamped (see known-approximations).
+
+    A BillboardGui with ClipsDescendants off draws its children past its own size, as
+    in Roblox: a 1-stud billboard with a label five times as wide shows the whole
+    label. The picture is then larger than width x height; returns it with the
+    offset (left, top) of the billboard's own area inside it.
     """
+    import math
+
     from rhr.adapter import ir_node_to_raw
     from rhr.ir import resolve_path
+    from rhr.ui_engine.layout import Rect
 
     node = resolve_path(ir["roots"], node_path)
     if node.get("className") not in {"BillboardGui", "SurfaceGui"}:
         raise ValueError(f"{node_path} is a {node.get('className')}, not a BillboardGui or SurfaceGui")
     width = max(1, min(int(width), MAX_GUI_CANVAS))
     height = max(1, min(int(height), MAX_GUI_CANVAS))
-    return render_object(to_pinevex_object([ir_node_to_raw(node)]), out_path, width, height, (0, 0, 0, 0))
+    left = top = right = bottom = 0
+    if node.get("className") == "BillboardGui" and (node.get("props") or {}).get("ClipsDescendants") is False:
+        rects: dict = {}
+        render_object(to_pinevex_object([ir_node_to_raw(node)]), None, width, height, (0, 0, 0, 0), rect_map=rects,
+                      draw=False)
+        for rect in rects.values():
+            left = max(left, math.ceil(-rect.x))
+            top = max(top, math.ceil(-rect.y))
+            right = max(right, math.ceil(rect.x + rect.w - width))
+            bottom = max(bottom, math.ceil(rect.y + rect.h - height))
+        spare_w = max(0, MAX_GUI_CANVAS - width)
+        spare_h = max(0, MAX_GUI_CANVAS - height)
+        left, right = min(left, spare_w // 2), min(right, spare_w // 2)
+        top, bottom = min(top, spare_h // 2), min(bottom, spare_h // 2)
+    grown = left or top or right or bottom
+    out = render_object(to_pinevex_object([ir_node_to_raw(node)]), out_path, width + left + right, height + top + bottom,
+                        (0, 0, 0, 0), root_rect=Rect(left, top, width, height) if grown else None)
+    return out, (left, top)
 
 
 def render_pinevex_json(

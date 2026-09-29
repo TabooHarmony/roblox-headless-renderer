@@ -14,13 +14,9 @@
 </p>
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/TabooHarmony/roblox-headless-renderer/main/docs/images/build.png" width="98%" alt="Roblox's game template drawn by rhr scene: a pastel tower of platforms and stairs with shadows, plants, a floating sphere and cube, under a cloudy sky">
+  <img src="https://raw.githubusercontent.com/TabooHarmony/roblox-headless-renderer/main/docs/images/hero.png" width="100%" alt="One scene split down the middle: the left half is a Roblox Studio screenshot, the right half is rhr preview of the same file from the same camera: a purple explosion effect over two studded shops, a loud sample shop UI with image cards, and two rigs under Shop signs">
 </p>
-<p align="center">
-  <img src="https://raw.githubusercontent.com/TabooHarmony/roblox-headless-renderer/main/docs/images/shop.png" width="40%" alt="A shop ScreenGui drawn by rhr ui: item cards in a grid with rarity colours, rounded corners and price buttons">
-  <img src="https://raw.githubusercontent.com/TabooHarmony/roblox-headless-renderer/main/docs/images/vfx.png" width="57%" alt="Three glowing shooting stars, orange, green and violet, with wavy tails, drawn by rhr scene from a particle and beam effect">
-</p>
-<p align="center"><sub>Every picture above came out of <code>rhr</code>: a 3D build, a shop UI, and a particle effect frozen at its fullest moment.</sub></p>
+<p align="center"><sub>Left: Roblox Studio. Right: <code>rhr preview</code> of the same place from the same camera, drawn in about a second with no Studio running. Effects are one still moment, so individual particles differ.</sub></p>
 
 ---
 

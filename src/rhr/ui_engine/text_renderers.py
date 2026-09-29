@@ -561,7 +561,7 @@ def _draw_text_plain(canvas: skia.Canvas, x: float, y: float, w: float, h: float
             for _, sp in stroke_paints:
                 _annotate(canvas, f"Text stroke: {name}")
                 if table_mode:
-                    draw_line_table(canvas, line, line_x, baseline_y, font, sp, adv_table)
+                    draw_line_table(canvas, line, line_x, baseline_y, font, sp, adv_table, float(text_size))
                 else:
                     _draw_mixed(canvas, line, line_x, baseline_y, font, emoji_font, sp, fallback_fonts)
             # Roblox icon PUA glyphs keep clearer inner contour lines without knockout clear.
@@ -570,14 +570,14 @@ def _draw_text_plain(canvas: skia.Canvas, x: float, y: float, w: float, h: float
                 clear_paint.setAntiAlias(True)
                 clear_paint.setBlendMode(skia.BlendMode.kDstOut)
                 if table_mode:
-                    draw_line_table(canvas, line, line_x, baseline_y, font, clear_paint, adv_table)
+                    draw_line_table(canvas, line, line_x, baseline_y, font, clear_paint, adv_table, float(text_size))
                 else:
                     _draw_mixed(canvas, line, line_x, baseline_y, font, emoji_font, clear_paint, fallback_fonts)
             canvas.restore()
 
         _annotate(canvas, f"Text fill: {name}")
         if table_mode:
-            draw_line_table(canvas, line, line_x, baseline_y, font, paint, adv_table)
+            draw_line_table(canvas, line, line_x, baseline_y, font, paint, adv_table, float(text_size))
         else:
             _draw_mixed(canvas, line, line_x, baseline_y, font, emoji_font, paint, fallback_fonts)
 
