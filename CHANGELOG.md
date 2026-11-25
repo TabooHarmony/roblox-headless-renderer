@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- **Engine properties Lune has no value for read as defaults in a story.** Lune's data lists many service properties it
+  cannot read ("missing default value" / "malformed property info": `UserInputService.KeyboardEnabled` and
+  `PreferredInput`, `GuiService.TopbarInset`, ...), which broke UI code that reads them. A story now sees `game` and the
+  services it touches through a forwarding proxy that answers from a table of desktop defaults (`TopbarInset` is a Rect
+  of rhr's reference top-bar height), else a typed neutral value with one warning (#10).
+
 ## 1.0.0rc1 (release candidate)
 
 ### When upgrading

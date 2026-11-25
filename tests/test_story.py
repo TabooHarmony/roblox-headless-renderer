@@ -104,6 +104,26 @@ def main() -> int:
     check(re.search(r"at src[\\/]Broken\.story\.luau:5", proc.stderr) is not None, "the line, in the story's file")
     check("story-runtime" not in proc.stderr, "not RHR's own runtime frames")
 
+    print("story: engine properties Lune has no value for read as defaults (GuiService, UserInputService)")
+    doc = layout("EngineDefaults.story.luau", "--rich")
+    if doc:
+        nodes = {node["path"]: node for node in doc["nodes"]}
+        probe = nodes.get("EngineDefaults/Target/Probe", {}).get("text", {}).get("content")
+        check(probe == "defaults", f"TopbarInset, PreferredInput, input flags, a neutral value: {probe!r}")
+
+    print("story: the --device's input reaches the story (touch on a phone, gamepad on the console)")
+    for device, expected in (("desktop", "keyboard"), ("phone", "touch"), ("tablet", "touch"), ("console", "gamepad")):
+        proc = run(["layout", str(STORIES / "DeviceInput.story.luau"), "--device", device, "--rich"])
+        probe = None
+        if proc.returncode == 0:
+            nodes = {node["path"]: node for node in json.loads(proc.stdout)["nodes"]}
+            probe = nodes.get("DeviceInput/Target/Probe", {}).get("text", {}).get("content")
+        check(probe == expected, f"--device {device}: {probe!r}")
+    proc = run(["check", str(STORIES / "DeviceInput.story.luau"), "--devices", "desktop,phone"])
+    seen = [f["devices"] for f in json.loads(proc.stdout or "{}").get("findings", []) if f["check"] == "small-target"]
+    check(proc.returncode in (0, 1) and seen == [["desktop"]],
+          f"check --devices runs the story per device: the phone drew its big touch button, so only desktop has the small one {seen}")
+
     print("story: no way to Lune's own globals through getfenv")
     proc = run(["layout", str(STORIES / "Escape.story.luau")])
     check(proc.returncode == 2 and "getfenv is not available" in proc.stderr,

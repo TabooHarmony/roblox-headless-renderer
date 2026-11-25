@@ -1,6 +1,6 @@
 -- Run one UI story headlessly and save the UI it builds (rhr.story).
 --
---   lune run story-runtime.luau <built.rbxl|rbxm> <module path JSON> <out.rbxm> <width> <height> <name>
+--   lune run story-runtime.luau <built.rbxl|rbxm> <module path JSON> <out.rbxm> <width> <height> <name> [topbar height] [input: keyboard|touch|gamepad]
 --
 -- The built file is the Rojo project; the module path (a JSON list of names from the
 -- root) is the story's ModuleScript in it. Every UI library ends in the same calls
@@ -21,6 +21,12 @@ local task = require("@lune/task")
 local builtPath, modulePathJson, outPath = process.args[1], process.args[2], process.args[3]
 local viewport = roblox.Vector2.new(tonumber(process.args[4]) or 1615, tonumber(process.args[5]) or 1080)
 local storyName = process.args[6] or "Story"
+local topbarHeight = tonumber(process.args[7]) or 58
+-- The input the player has (rhr's --device): keyboard and mouse (desktop, laptop), touch (phone, tablet) or a gamepad (console).
+local inputKind = process.args[8] or "keyboard"
+if inputKind ~= "touch" and inputKind ~= "gamepad" then
+	inputKind = "keyboard"
+end
 
 local function fail(message)
 	stdio.ewrite(tostring(message) .. "\n")
@@ -141,12 +147,12 @@ end)
 roblox.implementMethod("RunService", "UnbindFromRenderStep", function(_, name)
 	renderSteps[name] = nil
 end)
-for name, value in { TouchEnabled = false, KeyboardEnabled = true, MouseEnabled = true, GamepadEnabled = false } do
-	pcall(roblox.implementProperty, "UserInputService", name, function()
-		return value
-	end)
-end
 roblox.implementMethod("UserInputService", "GetLastInputType", function()
+	if inputKind == "touch" then
+		return roblox.Enum.UserInputType.Touch
+	elseif inputKind == "gamepad" then
+		return roblox.Enum.UserInputType.Gamepad1
+	end
 	return roblox.Enum.UserInputType.MouseButton1
 end)
 roblox.implementMethod("UserInputService", "GetMouseLocation", function()
@@ -282,10 +288,201 @@ local function requireModule(target, from)
 	return result
 end
 
+-- Engine properties Lune cannot read ---------------------------------------------------------
+-- Lune's reflection data lists many engine properties it has no value for: reading one raises
+-- "missing default value" or "malformed property info" (UserInputService.KeyboardEnabled, GuiService
+-- .TopbarInset, PreferredInput, ...), and implementProperty cannot replace a listed property. UI code
+-- reads them freely, so a story sees `game` and the services it touches through a forwarding proxy
+-- that answers those reads: from DEFAULTS (a desktop with keyboard and mouse), else a neutral value of
+-- the property's type with one warning, else it raises as before. Only services are wrapped; ordinary
+-- instances (a TextLabel's TextBounds, ...) cannot be, so those reads still raise.
+local DEFAULTS = {
+	GuiService = {
+		TopbarInset = roblox.Rect.new(0, 0, viewport.X, topbarHeight),
+		MenuIsOpen = false,
+		IsWindows = true,
+		TouchControlsEnabled = false,
+		GuiNavigationEnabled = false,
+		CoreGuiNavigationEnabled = false,
+		AutoSelectGuiEnabled = true,
+		ReducedMotionEnabled = false,
+		PreferredTransparency = 1,
+		PreferredTextSize = roblox.Enum.PreferredTextSize.Medium,
+		ViewportDisplaySize = roblox.Enum.DisplaySize.Large,
+		ViewportSizeInMM = roblox.Vector2.new(viewport.X * 0.26, viewport.Y * 0.26),
+	},
+	UserInputService = {
+		PreferredInput = roblox.Enum.PreferredInput.KeyboardAndMouse,
+		TouchEnabled = false,
+		TouchScreenEnabled = false,
+		KeyboardEnabled = true,
+		MouseEnabled = true,
+		GamepadEnabled = false,
+		VREnabled = false,
+		GyroscopeEnabled = false,
+		AccelerometerEnabled = false,
+		MouseIconEnabled = true,
+		MouseBehavior = roblox.Enum.MouseBehavior.Default,
+		MouseDeltaSensitivity = 1,
+		OnScreenKeyboardVisible = false,
+		OnScreenKeyboardSize = roblox.Vector2.zero,
+		OnScreenKeyboardPosition = roblox.Vector2.zero,
+		StatusBarSize = roblox.Vector2.zero,
+		NavBarSize = roblox.Vector2.zero,
+		BottomBarSize = roblox.Vector2.zero,
+		RightBarSize = roblox.Vector2.zero,
+	},
+	Players = { NumPlayers = 1, BubbleChat = false, ClassicChat = true },
+	VRService = { VREnabled = false },
+}
+if inputKind == "touch" then
+	-- A touch screen: no keyboard or mouse, touch is the preferred input (what a phone reports).
+	for key, value in { PreferredInput = roblox.Enum.PreferredInput.Touch, TouchEnabled = true, TouchScreenEnabled = true,
+		KeyboardEnabled = false, MouseEnabled = false, GamepadEnabled = false, MouseIconEnabled = false } do
+		DEFAULTS.UserInputService[key] = value
+	end
+	DEFAULTS.GuiService.TouchControlsEnabled = true
+	DEFAULTS.GuiService.IsWindows = false
+elseif inputKind == "gamepad" then
+	for key, value in { PreferredInput = roblox.Enum.PreferredInput.Gamepad, TouchEnabled = false, TouchScreenEnabled = false,
+		KeyboardEnabled = false, MouseEnabled = false, GamepadEnabled = true, MouseIconEnabled = false } do
+		DEFAULTS.UserInputService[key] = value
+	end
+	DEFAULTS.GuiService.IsWindows = false
+	DEFAULTS.GuiService.GuiNavigationEnabled = true
+	DEFAULTS.GuiService.CoreGuiNavigationEnabled = true
+end
+local WRAPPED = { GuiService = true, UserInputService = true, VRService = true, LocalizationService = true,
+	GamepadService = true, TextChatService = true, Stats = true, ContentProvider = true, RunService = true,
+	Players = true }
+local reflection = roblox.getReflectionDatabase()
+local warned = {}
+local pendingWarnings = {} -- written after the run: stdio cannot yield inside a metamethod
+
+local function neutralOf(className, key)
+	local datatype, class = nil, className
+	while class and not datatype do
+		local info = reflection:GetClass(class)
+		if info == nil then
+			break
+		end
+		local property = info.Properties[key]
+		if property then
+			datatype = property.Datatype
+		end
+		class = info.Superclass
+	end
+	if datatype == nil then
+		return nil, "unknown type"
+	end
+	if datatype == "Bool" then
+		return false
+	elseif datatype == "String" or datatype == "ContentId" or datatype == "BinaryString" then
+		return ""
+	elseif string.find(datatype, "^Int") or string.find(datatype, "^Float") then
+		return 0
+	elseif datatype == "Vector2" then
+		return roblox.Vector2.zero
+	elseif datatype == "Vector3" then
+		return roblox.Vector3.zero
+	elseif datatype == "CFrame" then
+		return roblox.CFrame.identity
+	elseif datatype == "Color3" then
+		return roblox.Color3.new(0, 0, 0)
+	elseif datatype == "Rect" then
+		return roblox.Rect.new(0, 0, 0, 0)
+	elseif datatype == "UDim" then
+		return roblox.UDim.new(0, 0)
+	elseif datatype == "UDim2" then
+		return roblox.UDim2.new(0, 0, 0, 0)
+	elseif string.sub(datatype, 1, 5) == "Enum." then
+		local enum = roblox.Enum[string.sub(datatype, 6)]
+		if enum then
+			local items = enum:GetEnumItems()
+			for _, item in items do
+				if item.Value == 0 then
+					return item
+				end
+			end
+			return items[1]
+		end
+	end
+	return nil, datatype
+end
+
+local function forward(real, overrides, onResult)
+	local className = real.ClassName
+	local proxy
+	proxy = setmetatable({}, {
+		__type = "Instance",
+		__index = function(_, key)
+			local override = overrides[key]
+			if override ~= nil then
+				return override
+			end
+			local ok, value = pcall(function()
+				return real[key]
+			end)
+			if not ok then
+				local message = tostring(value)
+				if string.find(message, "missing default value", 1, true) or string.find(message, "malformed property info", 1, true) then
+					local neutral, why = neutralOf(className, key)
+					local id = className .. "." .. tostring(key)
+					if not warned[id] then
+						warned[id] = true
+						table.insert(pendingWarnings, `[warn] {id}: no value in Lune's data, answered with {if neutral == nil then "an error" else tostring(neutral)} (a typed default; add it to DEFAULTS in story-runtime.luau)\n`)
+					end
+					if neutral ~= nil then
+						return neutral
+					end
+				end
+				error(value, 2)
+			end
+			if type(value) == "function" then
+				return function(self, ...)
+					if self == proxy then
+						self = real
+					end
+					return onResult(value(self, ...), key)
+				end
+			end
+			return onResult(value, key)
+		end,
+		__newindex = function(_, key, value)
+			real[key] = value
+		end,
+		__tostring = function()
+			return tostring(real)
+		end,
+	})
+	return proxy
+end
+
+local serviceProxies = {}
+local function wrapService(value)
+	if typeof(value) == "Instance" and WRAPPED[value.ClassName] and value.Parent == game then
+		local proxy = serviceProxies[value]
+		if proxy == nil then
+			proxy = forward(value, DEFAULTS[value.ClassName] or {}, function(result)
+				return result
+			end)
+			serviceProxies[value] = proxy
+		end
+		return proxy
+	end
+	return value
+end
+local storyGame = forward(game, {}, function(result, key)
+	if key == "GetService" or key == "FindService" or key == "service" then
+		return wrapService(result)
+	end
+	return wrapService(result)
+end)
+
 local nativeTypeof = typeof
 base = {
-	game = game,
-	Game = game,
+	game = storyGame,
+	Game = storyGame,
 	workspace = workspace,
 	Workspace = workspace,
 	shared = {},
@@ -456,10 +653,18 @@ end
 local okMount, problem = xpcall(mount, function(err)
 	return tostring(err) .. "\n" .. debug.traceback("", 2)
 end)
+local function flushWarnings()
+	for _, line in pendingWarnings do
+		stdio.ewrite(line)
+	end
+	table.clear(pendingWarnings)
+end
 if not okMount then
+	flushWarnings()
 	fail(problem)
 end
 frames(30)
+flushWarnings()
 
 -- Lune keeps a legacy `Font = Enum.Font.X` as an EnumItem it cannot save: as a FontFace.
 for _, instance in screen:GetDescendants() do
