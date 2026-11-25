@@ -100,7 +100,9 @@ A story is run in the Rojo project above it, with the project's modules (it need
 project; do not run stories from untrusted pull requests outside a sandbox. Code that
 reads the screen size gets the viewport (`--viewport`, `--device`); other sizes read
 while the story runs are estimates; tweens end at their goal; controls take their
-defaults; nothing is clicked. A story that fails exits 2 with the error pointed at
+defaults; nothing is clicked. Game time runs for 2 s before the UI is saved (`--settle SECONDS`):
+Heartbeat, RenderStepped and Stepped fire at 60 Hz, `task.wait`, `task.delay`, `os.clock` and
+`tick` follow that clock, so springs and timers a story starts have moved. A story that fails exits 2 with the error pointed at
 your files and lines.
 
 ## How far to trust the output

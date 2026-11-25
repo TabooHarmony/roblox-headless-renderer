@@ -1,13 +1,13 @@
 -- Run one UI story headlessly and save the UI it builds (rhr.story).
 --
---   lune run story-runtime.luau <built.rbxl|rbxm> <module path JSON> <out.rbxm> <width> <height> <name>
+--   lune run story-runtime.luau <built.rbxl|rbxm> <module path JSON> <out.rbxm> <width> <height> <name> [settle seconds]
 --
 -- The built file is the Rojo project; the module path (a JSON list of names from the
 -- root) is the story's ModuleScript in it. Every UI library ends in the same calls
 -- (Instance.new, set properties, parent), so this copies the Roblox side, not any
 -- library: Lune's own instances (properties, datatypes, Enums, saving), plus events,
--- the services UI code touches, instance-based require, and a frame loop that lets
--- the UI settle. Story forms: function(target) (Hoarcekat, UI Labs); UI Labs tables
+-- the services UI code touches, instance-based require, and a frame loop that runs
+-- game time (60 Hz frames, a clock, timers) for a few seconds so the UI settles. Story forms: function(target) (Hoarcekat, UI Labs); UI Labs tables
 -- with react/reactRoblox, roact, fusion, vide or a generic render; Flipbook's table.
 -- Scripts' own threads are left behind: the process exits once the UI is saved.
 local roblox = require("@lune/roblox")
@@ -21,6 +21,7 @@ local task = require("@lune/task")
 local builtPath, modulePathJson, outPath = process.args[1], process.args[2], process.args[3]
 local viewport = roblox.Vector2.new(tonumber(process.args[4]) or 1615, tonumber(process.args[5]) or 1080)
 local storyName = process.args[6] or "Story"
+local settleSeconds = tonumber(process.args[7]) or 2
 
 local function fail(message)
 	stdio.ewrite(tostring(message) .. "\n")
@@ -202,6 +203,68 @@ roblox.implementMethod("HttpService", "JSONDecode", function(_, text)
 	return serde.decode("json", text)
 end)
 
+-- Game time ---------------------------------------------------------------------------
+-- A story runs for a while in game time, not real time: the frame loop below advances `clock` by
+-- 1/60 s a frame, fires the RunService signals with that delta, and wakes what task.wait,
+-- task.delay and wait() put to sleep. os.clock, tick, time and elapsedTime read the same clock, so
+-- a spring (Ripple), a timer or a Heartbeat-driven animation moves as it would in a running game.
+-- Lune's own task library (`task`, above) still schedules the threads; only the sleeping is ours.
+local clock = 0
+local epoch = os.time()
+local sleepers = {}
+local sleeperCount = 0
+local function sleepUntil(at, thread, ...)
+	sleeperCount += 1
+	table.insert(sleepers, { at = at, order = sleeperCount, thread = thread, args = table.pack(...) })
+end
+local gameTask = table.clone(task)
+function gameTask.wait(seconds)
+	local started = clock
+	sleepUntil(started + math.max(tonumber(seconds) or 0, 0), coroutine.running())
+	coroutine.yield()
+	return clock - started
+end
+function gameTask.delay(seconds, callback, ...)
+	local thread = if type(callback) == "thread" then callback else coroutine.create(callback)
+	sleepUntil(clock + math.max(tonumber(seconds) or 0, 0), thread, ...)
+	return thread
+end
+function gameTask.cancel(thread)
+	for index = #sleepers, 1, -1 do
+		if sleepers[index].thread == thread then
+			table.remove(sleepers, index)
+		end
+	end
+	pcall(task.cancel, thread)
+end
+local function wakeSleepers()
+	local due = {}
+	for index = #sleepers, 1, -1 do
+		if sleepers[index].at <= clock then
+			table.insert(due, table.remove(sleepers, index))
+		end
+	end
+	table.sort(due, function(a, b)
+		if a.at ~= b.at then
+			return a.at < b.at
+		end
+		return a.order < b.order
+	end)
+	for _, sleeper in due do
+		task.spawn(sleeper.thread, table.unpack(sleeper.args, 1, sleeper.args.n))
+	end
+end
+local gameOs = table.clone(os)
+gameOs.clock = function()
+	return clock
+end
+local function gameTime()
+	return clock
+end
+local function gameTick()
+	return epoch + clock
+end
+
 -- Sizes RHR works out after the story ran: read as zero while it runs, not an error.
 local ZERO = roblox.Vector2.new(0, 0)
 local function presetSizes(instance)
@@ -301,13 +364,14 @@ base = {
 	},
 	Enum = roblox.Enum,
 	TweenInfo = TweenInfo,
-	task = task,
-	wait = task.wait,
-	delay = task.delay,
+	task = gameTask,
+	os = gameOs,
+	wait = gameTask.wait,
+	delay = gameTask.delay,
 	spawn = task.spawn,
-	tick = os.clock,
-	time = os.clock,
-	elapsedTime = os.clock,
+	tick = gameTick,
+	time = gameTime,
+	elapsedTime = gameTime,
 	settings = function()
 		return {}
 	end,
@@ -372,16 +436,21 @@ pcall(function()
 end)
 
 local runService = game:GetService("RunService")
-local function frames(count)
-	for _ = 1, count do
-		for _, fn in renderSteps do
-			task.spawn(fn, 1 / 60)
-		end
-		runService.RenderStepped:Fire(1 / 60)
-		runService.PreRender:Fire(1 / 60)
-		runService.Heartbeat:Fire(1 / 60)
-		task.wait()
+local FRAME = 1 / 60
+local function frame()
+	clock += FRAME
+	for _, fn in renderSteps do
+		task.spawn(fn, FRAME)
 	end
+	runService.RenderStepped:Fire(FRAME)
+	runService.PreRender:Fire(FRAME)
+	runService.PreAnimation:Fire(FRAME)
+	runService.Stepped:Fire(clock, FRAME)
+	runService.PreSimulation:Fire(FRAME)
+	runService.PostSimulation:Fire(FRAME)
+	runService.Heartbeat:Fire(FRAME)
+	wakeSleepers()
+	task.wait() -- (Lune's own: lets what was spawned and deferred run)
 end
 
 local function controlDefaults(controls)
@@ -453,13 +522,25 @@ local function mount()
 	error("a story table needs react + reactRoblox, roact, vide, fusion, a render function or a story function")
 end
 
-local okMount, problem = xpcall(mount, function(err)
-	return tostring(err) .. "\n" .. debug.traceback("", 2)
+-- The story is mounted in its own thread: a story that calls task.wait while mounting sleeps in
+-- game time, which only the frame loop below advances.
+local mounted, okMount, problem = false, true, nil
+task.spawn(function()
+	okMount, problem = xpcall(mount, function(err)
+		return tostring(err) .. "\n" .. debug.traceback("", 2)
+	end)
+	mounted = true
 end)
-if not okMount then
+if mounted and not okMount then
 	fail(problem)
 end
-frames(30)
+local frameCount = math.max(2, math.ceil(settleSeconds * 60 - 1e-6))
+for _ = 1, frameCount do
+	frame()
+	if mounted and not okMount then
+		fail(problem)
+	end
+end
 
 -- Lune keeps a legacy `Font = Enum.Font.X` as an EnumItem it cannot save: as a FontFace.
 for _, instance in screen:GetDescendants() do
