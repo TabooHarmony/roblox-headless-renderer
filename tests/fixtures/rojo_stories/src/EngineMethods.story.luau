@@ -42,6 +42,9 @@ return function(target)
 			MarketplaceService:PromptGamePassPurchase(player, 1)
 			StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.Chat, false)
 			game:GetService("Debris"):AddItem(frame, 1)
+			debug.profilebegin("probe")
+			debug.profileend()
+			debug.setmemorycategory("probe")
 		end),
 	}
 	local failed = {}

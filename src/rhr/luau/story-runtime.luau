@@ -174,6 +174,12 @@ local SERVER_TIME = 1700000000 -- Workspace:GetServerTimeNow: a fixed instant, s
 local function serverTime()
 	return SERVER_TIME
 end
+-- Roblox adds profiling calls to the `debug` library (Ripple's scheduler calls debug.profilebegin on
+-- every Heartbeat step); Lune's has none, so a story's `debug` carries no-ops for them.
+local storyDebug = table.clone(debug)
+for _, name in { "profilebegin", "profileend", "setmemorycategory", "resetmemorycategory" } do
+	storyDebug[name] = nothing
+end
 method("Workspace", "GetServerTimeNow", function()
 	return serverTime()
 end)
@@ -646,6 +652,7 @@ base = {
 		end,
 	},
 	Enum = roblox.Enum,
+	debug = storyDebug,
 	TweenInfo = TweenInfo,
 	task = task,
 	wait = task.wait,
