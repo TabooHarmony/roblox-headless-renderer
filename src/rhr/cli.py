@@ -117,20 +117,22 @@ def parse_background(text: str) -> tuple[int, int, int, int]:
     raise argparse.ArgumentTypeError(f"background must be RRGGBB or RRGGBBAA, got {text!r}")
 
 
-def ir_for(source: Path, *, profile: str = "full", viewport: tuple[int, int] = DEFAULT_VIEWPORT) -> Path:
+def ir_for(source: Path, *, profile: str = "full", viewport: tuple[int, int] = DEFAULT_VIEWPORT,
+           settle: float | None = None) -> Path:
     """IR JSON for `source`: the file itself if it is IR, else the cached conversion
     (made again when the file changed).
 
     `source` may also be a Rojo project (a *.project.json file or a directory with
     default.project.json), which is built with `rojo build` first, or a story file
-    (*.story.luau), which is run at `viewport` and the UI it builds read (rhr.story).
+    (*.story.luau), which is run at `viewport` for `settle` seconds of game time and the UI it
+    builds read (rhr.story).
     """
     from rhr.ir import cached_ir, load_ir
     from rhr import rojo, story
 
     if story.is_story(source):
         # UI that code builds: the story is run in its Rojo project (rhr.story).
-        source = story.build(source, width=viewport[0], height=viewport[1],
+        source = story.build(source, width=viewport[0], height=viewport[1], settle=settle,
                              log=lambda message: print(message, file=sys.stderr))
     project = rojo.project_file(source)
     if project is not None:
@@ -253,7 +255,7 @@ def _ui(args) -> int:
 
     t0 = time.perf_counter()
     try:
-        ir_path = ir_for(source, profile="ui", viewport=(width, height))
+        ir_path = ir_for(source, profile="ui", viewport=(width, height), settle=args.settle)
     except (ValueError, RuntimeError) as exc:
         return _die(str(exc))
     missing_images = _prepare_ui_images(ir_path, args.offline)
@@ -351,7 +353,7 @@ def _layout(args) -> int:
         return _die(f"no such file: {source}")
     width, height = args.viewport
     try:
-        ir_path = ir_for(source, profile="ui", viewport=(width, height))
+        ir_path = ir_for(source, profile="ui", viewport=(width, height), settle=args.settle)
         screens = load_screens(str(ir_path), width, height, args.topbar_height, required=True)
     except (ValueError, RuntimeError) as exc:
         return _die(str(exc))
@@ -521,7 +523,7 @@ def _check(args) -> int:
     t0 = time.perf_counter()
     try:
         baseline = load_baseline(Path(args.baseline)) if args.baseline else None
-        ir_path = ir_for(source, profile="ui", viewport=(width, height))
+        ir_path = ir_for(source, profile="ui", viewport=(width, height), settle=args.settle)
         if args.devices:
             result = _check_devices(args, ir_path, baseline)
         else:
@@ -653,7 +655,7 @@ def _hitmap(args) -> int:
     width, height = args.viewport
     t0 = time.perf_counter()
     try:
-        ir_path = ir_for(source, profile="ui", viewport=(width, height))
+        ir_path = ir_for(source, profile="ui", viewport=(width, height), settle=args.settle)
         hitmap = build_hitmap(ir_path, width, height, topbar_height=args.topbar_height)
     except (ValueError, RuntimeError) as exc:
         return _die(str(exc))
@@ -1170,6 +1172,13 @@ def build_parser() -> argparse.ArgumentParser:
     p_ui.add_argument("--dump-layout", metavar="PATH",
                       help="also write the resolved rects here (rhr.layout/1)")
     p_ui.add_argument(
+        "--settle",
+        type=float,
+        default=None,
+        metavar="SECONDS",
+        help="for a story: seconds of game time to run (frames, timers, springs) before the UI is saved (default: 2)",
+    )
+    p_ui.add_argument(
         "--topbar-height",
         type=float,
         default=None,
@@ -1208,6 +1217,13 @@ def build_parser() -> argparse.ArgumentParser:
              "gradient, strokes, text and clip state (rhr.layout-rich/1)",
     )
     p_layout.add_argument(
+        "--settle",
+        type=float,
+        default=None,
+        metavar="SECONDS",
+        help="for a story: seconds of game time to run (frames, timers, springs) before the UI is saved (default: 2)",
+    )
+    p_layout.add_argument(
         "--topbar-height",
         type=float,
         default=None,
@@ -1233,6 +1249,13 @@ def build_parser() -> argparse.ArgumentParser:
                         help="a player's screen, measured in Studio's emulator: its viewport, notch and "
                              "home bar, and on touch screens the jump button and thumbstick")
     p_check.add_argument("--out", help="write JSON here instead of stdout")
+    p_check.add_argument(
+        "--settle",
+        type=float,
+        default=None,
+        metavar="SECONDS",
+        help="for a story: seconds of game time to run (frames, timers, springs) before the UI is saved (default: 2)",
+    )
     p_check.add_argument(
         "--topbar-height",
         type=float,
@@ -1296,6 +1319,13 @@ def build_parser() -> argparse.ArgumentParser:
                          help="a player's screen, measured in Studio's emulator: its viewport, notch and "
                               "home bar, and on touch screens the jump button and thumbstick")
     p_hitmap.add_argument("--out", help="write JSON here instead of stdout")
+    p_hitmap.add_argument(
+        "--settle",
+        type=float,
+        default=None,
+        metavar="SECONDS",
+        help="for a story: seconds of game time to run (frames, timers, springs) before the UI is saved (default: 2)",
+    )
     p_hitmap.add_argument(
         "--topbar-height",
         type=float,

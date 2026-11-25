@@ -104,6 +104,24 @@ def main() -> int:
     check(re.search(r"at src[\\/]Broken\.story\.luau:5", proc.stderr) is not None, "the line, in the story's file")
     check("story-runtime" not in proc.stderr, "not RHR's own runtime frames")
 
+    print("story: game time runs before the UI is saved (Heartbeat, RenderStepped, Stepped, task.wait/delay, clocks)")
+    doc = layout("Settle.story.luau", "--rich")
+    if doc:
+        rect = {node["path"].rpartition("/")[2]: node["rect"] for node in doc["nodes"]}
+        check(rect.get("Slide", {}).get("x") == 0.0, f"a Heartbeat-driven slide has arrived: {rect.get('Slide')}")
+        check(rect.get("Render", {}).get("w") == 200.0, f"RenderStepped saw 2 s of deltas: {rect.get('Render')}")
+        check(rect.get("Stepped", {}).get("w") == 100.0, f"Stepped(time, dt) fires: {rect.get('Stepped')}")
+        check(rect.get("Waited", {}).get("w") == 52.0, f"task.wait(0.5) resumed after game time: {rect.get('Waited')}")
+        check(rect.get("Delayed", {}).get("w") == 300.0, f"task.delay(1) ran: {rect.get('Delayed')}")
+        check(rect.get("Clock", {}).get("w") == 400.0, f"os.clock and tick advance 2 s: {rect.get('Clock')}")
+        check("Mounted" in rect, "a story function that calls task.wait finished mounting")
+    doc = layout("Settle.story.luau", "--rich", "--settle", "0.25")
+    if doc:
+        rect = {node["path"].rpartition("/")[2]: node["rect"] for node in doc["nodes"]}
+        check(rect.get("Slide", {}).get("x") == 1750.0 or abs(rect.get("Slide", {}).get("x", 0) - 1750.0) <= 17,
+              f"--settle 0.25 stops the slide early: {rect.get('Slide')}")
+        check(rect.get("Delayed", {}).get("w") == 100.0, f"a 1 s timer has not run yet: {rect.get('Delayed')}")
+
     print("story: no way to Lune's own globals through getfenv")
     proc = run(["layout", str(STORIES / "Escape.story.luau")])
     check(proc.returncode == 2 and "getfenv is not available" in proc.stderr,

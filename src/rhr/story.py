@@ -12,7 +12,10 @@ all end in Instance.new and property sets.
 
 What does not carry over: sizes read while the story runs (AbsoluteSize,
 AbsolutePosition) are zero, since RHR lays the UI out afterwards; tweens end at their
-goal; the story's controls take their defaults; nothing is clicked.
+goal; the story's controls take their defaults; nothing is clicked. Game time runs for
+SETTLE_S seconds (`--settle`) before the UI is saved: Heartbeat, RenderStepped and Stepped
+fire at 60 Hz, os.clock/tick/time and task.wait/task.delay follow that clock, so springs
+and timers a story starts have moved when it is drawn.
 
 A story is run again only when something it runs on changed (the project's files,
 the viewport, RHR's runtime): `check` then `ui` of the same story runs it once. A
@@ -31,6 +34,7 @@ from rhr.paths import IR_DIR, PACKAGE
 
 SUFFIXES = (".story.luau", ".story.lua")
 TIMEOUT_S = 120
+SETTLE_S = 2.0  # game seconds a story runs before its UI is saved (--settle)
 
 
 def is_story(path: Path) -> bool:
@@ -130,14 +134,16 @@ def _tidy(text: str) -> str:
     return "\n".join(message + frames) or text
 
 
-def build(story: Path, *, width: int = 1920, height: int = 1080, log=None) -> Path:
-    """Run `story` and return the model file with the UI it built."""
+def build(story: Path, *, width: int = 1920, height: int = 1080, settle: float | None = None, log=None) -> Path:
+    """Run `story` for `settle` seconds of game time (default SETTLE_S) and return the model file
+    with the UI it built."""
     from rhr import rojo
     from rhr.ir import lune_executable
     from rhr.procs import no_window
 
     from rhr.profile import phase
 
+    settle = SETTLE_S if settle is None else max(0.0, settle)
     project = find_project(story)
     name = story_name(story)
     key = hashlib.sha1(str(story.resolve()).encode("utf-8")).hexdigest()[:12]
@@ -149,7 +155,7 @@ def build(story: Path, *, width: int = 1920, height: int = 1080, log=None) -> Pa
     with phase("story: inputs check"):
         runtime = (PACKAGE / "luau" / "story-runtime.luau").stat()
         inputs = json.dumps([str(story.resolve()), rojo.inputs_digest(project), width, height,
-                             runtime.st_size, runtime.st_mtime_ns, str(lune_executable())])
+                             runtime.st_size, runtime.st_mtime_ns, str(lune_executable()), settle])
     try:
         kept = json.loads(stamp.read_text(encoding="utf-8"))
         if out.is_file() and kept.get("inputs") == inputs:
@@ -169,7 +175,7 @@ def build(story: Path, *, width: int = 1920, height: int = 1080, log=None) -> Pa
     with phase("story: run (Lune)"):
         proc = subprocess.run(
             [lune_executable(), "run", str(PACKAGE / "luau" / "story-runtime.luau"), str(built), json.dumps(names),
-             str(out), str(width), str(height), name],
+             str(out), str(width), str(height), name, str(settle)],
             capture_output=True, text=True, encoding="utf-8", errors="replace", stdin=subprocess.DEVNULL,
             timeout=TIMEOUT_S, **no_window())
     problems = _tidy(_point_at_files(proc.stderr.strip(), files, project.parent))
