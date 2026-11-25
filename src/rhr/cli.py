@@ -521,10 +521,10 @@ def _check(args) -> int:
     t0 = time.perf_counter()
     try:
         baseline = load_baseline(Path(args.baseline)) if args.baseline else None
-        ir_path = ir_for(source, profile="ui", viewport=(width, height))
         if args.devices:
-            result = _check_devices(args, ir_path, baseline)
+            result = _check_devices(args, source, baseline)
         else:
+            ir_path = ir_for(source, profile="ui", viewport=(width, height))
             result = check_model(ir_path, width, height, topbar_height=args.topbar_height,
                                  min_severity=args.min_severity, ignore=tuple(args.ignore), baseline=baseline)
     except (ValueError, RuntimeError, OSError) as exc:
@@ -556,9 +556,10 @@ def _check(args) -> int:
     return 1 if errors else 0
 
 
-def _check_devices(args, ir_path, baseline) -> dict:
+def _check_devices(args, source: Path, baseline) -> dict:
     """`check --devices all|phone,tablet`: the checks on each screen, one document; a
-    finding seen on several screens is listed once, with them in `devices`."""
+    finding seen on several screens is listed once, with them in `devices`. A story is run
+    again on each screen, at its viewport and with its input (touch, gamepad)."""
     from rhr import devices
     from rhr.checks import check_model
 
@@ -573,6 +574,7 @@ def _check_devices(args, ir_path, baseline) -> dict:
         for name in names:
             devices.CURRENT = devices.DEVICES[name]
             width, height = devices.CURRENT.viewport
+            ir_path = ir_for(source, profile="ui", viewport=(width, height))
             result = check_model(ir_path, width, height, topbar_height=args.topbar_height,
                                  min_severity=args.min_severity, ignore=tuple(args.ignore), baseline=baseline)
             model = result["model"]

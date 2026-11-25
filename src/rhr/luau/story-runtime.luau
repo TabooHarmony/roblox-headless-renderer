@@ -1,6 +1,6 @@
 -- Run one UI story headlessly and save the UI it builds (rhr.story).
 --
---   lune run story-runtime.luau <built.rbxl|rbxm> <module path JSON> <out.rbxm> <width> <height> <name> [topbar height]
+--   lune run story-runtime.luau <built.rbxl|rbxm> <module path JSON> <out.rbxm> <width> <height> <name> [topbar height] [input: keyboard|touch|gamepad]
 --
 -- The built file is the Rojo project; the module path (a JSON list of names from the
 -- root) is the story's ModuleScript in it. Every UI library ends in the same calls
@@ -22,6 +22,11 @@ local builtPath, modulePathJson, outPath = process.args[1], process.args[2], pro
 local viewport = roblox.Vector2.new(tonumber(process.args[4]) or 1615, tonumber(process.args[5]) or 1080)
 local storyName = process.args[6] or "Story"
 local topbarHeight = tonumber(process.args[7]) or 58
+-- The input the player has (rhr's --device): keyboard and mouse (desktop, laptop), touch (phone, tablet) or a gamepad (console).
+local inputKind = process.args[8] or "keyboard"
+if inputKind ~= "touch" and inputKind ~= "gamepad" then
+	inputKind = "keyboard"
+end
 
 local function fail(message)
 	stdio.ewrite(tostring(message) .. "\n")
@@ -143,6 +148,11 @@ roblox.implementMethod("RunService", "UnbindFromRenderStep", function(_, name)
 	renderSteps[name] = nil
 end)
 roblox.implementMethod("UserInputService", "GetLastInputType", function()
+	if inputKind == "touch" then
+		return roblox.Enum.UserInputType.Touch
+	elseif inputKind == "gamepad" then
+		return roblox.Enum.UserInputType.Gamepad1
+	end
 	return roblox.Enum.UserInputType.MouseButton1
 end)
 roblox.implementMethod("UserInputService", "GetMouseLocation", function()
@@ -325,6 +335,23 @@ local DEFAULTS = {
 	Players = { NumPlayers = 1, BubbleChat = false, ClassicChat = true },
 	VRService = { VREnabled = false },
 }
+if inputKind == "touch" then
+	-- A touch screen: no keyboard or mouse, touch is the preferred input (what a phone reports).
+	for key, value in { PreferredInput = roblox.Enum.PreferredInput.Touch, TouchEnabled = true, TouchScreenEnabled = true,
+		KeyboardEnabled = false, MouseEnabled = false, GamepadEnabled = false, MouseIconEnabled = false } do
+		DEFAULTS.UserInputService[key] = value
+	end
+	DEFAULTS.GuiService.TouchControlsEnabled = true
+	DEFAULTS.GuiService.IsWindows = false
+elseif inputKind == "gamepad" then
+	for key, value in { PreferredInput = roblox.Enum.PreferredInput.Gamepad, TouchEnabled = false, TouchScreenEnabled = false,
+		KeyboardEnabled = false, MouseEnabled = false, GamepadEnabled = true, MouseIconEnabled = false } do
+		DEFAULTS.UserInputService[key] = value
+	end
+	DEFAULTS.GuiService.IsWindows = false
+	DEFAULTS.GuiService.GuiNavigationEnabled = true
+	DEFAULTS.GuiService.CoreGuiNavigationEnabled = true
+end
 local WRAPPED = { GuiService = true, UserInputService = true, VRService = true, LocalizationService = true,
 	GamepadService = true, TextChatService = true, Stats = true, ContentProvider = true, RunService = true,
 	Players = true }
