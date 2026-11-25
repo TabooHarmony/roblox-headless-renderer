@@ -256,7 +256,42 @@ playerGui.Parent = localPlayer
 local loaded, loading = {}, {}
 local base
 
+-- A Luau string require ("@self/x", "./x", "../x", as littensy/ripple 0.10.2 writes them) resolved
+-- inside the story's own instance tree only: from the requiring module, never the file system.
+-- An init module is its folder, so "./x" is a sibling of the module's folder and "@self/x" its child.
+local function resolveStringRequire(path, from)
+	local rest, found = path, nil
+	if string.sub(rest, 1, 6) == "@self/" then
+		found, rest = from, string.sub(rest, 7)
+	elseif string.sub(rest, 1, 2) == "./" then
+		found, rest = from.Parent, string.sub(rest, 3)
+	elseif string.sub(rest, 1, 3) == "../" then
+		found = from.Parent
+		while found and string.sub(rest, 1, 3) == "../" do
+			found, rest = found.Parent, string.sub(rest, 4)
+		end
+	else
+		return nil
+	end
+	for part in string.gmatch(rest, "[^/]+") do
+		if found == nil then
+			return nil
+		end
+		if part ~= "." then
+			found = found:FindFirstChild((string.gsub(part, "%.luau?$", "")))
+		end
+	end
+	return found
+end
+
 local function requireModule(target, from)
+	if type(target) == "string" then
+		local found = from and resolveStringRequire(target, from)
+		if found == nil then
+			error(`require("{target}") does not name a ModuleScript in the project (only ./, ../ and @self/ paths inside it)`, 3)
+		end
+		target = found
+	end
 	if typeof(target) ~= "Instance" then
 		error(`require({typeof(target)}) is not supported when running a story (only ModuleScripts in the project)`, 3)
 	end
