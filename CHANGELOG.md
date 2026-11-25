@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- **React-Lua stories draw.** A story that required React-Lua 17.x (roblox/react 17.3.13) failed with
+  `attempt to index error with 'match'` while React loaded: its SafeFlags package calls
+  `game:DefineFastFlag` and matches the error text, and the story runner's `DataModel` raised a
+  non-string error. `DefineFast*`, `GetFast*` and `SetFastFlagForTesting` now raise Roblox's
+  "The current thread cannot call" string, so SafeFlags takes its normal fallback (#2).
+
 ## 1.0.0rc1 (release candidate)
 
 ### When upgrading
