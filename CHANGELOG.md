@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- **Stories can use Luau string requires.** `require("@self/x")`, `require("./x")` and `require("../x")` (as
+  littensy/ripple 0.10.2 writes them) resolve inside the story's own project tree; other strings are refused (#6).
+
 ## 1.0.0rc1 (release candidate)
 
 ### When upgrading

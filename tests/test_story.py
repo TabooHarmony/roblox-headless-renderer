@@ -104,6 +104,14 @@ def main() -> int:
     check(re.search(r"at src[\\/]Broken\.story\.luau:5", proc.stderr) is not None, "the line, in the story's file")
     check("story-runtime" not in proc.stderr, "not RHR's own runtime frames")
 
+    print("story: string requires (@self/, ./, ../) resolve inside the project only")
+    doc = layout("StringRequire.story.luau", "--rich")
+    if doc:
+        nodes = {node["path"]: node for node in doc["nodes"]}
+        text = lambda name: nodes.get(f"StringRequire/Target/{name}", {}).get("text", {}).get("content")
+        check(text("Probe") == "strings", f"@self/, ./ and ../ from an init module and its children: {text('Probe')!r}")
+        check(text("Escape") == "refused", f"a path out of the project is refused: {text('Escape')!r}")
+
     print("story: no way to Lune's own globals through getfenv")
     proc = run(["layout", str(STORIES / "Escape.story.luau")])
     check(proc.returncode == 2 and "getfenv is not available" in proc.stderr,
