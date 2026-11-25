@@ -74,6 +74,13 @@ def main() -> int:
         size = nodes.get("Viewport/Target/Size", {}).get("text", {}).get("content")
         check(size == "800x600", f"CurrentCamera.ViewportSize: {size!r}")
 
+    print("story: fast-flag calls fail with a string the library can match (React-Lua SafeFlags)")
+    doc = layout("FastFlags.story.luau", "--rich")
+    if doc:
+        nodes = {node["path"]: node for node in doc["nodes"]}
+        probe = nodes.get("FastFlags/Target/Probe", {}).get("text", {}).get("content")
+        check(probe == "fallback", f"DefineFast*/GetFast* raise 'The current thread cannot call': {probe!r}")
+
     print("story: check, and a picture")
     proc = run(["check", str(STORIES / "Panel.story.luau")])
     check(proc.returncode in (0, 1) and json.loads(proc.stdout or "{}").get("model") == "Panel.story.json",

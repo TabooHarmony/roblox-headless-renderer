@@ -134,6 +134,15 @@ for name, value in { IsClient = true, IsServer = false, IsStudio = true, IsRunni
 		return value
 	end)
 end
+-- Fast flags: a story's code (React-Lua's SafeFlags) calls game:DefineFastFlag inside a pcall and
+-- reads the error as a string. Lune's own error for a missing method is a userdata with no
+-- :match, so the library crashed while loading. Roblox's client-side scripts get this string.
+for _, name in { "DefineFastFlag", "DefineFastInt", "DefineFastString", "GetFastFlag", "GetFastInt",
+	"GetFastString", "SetFastFlagForTesting" } do
+	roblox.implementMethod("DataModel", name, function()
+		error(`The current thread cannot call '{name}' (lacking capability Plugin)`, 2)
+	end)
+end
 local renderSteps = {}
 roblox.implementMethod("RunService", "BindToRenderStep", function(_, name, _priority, fn)
 	renderSteps[name] = fn
