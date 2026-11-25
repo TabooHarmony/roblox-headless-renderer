@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- **`UserInputService.PreferredInput` and the input flags can be read in a story.** Lune's data lists them but
+  reads raise ("malformed property info" / "missing default value"), which broke any UI that picks glyphs by input
+  family. A story now sees `game` and UserInputService through a forwarding proxy that answers
+  `PreferredInput` (KeyboardAndMouse), `TouchEnabled`, `KeyboardEnabled`, `MouseEnabled` and `GamepadEnabled` (#8).
+
 ## 1.0.0rc1 (release candidate)
 
 ### When upgrading

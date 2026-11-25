@@ -282,10 +282,59 @@ local function requireModule(target, from)
 	return result
 end
 
+-- UserInputService.PreferredInput is in Lune's reflection data but "malformed", and TouchEnabled,
+-- KeyboardEnabled, MouseEnabled and GamepadEnabled have "missing default value": reading them raises,
+-- and implementProperty cannot replace a property the data already lists (the loop above has no
+-- effect on them). A story sees `game` and the service through a thin forwarding proxy that answers
+-- those properties (keyboard and mouse) and passes everything else to the real instance.
+local function forward(real, extra)
+	local proxy
+	proxy = setmetatable({}, {
+		__type = "Instance",
+		__index = function(_, key)
+			if extra and extra[key] ~= nil then
+				return extra[key]
+			end
+			local value = real[key]
+			if type(value) == "function" then
+				return function(self, ...)
+					if self == proxy then
+						self = real
+					end
+					return value(self, ...)
+				end
+			end
+			return value
+		end,
+		__newindex = function(_, key, value)
+			real[key] = value
+		end,
+		__tostring = function()
+			return tostring(real)
+		end,
+	})
+	return proxy
+end
+local inputService = forward(game:GetService("UserInputService"), {
+	PreferredInput = roblox.Enum.PreferredInput.KeyboardAndMouse,
+	TouchEnabled = false,
+	KeyboardEnabled = true,
+	MouseEnabled = true,
+	GamepadEnabled = false,
+})
+local storyGame = forward(game, {
+	GetService = function(_, name)
+		if name == "UserInputService" then
+			return inputService
+		end
+		return game:GetService(name)
+	end,
+})
+
 local nativeTypeof = typeof
 base = {
-	game = game,
-	Game = game,
+	game = storyGame,
+	Game = storyGame,
 	workspace = workspace,
 	Workspace = workspace,
 	shared = {},

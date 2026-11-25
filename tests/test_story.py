@@ -104,6 +104,13 @@ def main() -> int:
     check(re.search(r"at src[\\/]Broken\.story\.luau:5", proc.stderr) is not None, "the line, in the story's file")
     check("story-runtime" not in proc.stderr, "not RHR's own runtime frames")
 
+    print("story: UserInputService.PreferredInput can be read")
+    doc = layout("PreferredInput.story.luau", "--rich")
+    if doc:
+        nodes = {node["path"]: node for node in doc["nodes"]}
+        probe = nodes.get("PreferredInput/Target/Probe", {}).get("text", {}).get("content")
+        check(probe == "keyboard", f"PreferredInput is KeyboardAndMouse: {probe!r}")
+
     print("story: no way to Lune's own globals through getfenv")
     proc = run(["layout", str(STORIES / "Escape.story.luau")])
     check(proc.returncode == 2 and "getfenv is not available" in proc.stderr,
