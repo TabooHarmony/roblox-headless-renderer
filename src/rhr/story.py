@@ -27,6 +27,7 @@ import re
 import subprocess
 from pathlib import Path
 
+from rhr.insets import REFERENCE_TOPBAR_HEIGHT
 from rhr.paths import IR_DIR, PACKAGE
 
 SUFFIXES = (".story.luau", ".story.lua")
@@ -169,7 +170,7 @@ def build(story: Path, *, width: int = 1920, height: int = 1080, log=None) -> Pa
     with phase("story: run (Lune)"):
         proc = subprocess.run(
             [lune_executable(), "run", str(PACKAGE / "luau" / "story-runtime.luau"), str(built), json.dumps(names),
-             str(out), str(width), str(height), name],
+             str(out), str(width), str(height), name, str(REFERENCE_TOPBAR_HEIGHT)],
             capture_output=True, text=True, encoding="utf-8", errors="replace", stdin=subprocess.DEVNULL,
             timeout=TIMEOUT_S, **no_window())
     problems = _tidy(_point_at_files(proc.stderr.strip(), files, project.parent))

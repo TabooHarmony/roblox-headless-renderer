@@ -1,6 +1,6 @@
 -- Run one UI story headlessly and save the UI it builds (rhr.story).
 --
---   lune run story-runtime.luau <built.rbxl|rbxm> <module path JSON> <out.rbxm> <width> <height> <name>
+--   lune run story-runtime.luau <built.rbxl|rbxm> <module path JSON> <out.rbxm> <width> <height> <name> [topbar height]
 --
 -- The built file is the Rojo project; the module path (a JSON list of names from the
 -- root) is the story's ModuleScript in it. Every UI library ends in the same calls
@@ -21,6 +21,7 @@ local task = require("@lune/task")
 local builtPath, modulePathJson, outPath = process.args[1], process.args[2], process.args[3]
 local viewport = roblox.Vector2.new(tonumber(process.args[4]) or 1615, tonumber(process.args[5]) or 1080)
 local storyName = process.args[6] or "Story"
+local topbarHeight = tonumber(process.args[7]) or 58
 
 local function fail(message)
 	stdio.ewrite(tostring(message) .. "\n")
@@ -141,11 +142,6 @@ end)
 roblox.implementMethod("RunService", "UnbindFromRenderStep", function(_, name)
 	renderSteps[name] = nil
 end)
-for name, value in { TouchEnabled = false, KeyboardEnabled = true, MouseEnabled = true, GamepadEnabled = false } do
-	pcall(roblox.implementProperty, "UserInputService", name, function()
-		return value
-	end)
-end
 roblox.implementMethod("UserInputService", "GetLastInputType", function()
 	return roblox.Enum.UserInputType.MouseButton1
 end)
@@ -157,6 +153,179 @@ roblox.implementMethod("GuiService", "GetGuiInset", function()
 end)
 roblox.implementMethod("Players", "GetPlayers", function(players)
 	return players:GetChildren()
+end)
+
+-- Engine methods UI code calls --------------------------------------------------------------
+-- Lune lists most engine methods but implements none of them: calling one raises "X is not a valid
+-- member of Y". UI code calls a handful of them freely (server time for a countdown, the platform,
+-- a policy check, a purchase prompt), so each answers a deterministic neutral value: no network, no
+-- purchases, a desktop player who owns nothing. Only the ones a UI is likely to reach are here; add
+-- another with `method(class, name, fn)` (self comes first, as in implementMethod).
+local function method(className, name, fn)
+	pcall(roblox.implementMethod, className, name, fn)
+end
+local function nothing() end
+local function always(value)
+	return function()
+		return value
+	end
+end
+local SERVER_TIME = 1700000000 -- Workspace:GetServerTimeNow: a fixed instant, so a story draws the same each run
+local function serverTime()
+	return SERVER_TIME
+end
+-- Roblox adds profiling calls to the `debug` library (Ripple's scheduler calls debug.profilebegin on
+-- every Heartbeat step); Lune's has none, so a story's `debug` carries no-ops for them.
+local storyDebug = table.clone(debug)
+for _, name in { "profilebegin", "profileend", "setmemorycategory", "resetmemorycategory" } do
+	storyDebug[name] = nothing
+end
+method("Workspace", "GetServerTimeNow", function()
+	return serverTime()
+end)
+method("Workspace", "GetRealPhysicsFPS", always(60))
+method("DataModel", "IsLoaded", always(true))
+method("DataModel", "BindToClose", nothing)
+method("GuiService", "IsTenFootInterface", always(false))
+method("GuiService", "GetEmotesMenuOpen", always(false))
+method("GuiService", "GetBrickCount", always(0))
+method("UserInputService", "GetPlatform", always(roblox.Enum.Platform.Windows))
+method("UserInputService", "GetFocusedTextBox", always(nil))
+method("UserInputService", "IsKeyDown", always(false))
+method("UserInputService", "IsMouseButtonPressed", always(false))
+method("UserInputService", "IsGamepadButtonDown", always(false))
+method("UserInputService", "GetKeysPressed", function()
+	return {}
+end)
+method("UserInputService", "GetMouseButtonsPressed", function()
+	return {}
+end)
+method("UserInputService", "GetConnectedGamepads", function()
+	return {}
+end)
+method("UserInputService", "GetNavigationGamepads", function()
+	return {}
+end)
+method("UserInputService", "GetGamepadConnected", always(false))
+method("UserInputService", "GetStringForKeyCode", function(_, keyCode)
+	return keyCode.Name
+end)
+method("UserInputService", "GetImageForKeyCode", always(""))
+method("UserInputService", "GetMouseDelta", always(roblox.Vector2.zero))
+method("TextService", "GetTextBoundsAsync", function(_, params)
+	local size = params.Size
+	return roblox.Vector2.new(#tostring(params.Text) * size * 0.5, size)
+end)
+-- A filtered string comes back unchanged (nothing is moderated offline).
+local function filtered(text)
+	return {
+		GetChatForUserAsync = function(_, _userId)
+			return text
+		end,
+		GetNonChatStringForBroadcastAsync = function()
+			return text
+		end,
+		GetNonChatStringForUserAsync = function(_, _userId)
+			return text
+		end,
+	}
+end
+method("TextService", "FilterStringAsync", function(_, text)
+	return filtered(tostring(text))
+end)
+-- Preloading is instant: each asset reports success, in order.
+method("ContentProvider", "PreloadAsync", function(_, assets, callback)
+	if callback then
+		for _, asset in assets do
+			callback(if typeof(asset) == "Instance" then asset:GetFullName() else tostring(asset), roblox.Enum.AssetFetchStatus.Success)
+		end
+	end
+end)
+method("ContentProvider", "GetAssetFetchStatus", always(roblox.Enum.AssetFetchStatus.Success))
+-- Purchases: the player owns nothing, and a prompt does nothing.
+for _, name in { "UserOwnsGamePassAsync", "PlayerOwnsAsset", "PlayerOwnsBundle", "UserOwnsAssetAsync" } do
+	method("MarketplaceService", name, always(false))
+end
+for _, name in { "PromptGamePassPurchase", "PromptProductPurchase", "PromptPurchase", "PromptPremiumPurchase",
+	"PromptBundlePurchase", "PromptSubscriptionPurchase" } do
+	method("MarketplaceService", name, nothing)
+end
+method("MarketplaceService", "GetProductInfo", function(_, assetId)
+	return { AssetId = assetId, ProductId = assetId, Name = "", Description = "", PriceInRobux = 0, IsForSale = false,
+		IsLimited = false, IsPublicDomain = false, Created = "1970-01-01T00:00:00Z",
+		Updated = "1970-01-01T00:00:00Z", Creator = { Id = 0, Name = "", CreatorType = "User", CreatorTargetId = 0 } }
+end)
+method("PolicyService", "GetPolicyInfoForPlayerAsync", function()
+	return { ArePaidRandomItemsRestricted = false, IsPaidItemTradingAllowed = true, IsSubjectToChinaPolicies = false,
+		AreAdsAllowed = true, IsContentSharingAllowed = true, AllowedExternalLinkReferences = { "Discord", "Facebook",
+			"Twitch", "Twitter", "YouTube", "GuildedGg" } }
+end)
+method("PolicyService", "IsEligibleToPurchaseSubscription", always(true))
+method("LocalizationService", "GetCountryRegionForPlayerAsync", always("US"))
+method("SocialService", "CanSendGameInviteAsync", always(false))
+method("SocialService", "PromptGameInvite", nothing)
+method("BadgeService", "UserHasBadgeAsync", always(false))
+method("StarterGui", "SetCore", nothing)
+method("StarterGui", "GetCore", always(nil))
+method("StarterGui", "SetCoreGuiEnabled", nothing)
+method("StarterGui", "GetCoreGuiEnabled", always(true))
+method("TeleportService", "GetLocalPlayerTeleportData", always(nil))
+method("Debris", "AddItem", nothing)
+method("SoundService", "PlayLocalSound", nothing)
+for _, name in { "Play", "Stop", "Pause", "Resume" } do
+	method("Sound", name, nothing)
+end
+method("TextBox", "CaptureFocus", nothing)
+method("TextBox", "ReleaseFocus", nothing)
+method("TextBox", "IsFocused", always(false))
+method("HttpService", "UrlEncode", function(_, input)
+	return (string.gsub(tostring(input), "[^%w%-_%.~]", function(char)
+		return string.format("%%%02X", string.byte(char))
+	end))
+end)
+method("Players", "GetPlayerByUserId", function(players, userId)
+	for _, player in players:GetPlayers() do
+		if player.UserId == userId then
+			return player
+		end
+	end
+	return nil
+end)
+method("Players", "GetNameFromUserIdAsync", always("Player"))
+method("Players", "GetUserIdFromNameAsync", always(0))
+method("Players", "GetUserThumbnailAsync", function()
+	return "", true
+end)
+method("Player", "HasAppearanceLoaded", always(true))
+method("Player", "IsFriendsWith", always(false))
+method("Player", "IsInGroup", always(false))
+method("Player", "GetRankInGroup", always(0))
+method("Player", "GetRoleInGroup", always("Guest"))
+method("Player", "GetMouse", function()
+	return { X = 0, Y = 0, ViewSizeX = viewport.X, ViewSizeY = viewport.Y, Hit = roblox.CFrame.identity,
+		Target = nil, Origin = roblox.CFrame.identity }
+end)
+-- Legacy GuiObject tweens (TweenPosition and friends) end at their goal, like TweenService's.
+local function legacyTween(name, apply)
+	method("GuiObject", name, function(self, ...)
+		local args = table.pack(...)
+		apply(self, args)
+		local callback = args[args.n]
+		if type(callback) == "function" then
+			callback(roblox.Enum.TweenStatus.Completed)
+		end
+		return true
+	end)
+end
+legacyTween("TweenPosition", function(self, args)
+	self.Position = args[1]
+end)
+legacyTween("TweenSize", function(self, args)
+	self.Size = args[1]
+end)
+legacyTween("TweenSizeAndPosition", function(self, args)
+	self.Size = args[1]
+	self.Position = args[2]
 end)
 
 -- Tweens finish at once: a still picture shows where they end.
@@ -243,6 +412,15 @@ local players = game:GetService("Players")
 local localPlayer = players:FindFirstChildOfClass("Player") or roblox.Instance.new("Player")
 localPlayer.Name = if localPlayer.Name == "Player" or localPlayer.Name == "" then "Player" else localPlayer.Name
 localPlayer.Parent = players
+-- A Player's own properties have no value in Lune's data (reading UserId raises "missing default value"
+-- until it is set): the local player is a signed-in desktop account, nobody in particular.
+for property, value in { UserId = 1, DisplayName = localPlayer.Name, AccountAge = 365, FollowUserId = 0,
+	MembershipType = roblox.Enum.MembershipType.None, Team = nil, Neutral = true, RespawnLocation = nil,
+	CameraMode = roblox.Enum.CameraMode.Classic, CharacterAppearanceId = 1 } do
+	pcall(function()
+		localPlayer[property] = value
+	end)
+end
 pcall(roblox.implementProperty, "Players", "LocalPlayer", function()
 	return localPlayer
 end)
@@ -282,10 +460,184 @@ local function requireModule(target, from)
 	return result
 end
 
+-- Engine properties Lune cannot read ---------------------------------------------------------
+-- Lune's reflection data lists many engine properties it has no value for: reading one raises
+-- "missing default value" or "malformed property info" (UserInputService.KeyboardEnabled, GuiService
+-- .TopbarInset, PreferredInput, ...), and implementProperty cannot replace a listed property. UI code
+-- reads them freely, so a story sees `game` and the services it touches through a forwarding proxy
+-- that answers those reads: from DEFAULTS (a desktop with keyboard and mouse), else a neutral value of
+-- the property's type with one warning, else it raises as before. Only services are wrapped; ordinary
+-- instances (a TextLabel's TextBounds, ...) cannot be, so those reads still raise.
+local DEFAULTS = {
+	GuiService = {
+		TopbarInset = roblox.Rect.new(0, 0, viewport.X, topbarHeight),
+		MenuIsOpen = false,
+		IsWindows = true,
+		TouchControlsEnabled = false,
+		GuiNavigationEnabled = false,
+		CoreGuiNavigationEnabled = false,
+		AutoSelectGuiEnabled = true,
+		ReducedMotionEnabled = false,
+		PreferredTransparency = 1,
+		PreferredTextSize = roblox.Enum.PreferredTextSize.Medium,
+		ViewportDisplaySize = roblox.Enum.DisplaySize.Large,
+		ViewportSizeInMM = roblox.Vector2.new(viewport.X * 0.26, viewport.Y * 0.26),
+	},
+	UserInputService = {
+		PreferredInput = roblox.Enum.PreferredInput.KeyboardAndMouse,
+		TouchEnabled = false,
+		TouchScreenEnabled = false,
+		KeyboardEnabled = true,
+		MouseEnabled = true,
+		GamepadEnabled = false,
+		VREnabled = false,
+		GyroscopeEnabled = false,
+		AccelerometerEnabled = false,
+		MouseIconEnabled = true,
+		MouseBehavior = roblox.Enum.MouseBehavior.Default,
+		MouseDeltaSensitivity = 1,
+		OnScreenKeyboardVisible = false,
+		OnScreenKeyboardSize = roblox.Vector2.zero,
+		OnScreenKeyboardPosition = roblox.Vector2.zero,
+		StatusBarSize = roblox.Vector2.zero,
+		NavBarSize = roblox.Vector2.zero,
+		BottomBarSize = roblox.Vector2.zero,
+		RightBarSize = roblox.Vector2.zero,
+	},
+	Players = { NumPlayers = 1, BubbleChat = false, ClassicChat = true },
+	VRService = { VREnabled = false },
+}
+local WRAPPED = { GuiService = true, UserInputService = true, VRService = true, LocalizationService = true,
+	GamepadService = true, TextChatService = true, Stats = true, ContentProvider = true, RunService = true,
+	Players = true }
+local reflection = roblox.getReflectionDatabase()
+local warned = {}
+local pendingWarnings = {} -- written after the run: stdio cannot yield inside a metamethod
+
+local function neutralOf(className, key)
+	local datatype, class = nil, className
+	while class and not datatype do
+		local info = reflection:GetClass(class)
+		if info == nil then
+			break
+		end
+		local property = info.Properties[key]
+		if property then
+			datatype = property.Datatype
+		end
+		class = info.Superclass
+	end
+	if datatype == nil then
+		return nil, "unknown type"
+	end
+	if datatype == "Bool" then
+		return false
+	elseif datatype == "String" or datatype == "ContentId" or datatype == "BinaryString" then
+		return ""
+	elseif string.find(datatype, "^Int") or string.find(datatype, "^Float") then
+		return 0
+	elseif datatype == "Vector2" then
+		return roblox.Vector2.zero
+	elseif datatype == "Vector3" then
+		return roblox.Vector3.zero
+	elseif datatype == "CFrame" then
+		return roblox.CFrame.identity
+	elseif datatype == "Color3" then
+		return roblox.Color3.new(0, 0, 0)
+	elseif datatype == "Rect" then
+		return roblox.Rect.new(0, 0, 0, 0)
+	elseif datatype == "UDim" then
+		return roblox.UDim.new(0, 0)
+	elseif datatype == "UDim2" then
+		return roblox.UDim2.new(0, 0, 0, 0)
+	elseif string.sub(datatype, 1, 5) == "Enum." then
+		local enum = roblox.Enum[string.sub(datatype, 6)]
+		if enum then
+			local items = enum:GetEnumItems()
+			for _, item in items do
+				if item.Value == 0 then
+					return item
+				end
+			end
+			return items[1]
+		end
+	end
+	return nil, datatype
+end
+
+local function forward(real, overrides, onResult)
+	local className = real.ClassName
+	local proxy
+	proxy = setmetatable({}, {
+		__type = "Instance",
+		__index = function(_, key)
+			local override = overrides[key]
+			if override ~= nil then
+				return override
+			end
+			local ok, value = pcall(function()
+				return real[key]
+			end)
+			if not ok then
+				local message = tostring(value)
+				if string.find(message, "missing default value", 1, true) or string.find(message, "malformed property info", 1, true) then
+					local neutral, why = neutralOf(className, key)
+					local id = className .. "." .. tostring(key)
+					if not warned[id] then
+						warned[id] = true
+						table.insert(pendingWarnings, `[warn] {id}: no value in Lune's data, answered with {if neutral == nil then "an error" else tostring(neutral)} (a typed default; add it to DEFAULTS in story-runtime.luau)\n`)
+					end
+					if neutral ~= nil then
+						return neutral
+					end
+				end
+				error(value, 2)
+			end
+			if type(value) == "function" then
+				return function(self, ...)
+					if self == proxy then
+						self = real
+					end
+					return onResult(value(self, ...), key)
+				end
+			end
+			return onResult(value, key)
+		end,
+		__newindex = function(_, key, value)
+			real[key] = value
+		end,
+		__tostring = function()
+			return tostring(real)
+		end,
+	})
+	return proxy
+end
+
+local serviceProxies = {}
+local function wrapService(value)
+	if typeof(value) == "Instance" and WRAPPED[value.ClassName] and value.Parent == game then
+		local proxy = serviceProxies[value]
+		if proxy == nil then
+			proxy = forward(value, DEFAULTS[value.ClassName] or {}, function(result)
+				return result
+			end)
+			serviceProxies[value] = proxy
+		end
+		return proxy
+	end
+	return value
+end
+local storyGame = forward(game, {}, function(result, key)
+	if key == "GetService" or key == "FindService" or key == "service" then
+		return wrapService(result)
+	end
+	return wrapService(result)
+end)
+
 local nativeTypeof = typeof
 base = {
-	game = game,
-	Game = game,
+	game = storyGame,
+	Game = storyGame,
 	workspace = workspace,
 	Workspace = workspace,
 	shared = {},
@@ -300,6 +652,7 @@ base = {
 		end,
 	},
 	Enum = roblox.Enum,
+	debug = storyDebug,
 	TweenInfo = TweenInfo,
 	task = task,
 	wait = task.wait,
@@ -456,10 +809,18 @@ end
 local okMount, problem = xpcall(mount, function(err)
 	return tostring(err) .. "\n" .. debug.traceback("", 2)
 end)
+local function flushWarnings()
+	for _, line in pendingWarnings do
+		stdio.ewrite(line)
+	end
+	table.clear(pendingWarnings)
+end
 if not okMount then
+	flushWarnings()
 	fail(problem)
 end
 frames(30)
+flushWarnings()
 
 -- Lune keeps a legacy `Font = Enum.Font.X` as an EnumItem it cannot save: as a FontFace.
 for _, instance in screen:GetDescendants() do

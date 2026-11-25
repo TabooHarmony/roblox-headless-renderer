@@ -104,6 +104,20 @@ def main() -> int:
     check(re.search(r"at src[\\/]Broken\.story\.luau:5", proc.stderr) is not None, "the line, in the story's file")
     check("story-runtime" not in proc.stderr, "not RHR's own runtime frames")
 
+    print("story: engine properties Lune has no value for read as defaults (GuiService, UserInputService)")
+    doc = layout("EngineDefaults.story.luau", "--rich")
+    if doc:
+        nodes = {node["path"]: node for node in doc["nodes"]}
+        probe = nodes.get("EngineDefaults/Target/Probe", {}).get("text", {}).get("content")
+        check(probe == "defaults", f"TopbarInset, PreferredInput, input flags, a neutral value: {probe!r}")
+
+    print("story: engine methods UI code calls answer neutral values (server time, platform, policy, purchases)")
+    doc = layout("EngineMethods.story.luau", "--rich")
+    if doc:
+        nodes = {node["path"]: node for node in doc["nodes"]}
+        probe = nodes.get("EngineMethods/Target/Probe", {}).get("text", {}).get("content")
+        check(probe == "methods", f"GetServerTimeNow, GetPlatform, PreloadAsync, policy, ownership, TweenPosition: {probe!r}")
+
     print("story: no way to Lune's own globals through getfenv")
     proc = run(["layout", str(STORIES / "Escape.story.luau")])
     check(proc.returncode == 2 and "getfenv is not available" in proc.stderr,
