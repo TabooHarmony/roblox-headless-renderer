@@ -321,8 +321,17 @@ base = {
 	-- The way from a story's globals to Lune's own (getfenv(0).require reaches
 	-- @lune/process). Not a sandbox: a story still runs with Lune's powers in reach;
 	-- the docs say not to run untrusted ones.
-	getfenv = function()
-		error("getfenv is not available when running a story", 2)
+	-- getfenv() and getfenv(1) (the caller's own environment, what UI Labs' Environment module
+	-- reads) return a copy of the story's globals: no Lune globals in it. Any other level
+	-- (0 is where the way out was) or a function is refused.
+	getfenv = function(level)
+		if level ~= nil and level ~= 1 then
+			error("getfenv is not available when running a story (only getfenv() and getfenv(1))", 2)
+		end
+		local copy = table.clone(base)
+		copy.getfenv = nil
+		copy.setfenv = nil
+		return copy
 	end,
 	setfenv = function()
 		error("setfenv is not available when running a story", 2)
